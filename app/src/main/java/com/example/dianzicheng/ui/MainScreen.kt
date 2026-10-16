@@ -12,8 +12,6 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.NavType
-import androidx.navigation.navArgument
 
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -96,12 +94,9 @@ fun MainScreen(
                     onNavigateToPairing = { navController.navigate("pairing") }
                 )
             }
-            composable("history") { 
+            composable("history") {
                 HistoryScreen(
                     viewModel = historyViewModel,
-                    onNavigateToDetail = { id ->
-                        navController.navigate("detail/$id")
-                    },
                     onNavigateToHistoryData = {
                         navController.navigate("history_data")
                     }
@@ -120,22 +115,14 @@ fun MainScreen(
                     onNavigateBack = { navController.popBackStack() }
                 )
             }
-            composable(
-                route = "detail/{id}",
-                arguments = listOf(navArgument("id") { type = NavType.StringType })
-            ) { backStackEntry ->
-                val id = backStackEntry.arguments?.getString("id") ?: ""
-                MeasurementDetailScreen(
-                    measurementId = id,
-                    viewModel = historyViewModel,
-                    onNavigateBack = { navController.popBackStack() }
-                )
-            }
             composable("history_data") {
                 // 直接订阅 historyViewModel 的 Flow：删除记录后本页数据同步刷新
                 val historyData by historyViewModel.history.collectAsState()
+                val members by historyViewModel.members.collectAsState()
                 HistoryDataScreen(
                     history = historyData,
+                    members = members,
+                    onDelete = { historyViewModel.deleteMeasurement(it) },
                     onNavigateBack = { navController.popBackStack() }
                 )
             }

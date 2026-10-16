@@ -1,22 +1,32 @@
 package com.example.dianzicheng.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.dianzicheng.domain.BodyMeasurement
+import com.example.dianzicheng.domain.FamilyMember
+import com.example.dianzicheng.domain.Sex
 import com.example.dianzicheng.ui.theme.电子秤Theme
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -38,12 +48,15 @@ import java.util.Locale
 @Composable
 fun HistoryDataScreen(
     history: List<BodyMeasurement>,
+    members: List<FamilyMember> = emptyList(),
+    onDelete: (BodyMeasurement) -> Unit = {},
     onNavigateBack: () -> Unit
 ) {
     // 时间正序：首条为最早一次，末条为最新一次
     val sorted = remember(history) { history.sortedBy { it.measuredAtEpochMs } }
 
     val dateFormat = remember { SimpleDateFormat("yyyy年MM月dd日 HH:mm", Locale.getDefault()) }
+    var measurementToDelete by remember { mutableStateOf<BodyMeasurement?>(null) }
 
     // 五项身体成分的统计序列（0 值 = 未测出，已过滤）
     val summaries = remember(sorted) {
@@ -127,11 +140,13 @@ fun HistoryDataScreen(
                 )
             }
 
-            itemsIndexed(sorted.reversed()) { index, measurement ->
-                HistoryDataRow(
-                    index = index + 1,
+            itemsIndexed(sorted.reversed(), key = { _, m -> m.id }) { index, measurement ->
+                ModernMeasurementCard(
                     measurement = measurement,
-                    dateStr = dateFormat.format(Date(measurement.measuredAtEpochMs))
+                    dateStr = dateFormat.format(Date(measurement.measuredAtEpochMs)),
+                    onDelete = { measurementToDelete = measurement },
+                    onNavigateToDetail = {},
+                    isMale = members.firstOrNull { it.id == measurement.memberId }?.sex == Sex.MALE
                 )
             }
 
@@ -139,6 +154,37 @@ fun HistoryDataScreen(
                 Spacer(modifier = Modifier.height(24.dp))
             }
         }
+    }
+
+    // 删除确认弹窗：确认后同步删除本地与 Health Connect 记录，
+    // history Flow 自动推送更新，本页概览与数据卡随之刷新
+    val deleteTarget = measurementToDelete
+    if (deleteTarget != null) {
+        AlertDialog(
+            onDismissRequest = { measurementToDelete = null },
+            title = { Text("确认删除", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "确定要删除 ${dateFormat.format(Date(deleteTarget.measuredAtEpochMs))} 的 " +
+                        "${String.format("%.2f", deleteTarget.weightKg)} kg 测量记录吗？此操作无法撤销。"
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDelete(deleteTarget)
+                        measurementToDelete = null
+                    }
+                ) {
+                    Text("删除", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { measurementToDelete = null }) {
+                    Text("取消")
+                }
+            }
+        )
     }
 }
 
@@ -205,7 +251,7 @@ data class MetricSummary(
  */
 @Composable
 fun MetricDataCard(summary: MetricSummary, modifier: Modifier = Modifier) {
-    val fmt = "%.f"
+    val fmt = "%.${summary.decimals}f"
     val latest = summary.values.lastOrNull()
     val average = summary.values.average()
     val maxValue = summary.values.maxOrNull()
@@ -246,7 +292,7 @@ fun MetricDataCard(summary: MetricSummary, modifier: Modifier = Modifier) {
                     MetricStatCell("平均值", String.format(fmt, average) + summary.unit, modifier = Modifier.weight(1f))
                     MetricStatCell("最高", String.format(fmt, maxValue!!) + summary.unit, modifier = Modifier.weight(1f))
                     MetricStatCell("最低", String.format(fmt, minValue!!) + summary.unit, modifier = Modifier.weight(1f))
-                    MetricStatCell("测量次数", " 次", modifier = Modifier.weight(1f))
+                    MetricStatCell("测量次数", "${summary.values.size} 次", modifier = Modifier.weight(1f))
                 }
             }
         }
@@ -273,115 +319,153 @@ fun MetricStatCell(label: String, value: String, modifier: Modifier = Modifier) 
         )
     }
 }
-/**
- * 全部记录中的单行数据：序号 + 时间 + 体重 + 五项身体成分。
- *
- * 每项指标一格等宽排列，缺失（未赤脚称重）时显示 --。
- */
 @Composable
-fun HistoryDataRow(
-    index: Int,
+fun ModernMeasurementCard(
     measurement: BodyMeasurement,
     dateStr: String,
-    modifier: Modifier = Modifier
+    onDelete: () -> Unit,
+    onNavigateToDetail: (String) -> Unit,
+    /** 该记录所属成员是否为男性，用于体脂率健康区间判断（男女标准不同） */
+    isMale: Boolean = true
 ) {
-    val hasBia = measurement.impedanceOhm > 0.0 && measurement.bodyFatPct > 0.0
-
     Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onNavigateToDetail(measurement.id) },
+        shape = RoundedCornerShape(8.dp), // Using a clean, slightly rounded card design instead of extraLarge
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+            containerColor = MaterialTheme.colorScheme.surface
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "#$index",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.width(8.dp))
+        Column(modifier = Modifier.padding(20.dp)) {
+            // 头部：左侧日期 + 成员标签，右侧删除按钮；体重由下方六指标卡片统一呈现
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
                     text = dateStr,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.weight(1f)
                 )
-                if (measurement.memberNameSnapshot != null) {
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Surface(
-                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
-                        shape = RoundedCornerShape(4.dp)
-                    ) {
-                        Text(
-                            text = measurement.memberNameSnapshot,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            maxLines = 1
+
+                IconButton(
+                    onClick = onDelete,
+                    colors = IconButtonDefaults.iconButtonColors(
+                        contentColor = MaterialTheme.colorScheme.outlineVariant
+                    )
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = "删除", modifier = Modifier.size(20.dp))
+                }
+            }
+
+            // Member Name tag if present
+            if (measurement.memberNameSnapshot != null) {
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(4.dp)
+                ) {
+                    Text(
+                        text = measurement.memberNameSnapshot,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            val hasBia = measurement.impedanceOhm > 0.0 && measurement.bodyFatPct > 0.0
+            // 卡片式指标区：左侧体重主数值，右侧 BMI / 体脂率 / 肌肉量 / 蛋白质 / 骨量 五张小卡
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // 体重：作为本次测量的主指标单独成块，用大号数字突出
+                Column(
+                    modifier = Modifier
+                        .weight(1.1f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f))
+                        .padding(vertical = 10.dp, horizontal = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "体重",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = String.format("%.2f", measurement.weightKg),
+                        fontSize = 26.sp,
+                        fontWeight = FontWeight.Black,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1
+                    )
+                    Text(
+                        text = "kg",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        maxLines = 1
+                    )
+                }
+
+                Column(
+                    modifier = Modifier.weight(1.6f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        HistoryMetricCard(
+                            label = "BMI",
+                            value = if (measurement.bmi > 0.0) String.format("%.1f", measurement.bmi) else "--",
+                            status = if (measurement.bmi > 0.0) getBmiStatus(measurement.bmi) else null,
+                            modifier = Modifier.weight(1f)
+                        )
+                        HistoryMetricCard(
+                            label = "体脂率",
+                            value = if (hasBia) String.format("%.1f%%", measurement.bodyFatPct) else "--",
+                            status = if (hasBia) getFatStatus(measurement.bodyFatPct, isMale) else null,
+                            modifier = Modifier.weight(1f)
+                        )
+                        HistoryMetricCard(
+                            label = "肌肉量",
+                            value = if (hasBia) String.format("%.1f", measurement.muscleKg) else "--",
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        HistoryMetricCard(
+                            label = "蛋白质",
+                            value = if (hasBia) String.format("%.1f%%", measurement.proteinPct) else "--",
+                            modifier = Modifier.weight(1f)
+                        )
+                        HistoryMetricCard(
+                            label = "骨量",
+                            value = if (hasBia) String.format("%.1f", measurement.boneMassKg) else "--",
+                            modifier = Modifier.weight(1f)
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // 体重为主数值，右侧五列指标
-            Row(verticalAlignment = Alignment.Bottom) {
-                Text(
-                    text = String.format("%.2f", measurement.weightKg),
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Black
-                )
-                Text(
-                    text = " kg",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(bottom = 3.dp),
-                    color = MaterialTheme.colorScheme.outline
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Row(
-                    modifier = Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    HistoryDataCell("BMI", if (measurement.bmi > 0.0) String.format("%.1f", measurement.bmi) else "--", modifier = Modifier.weight(1f))
-                    HistoryDataCell("体脂", if (hasBia) String.format("%.1f%%", measurement.bodyFatPct) else "--", modifier = Modifier.weight(1f))
-                    HistoryDataCell("肌肉", if (hasBia) String.format("%.1f", measurement.muscleKg) else "--", modifier = Modifier.weight(1f))
-                    HistoryDataCell("蛋白", if (hasBia) String.format("%.1f%%", measurement.proteinPct) else "--", modifier = Modifier.weight(1f))
-                    HistoryDataCell("骨量", if (hasBia) String.format("%.1f", measurement.boneMassKg) else "--", modifier = Modifier.weight(1f))
-                }
-            }
+            Text(
+                text = "点击查看详情 ›",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.End
+            )
         }
     }
 }
 
-/** 历史数据行中的单个指标单元格（标签在上、数值在下，居中）。 */
-@Composable
-fun HistoryDataCell(label: String, value: String, modifier: Modifier = Modifier) {
-    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            fontSize = 10.sp,
-            color = MaterialTheme.colorScheme.outline,
-            maxLines = 1
-        )
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Bold,
-            color = if (value == "--") MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface,
-            maxLines = 1
-        )
-    }
-}
 
 @Preview(showBackground = true)
 @Composable
