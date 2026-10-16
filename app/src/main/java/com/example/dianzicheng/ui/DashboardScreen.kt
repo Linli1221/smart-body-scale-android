@@ -158,7 +158,8 @@ fun DashboardContent(
                     MeasurementResultCard(
                         measurement = it,
                         availableMembers = uiState.availableMembers,
-                        onBindMember = onBindMember
+                        onBindMember = onBindMember,
+                        biaModelName = uiState.selectedBiaModel.displayName
                     )
                 }
             }
@@ -433,15 +434,23 @@ fun ConnectionStatusChip(
 
 @Composable
 fun WeightDisplay(weight: Double, isStable: Boolean, isCompact: Boolean = false) {
-    val infiniteTransition = rememberInfiniteTransition()
-    val alpha by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = if (!isStable && weight > 0) 0.5f else 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(500),
-            repeatMode = RepeatMode.Reverse
+    // 闪烁动画只在"称重进行中且未稳定"时创建；
+    // 体重为 0 或已稳定时不启动无限动画，避免无谓的每帧重组
+    val blinking = !isStable && weight > 0
+    val alpha = if (blinking) {
+        val infiniteTransition = rememberInfiniteTransition()
+        val a by infiniteTransition.animateFloat(
+            initialValue = 1f,
+            targetValue = 0.5f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(500),
+                repeatMode = RepeatMode.Reverse
+            )
         )
-    )
+        a
+    } else {
+        1f
+    }
 
     val size = if (isCompact) 180.dp else 240.dp
     val fontSize = if (isCompact) 60.sp else 76.sp
@@ -480,7 +489,8 @@ fun WeightDisplay(weight: Double, isStable: Boolean, isCompact: Boolean = false)
 fun MeasurementResultCard(
     measurement: BodyMeasurement,
     availableMembers: List<FamilyMember>,
-    onBindMember: (FamilyMember) -> Unit
+    onBindMember: (FamilyMember) -> Unit,
+    biaModelName: String? = null
 ) {
     var showBindDialog by remember { mutableStateOf(false) }
 
@@ -573,6 +583,16 @@ fun MeasurementResultCard(
                     label = "阻抗",
                     value = if (measurement.impedanceOhm > 0.0) "${measurement.impedanceOhm.toInt()}Ω" else "未测出 (请赤脚称重)",
                     modifier = Modifier.weight(1f)
+                )
+            }
+
+            // 当前使用的电阻抗估算模型标识：让用户一眼看出体脂率是按哪个公式算出来的
+            if (hasBia && !biaModelName.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = "估算模型：$biaModelName",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
                 )
             }
         }

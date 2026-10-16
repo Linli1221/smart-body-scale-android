@@ -77,10 +77,11 @@ class MainActivity : ComponentActivity() {
         database = Room.databaseBuilder(
             applicationContext,
             AppDatabase::class.java, "scale-db"
-        ).build()
+        ).addMigrations(AppDatabase.MIGRATION_1_2).build()
         
         bleClient = BleScaleClient(applicationContext)
-        scaleRepository = ScaleRepository(database.scaleDao())
+        // 传入 database 而非仅 dao：ScaleRepository 的历史重算需要跨表事务
+        scaleRepository = ScaleRepository(database.scaleDao(), database)
         profileRepository = ProfileRepository(database.scaleDao())
         preferenceManager = PreferenceManager(applicationContext)
         healthConnectManager = HealthConnectManager(applicationContext)

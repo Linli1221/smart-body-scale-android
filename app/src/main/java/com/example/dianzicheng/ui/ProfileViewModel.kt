@@ -13,6 +13,7 @@ import com.example.dianzicheng.data.local.AppLogger
 import com.example.dianzicheng.data.local.PreferenceManager
 import com.example.dianzicheng.data.repository.ProfileRepository
 import com.example.dianzicheng.data.repository.ScaleRepository
+import com.example.dianzicheng.domain.BiaModel
 import com.example.dianzicheng.domain.FamilyMember
 import com.example.dianzicheng.domain.RememberedScale
 import com.example.dianzicheng.domain.ScaleModel
@@ -110,6 +111,63 @@ class ProfileViewModel(
         }
     }
 
+    // ── 电阻抗估算模型设置 ────────────────────────────────────────────────────
+
+    /**
+     * 当前选中的电阻抗（BIA）体成分估算模型（来自 DataStore，默认 [BiaModel.DEFAULT]）。
+     *
+     * 该模型决定称重时体脂率（及派生指标）的计算公式；切换时除立即生效外，
+     * 还会触发 [selectBiaModel] 内的历史记录重算。
+     */
+    val selectedBiaModel: StateFlow<BiaModel> = preferenceManager.selectedBiaModel
+        .stateIn(viewModelScope, SharingStarted.Lazily, BiaModel.DEFAULT)
+
+    /**
+     * 保存用户选择的电阻抗估算模型偏好，并**重新计算全部历史测量记录**。
+     *
+     * 历史重算与偏好保存在同一次用户操作内完成：
+     * 1. 先把新模型 ID 持久化，保证后续新称重立即按新公式计算；
+     * 2. 再把数据库中所有「已绑定成员且有有效阻抗」的记录换算到同一口径，
+     *   避免历史曲线因切换公式而前后断层。
+     *
+     * 被跳过的记录（未绑定成员 / 未赤脚测阻抗）保持原值，并通过 [recalcProgress]
+     * 汇总告知用户。
+     *
+     * @param model 新选择的电阻抗估算模型
+     */
+    fun selectBiaModel(model: BiaModel) {
+        viewModelScope.launch {
+            preferenceManager.saveSelectedBiaModel(model)
+            AppLogger.i("ProfileVM", "已切换电阻抗估算模型为: ${model.displayName} (${model.id})，开始重算历史记录")
+
+            val scaleRepo = scaleRepository ?: run {
+                AppLogger.w("ProfileVM", "未注入 ScaleRepository，跳过历史重算")
+                _statusMessage.value = "已切换估算模型，但无法访问数据库，历史记录未重算"
+                return@launch
+            }
+
+            _isOperating.value = true
+            _recalcProgress.value = "正在用「${model.displayName}」重算历史记录..."
+            try {
+                val result = scaleRepo.recalculateHistory(model)
+                _recalcProgress.value = null
+                _isOperating.value = false
+                _statusMessage.value = result.summaryText()
+                AppLogger.i(
+                    "ProfileVM",
+                    "历史重算完成: 共 ${result.total} 条, 更新 ${result.updated} 条, " +
+                        "跳过(无成员) ${result.skippedNoMember} 条, 跳过(无阻抗) ${result.skippedNoImpedance} 条, " +
+                        "未变化 ${result.unchanged} 条"
+                )
+            } catch (e: Exception) {
+                _recalcProgress.value = null
+                _isOperating.value = false
+                _statusMessage.value = "历史记录重算失败：${e.localizedMessage}"
+                AppLogger.e("ProfileVM", "历史记录重算失败: ${e.message}")
+            }
+        }
+    }
+
     // ── Health Connect 设置 ───────────────────────────────────────────────────
 
     /** Health Connect 自动同步开关状态（来自 DataStore） */
@@ -156,6 +214,15 @@ class ProfileViewModel(
      */
     private val _syncProgress = MutableStateFlow<String?>(null)
     val syncProgress: StateFlow<String?> = _syncProgress.asStateFlow()
+
+    /**
+     * 历史记录重算进度描述文字（如 "正在用「亚洲人专属模型」重算历史记录..."）。
+     *
+     * 切换电阻抗估算模型时会同步重算全部历史体脂数据；重算完成或出错后置为 null，
+     * UI 据此显示/隐藏进度条。与 [syncProgress] 相互独立，互不打断。
+     */
+    private val _recalcProgress = MutableStateFlow<String?>(null)
+    val recalcProgress: StateFlow<String?> = _recalcProgress.asStateFlow()
 
     // ── 家庭成员管理 ─────────────────────────────────────────────────────────
 
@@ -353,6 +420,9 @@ class ProfileViewModel(
 
     /** 清除同步进度文字（同步完成/出错后调用） */
     fun clearSyncProgress() { _syncProgress.value = null }
+
+    /** 清除历史重算进度文字（重算完成/出错后调用） */
+    fun clearRecalcProgress() { _recalcProgress.value = null }
 
     // ── 日志 ──────────────────────────────────────────────────────────────────
 

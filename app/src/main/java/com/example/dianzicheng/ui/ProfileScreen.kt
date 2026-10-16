@@ -40,6 +40,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.dianzicheng.data.ble.BleProtocolRecorder
 import com.example.dianzicheng.data.local.AppLogger
+import com.example.dianzicheng.domain.BiaModel
 import com.example.dianzicheng.domain.FamilyMember
 import com.example.dianzicheng.domain.RememberedScale
 import com.example.dianzicheng.domain.ScaleModel
@@ -68,6 +69,10 @@ fun ProfileContent(
     onRemoveScale: (String) -> Unit = {},
     selectedScaleModel: ScaleModel = ScaleModel.AUTO,
     onSelectScaleModel: (ScaleModel) -> Unit = {},
+    /** 当前选中的电阻抗（BIA）体成分估算模型 */
+    selectedBiaModel: BiaModel = BiaModel.DEFAULT,
+    /** 切换电阻抗估算模型（对下一次称重生效） */
+    onSelectBiaModel: (BiaModel) -> Unit = {},
     healthConnectEnabled: Boolean,
     onToggleHealthConnect: (Boolean) -> Unit,
     onRequestHealthConnectPermissions: () -> Unit,
@@ -75,6 +80,8 @@ fun ProfileContent(
     onOpenMiHealth: () -> Unit,
     onOpenHealthConnectSettings: () -> Unit,
     syncProgress: String?,
+    /** 历史记录重算进度描述（切换体脂估算模型时触发），null 表示空闲 */
+    recalcProgress: String? = null,
     isMiHealthInstalled: Boolean,
     webdavUrl: String,
     webdavUsername: String,
@@ -110,6 +117,7 @@ fun ProfileContent(
     var showBleCaptureDialog by remember { mutableStateOf(false) }
     var scalePendingRemoval by remember { mutableStateOf<RememberedScale?>(null) }
     var showModelDialog by remember { mutableStateOf(false) }
+    var showBiaModelDialog by remember { mutableStateOf(false) }
     var memberToDelete by remember { mutableStateOf<FamilyMember?>(null) }
 
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
@@ -464,6 +472,22 @@ fun ProfileContent(
                         icon = Icons.Default.Tune,
                         onClick = { showModelDialog = true }
                     )
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                    )
+                    // ── 电阻抗估算模型切换入口 ──
+                    SettingsItem(
+                        title = "体脂估算模型",
+                        subtitle = if (recalcProgress != null) {
+                            recalcProgress
+                        } else {
+                            "${selectedBiaModel.displayName} · 切换后自动重算历史记录"
+                        },
+                        icon = Icons.Default.Calculate,
+                        onClick = { showBiaModelDialog = true },
+                        isLoading = recalcProgress != null
+                    )
                     // ── Debug 专用：运行日志查看器入口 ──
                     // isLogViewerSupported 来自 BuildConfig，Release 构建恒为 false。
                     // 分隔线与入口一起放进 if 内，避免 Release 下出现两条相邻分隔线。
@@ -632,6 +656,14 @@ fun ProfileContent(
             currentModel = selectedScaleModel,
             onModelSelected = onSelectScaleModel,
             onDismiss = { showModelDialog = false }
+        )
+    }
+
+    if (showBiaModelDialog) {
+        SelectBiaModelDialog(
+            currentModel = selectedBiaModel,
+            onModelSelected = onSelectBiaModel,
+            onDismiss = { showBiaModelDialog = false }
         )
     }
 }
@@ -1438,11 +1470,13 @@ fun ProfileScreen(
     val isOperating by viewModel.isOperating.collectAsState()
     val statusMessage by viewModel.statusMessage.collectAsState()
     val syncProgress by viewModel.syncProgress.collectAsState()
+    val recalcProgress by viewModel.recalcProgress.collectAsState()
     val logEntries by viewModel.logEntries.collectAsState()
     val pairedMac by viewModel.pairedMac.collectAsState()
     val pairedDeviceName by viewModel.pairedDeviceName.collectAsState()
     val rememberedScales by viewModel.rememberedScales.collectAsState()
     val selectedScaleModel by viewModel.selectedScaleModel.collectAsState()
+    val selectedBiaModel by viewModel.selectedBiaModel.collectAsState()
     // Debug 专用：蓝牙协议抓包（Release 构建下 isBleCaptureSupported 恒为 false，入口不渲染）
     val bleCaptureEntries by viewModel.bleCaptureEntries.collectAsState()
 
@@ -1475,6 +1509,8 @@ fun ProfileScreen(
         onRemoveScale = { viewModel.removeScale(it) },
         selectedScaleModel = selectedScaleModel,
         onSelectScaleModel = { viewModel.selectScaleModel(it) },
+        selectedBiaModel = selectedBiaModel,
+        onSelectBiaModel = { viewModel.selectBiaModel(it) },
         healthConnectEnabled = healthConnectEnabled,
         onToggleHealthConnect = { enabled ->
             viewModel.setHealthConnectEnabled(enabled)
@@ -1507,6 +1543,7 @@ fun ProfileScreen(
         onOpenMiHealth = { viewModel.openMiHealth() },
         onOpenHealthConnectSettings = { viewModel.openHealthConnectSettings() },
         syncProgress = syncProgress,
+        recalcProgress = recalcProgress,
         isMiHealthInstalled = viewModel.isMiHealthInstalled(),
         webdavUrl = webdavUrl,
         webdavUsername = webdavUsername,

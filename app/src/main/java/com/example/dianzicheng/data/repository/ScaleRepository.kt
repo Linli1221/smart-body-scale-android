@@ -1,8 +1,11 @@
 package com.example.dianzicheng.data.repository
 
+import androidx.room.RoomDatabase
+import androidx.room.withTransaction
 import com.example.dianzicheng.data.local.ScaleDao
 import com.example.dianzicheng.data.local.toDomain
 import com.example.dianzicheng.data.local.toEntity
+import com.example.dianzicheng.domain.BiaModel
 import com.example.dianzicheng.domain.BodyMeasurement
 import com.example.dianzicheng.domain.FamilyMember
 import kotlinx.coroutines.flow.Flow
@@ -17,8 +20,16 @@ import kotlin.math.abs
  * 1. 提供测量记录和家庭成员的增删查 Flow/挂起函数接口
  * 2. 保存测量时自动执行成员智能匹配与 BIA 指标重新计算
  * 3. 在保存成功后更新成员参考体重，提升下次匹配精准度
+ * 4. 切换电阻抗估算模型时，把全部历史记录一次性换算到同一口径
+ *
+ * @param dao    Room DAO，负责实际的增删查
+ * @param db     所属的 [RoomDatabase]，用于 [recalculateHistory] 的跨表事务；
+ *               为兼容既有单元测试，允许传 null（此时退化为非事务写入）
  */
-class ScaleRepository(private val dao: ScaleDao) {
+class ScaleRepository(
+    private val dao: ScaleDao,
+    private val db: RoomDatabase? = null
+) {
 
     /**
      * 获取所有测量历史记录（Flow，按时间倒序）。
@@ -50,18 +61,21 @@ class ScaleRepository(private val dao: ScaleDao) {
      * 3. 通过 [findBestMember] 智能匹配最近的成员
      * 4. 以上均失败：不绑定成员，只保存体重数据
      *
-     * 若成功绑定成员，会用该成员的真实参数（性别、身高、年龄）重新计算体脂率等 BIA 指标，
+     * 若成功绑定成员，会用该成员的真实参数（性别、身高、年龄）按用户在
+     * 「我的」页选择的电阻抗估算模型 [biaModel] 重新计算体脂率等 BIA 指标，
      * 并将本次体重更新到成员的 [FamilyMember.referenceWeightKg]，供下次匹配使用。
      *
      * @param measurement 原始测量数据（体重、阻抗等）
      * @param targetMember 用户手动指定的目标成员，null 表示自动匹配
      * @param existingId 已有的会话 ID，传入时用于覆盖同一次称量的旧记录（防止重复条目）
+     * @param biaModel 电阻抗估算模型，默认 [BiaModel.DEFAULT]
      * @return Pair<最终保存的测量数据, 实际绑定的成员（null 表示未绑定）>
      */
     suspend fun saveMeasurement(
         measurement: BodyMeasurement,
         targetMember: FamilyMember? = null,
-        existingId: String? = null
+        existingId: String? = null,
+        biaModel: BiaModel = BiaModel.DEFAULT
     ): Pair<BodyMeasurement, FamilyMember?> {
         val members = dao.getMembersList().map { it.toDomain() }
 
@@ -77,7 +91,8 @@ class ScaleRepository(private val dao: ScaleDao) {
                 impedanceOhm = measurement.impedanceOhm,
                 sex = memberToBind.sex,
                 heightCm = memberToBind.heightCm,
-                birthDateEpochMs = memberToBind.birthDateEpochMs
+                birthDateEpochMs = memberToBind.birthDateEpochMs,
+                biaModel = biaModel
             ).copy(
                 // 使用传入的 existingId 保证同次称量幂等写入，否则生成新 UUID
                 id = existingId ?: measurement.id.ifEmpty { UUID.randomUUID().toString() },
@@ -102,30 +117,37 @@ class ScaleRepository(private val dao: ScaleDao) {
         // 写入数据库（REPLACE 策略：同 ID 覆盖旧记录）
         dao.insertMeasurement(recalculated.toEntity())
 
-        // 用本次体重更新成员参考体重，供下次智能匹配参考
+        // 用本次体重更新成员参考体重，供下次智能匹配参考（仅更新单字段，避免整行 REPLACE）
         memberToBind?.let { member ->
-            dao.insertMember(member.copy(referenceWeightKg = measurement.weightKg).toEntity())
+            dao.updateMemberReferenceWeight(member.id, measurement.weightKg)
         }
 
         return Pair(recalculated, memberToBind)
     }
 
     /**
-     * 将已有测量记录重新绑定到指定成员，并以该成员参数重新计算 BIA 指标后写库。
+     * 将已有测量记录重新绑定到指定成员，并以该成员参数按指定电阻抗估算模型
+     * 重新计算 BIA 指标后写库。
      *
      * 常用于：用户在称重结果卡片中手动选择"重选/绑定成员"时调用。
      *
      * @param measurement 要重新绑定的原始测量记录
      * @param member 用户选择的目标成员
+     * @param biaModel 电阻抗估算模型，默认 [BiaModel.DEFAULT]
      * @return 重新计算后的测量记录
      */
-    suspend fun bindMeasurementToMember(measurement: BodyMeasurement, member: FamilyMember): BodyMeasurement {
+    suspend fun bindMeasurementToMember(
+        measurement: BodyMeasurement,
+        member: FamilyMember,
+        biaModel: BiaModel = BiaModel.DEFAULT
+    ): BodyMeasurement {
         val recalculated = com.example.dianzicheng.domain.BodyAlgorithm.calculate(
             weightKg = measurement.weightKg,
             impedanceOhm = measurement.impedanceOhm,
             sex = member.sex,
             heightCm = member.heightCm,
-            birthDateEpochMs = member.birthDateEpochMs
+            birthDateEpochMs = member.birthDateEpochMs,
+            biaModel = biaModel
         ).copy(
             id = measurement.id,
             measuredAtEpochMs = measurement.measuredAtEpochMs,
@@ -133,9 +155,95 @@ class ScaleRepository(private val dao: ScaleDao) {
             memberNameSnapshot = member.name
         )
         dao.insertMeasurement(recalculated.toEntity())
-        // 同步更新成员参考体重
-        dao.insertMember(member.copy(referenceWeightKg = measurement.weightKg).toEntity())
+        // 同步更新成员参考体重（仅更新单字段，避免整行 REPLACE）
+        dao.updateMemberReferenceWeight(member.id, measurement.weightKg)
         return recalculated
+    }
+
+    /**
+     * 用指定的电阻抗估算模型重新计算**全部历史测量记录**的体脂率与派生指标。
+     *
+     * 用于用户在「我的 → 体脂估算模型」中切换公式后，把既有历史数据一次性换算到同一口径，
+     * 使历史曲线不会因为切换公式而前后断层。
+     *
+     * 重算规则（逐条记录）：
+     * 1. 必须绑定了家庭成员（有 memberId 且成员仍存在）——否则没有性别/身高/年龄，
+     *    无法参与 BIA 计算，保持原样不动；
+     * 2. 必须有有效阻抗（[BodyMeasurement.impedanceOhm] > 0.0）——未赤脚称重的记录
+     *    体脂本来就是 0.0，不存在"换算"一说，保持原样不动；
+     * 3. 体重与称重时间、成员绑定关系、id 全部原样保留，只覆盖 BIA 派生指标，
+     *    因此同一次称重不会产生新记录，也不会打乱历史排序；
+     * 4. 若重算结果与原值完全一致（含浮点比较），跳过写库，避免无意义的 IO。
+     *
+     * 全部记录在**单个数据库事务**内完成：中途失败会整体回滚，
+     * 不会留下"一半旧公式、一半新公式"的混合数据。
+     *
+     * @param biaModel 要应用的新电阻抗估算模型
+     * @return [HistoryRecalcResult] 统计结果（更新条数、跳过条数与原因）
+     */
+    suspend fun recalculateHistory(biaModel: BiaModel): HistoryRecalcResult {
+        val membersById = dao.getMembersList().map { it.toDomain() }.associateBy { it.id }
+        val measurements = dao.getAllMeasurementsList().map { it.toDomain() }
+
+        var updated = 0
+        var skippedNoMember = 0
+        var skippedNoImpedance = 0
+        var unchanged = 0
+
+        // 事务内一次性写完：要么全部成功，要么全部回滚。
+        // 先计算所有需要变更的记录，再批量写入（单条预编译语句循环，远快于逐条 REPLACE）。
+        // db 为 null 时（单元测试）退化为普通循环，逻辑保持一致。
+        val writeAll: suspend () -> Unit = {
+            val changed = mutableListOf<com.example.dianzicheng.data.local.MeasurementEntity>()
+            measurements.forEach { measurement ->
+                val member = measurement.memberId?.let { membersById[it] }
+                if (member == null) {
+                    skippedNoMember++
+                    return@forEach
+                }
+                if (measurement.impedanceOhm <= 0.0) {
+                    skippedNoImpedance++
+                    return@forEach
+                }
+
+                val recalculated = com.example.dianzicheng.domain.BodyAlgorithm.calculate(
+                    weightKg = measurement.weightKg,
+                    impedanceOhm = measurement.impedanceOhm,
+                    sex = member.sex,
+                    heightCm = member.heightCm,
+                    birthDateEpochMs = member.birthDateEpochMs,
+                    biaModel = biaModel
+                ).copy(
+                    id = measurement.id,
+                    measuredAtEpochMs = measurement.measuredAtEpochMs,
+                    memberId = measurement.memberId,
+                    memberNameSnapshot = measurement.memberNameSnapshot
+                )
+
+                if (recalculated.isBiaEquivalentTo(measurement)) {
+                    unchanged++
+                    return@forEach
+                }
+                changed.add(recalculated.toEntity())
+                updated++
+            }
+            if (changed.isNotEmpty()) dao.insertMeasurements(changed)
+        }
+
+        val database = db
+        if (database != null) {
+            database.withTransaction { writeAll() }
+        } else {
+            writeAll()
+        }
+
+        return HistoryRecalcResult(
+            total = measurements.size,
+            updated = updated,
+            skippedNoMember = skippedNoMember,
+            skippedNoImpedance = skippedNoImpedance,
+            unchanged = unchanged
+        )
     }
 
     /**
@@ -200,4 +308,52 @@ class ScaleRepository(private val dao: ScaleDao) {
     suspend fun deleteMeasurementById(id: String) {
         dao.deleteMeasurementById(id)
     }
+}
+
+/**
+ * 历史记录重新计算的结果统计。
+ *
+ * @param total              参与本次重算的记录总数
+ * @param updated            实际发生变化的记录条数（已写库）
+ * @param skippedNoMember    因未绑定成员（或成员已被删除）而跳过的条数
+ * @param skippedNoImpedance 因无有效阻抗（未赤脚称重）而跳过的条数
+ * @param unchanged          重算结果与原值一致、无需写库的条数
+ */
+data class HistoryRecalcResult(
+    val total: Int,
+    val updated: Int,
+    val skippedNoMember: Int,
+    val skippedNoImpedance: Int,
+    val unchanged: Int
+) {
+    /** 是否存在被跳过的记录（用于给用户一个可读的提示） */
+    val hasSkipped: Boolean
+        get() = skippedNoMember > 0 || skippedNoImpedance > 0
+
+    /** 面向用户的汇总文案，例如「已重算 12 条记录」 */
+    fun summaryText(): String = when {
+        total == 0 -> "暂无历史记录，无需重算"
+        updated == 0 && !hasSkipped -> "所有记录已是最新模型的结果"
+        updated == 0 -> "没有可重算的记录（历史数据缺少成员或未测阻抗）"
+        hasSkipped -> "已重算 $updated 条，跳过 ${skippedNoMember + skippedNoImpedance} 条（无成员或无阻抗）"
+        else -> "已重算 $updated 条记录"
+    }
+}
+
+/**
+ * 判断两条测量记录的 BIA 派生指标是否等价（用于跳过无意义的历史重算写库）。
+ *
+ * 只比较体脂率、肌肉量、水分、蛋白质、骨量五项；体重、阻抗、时间、成员绑定等
+ * 不属于"公式换算"的范畴，一律视为相同。
+ *
+ * 使用 1e-6 的绝对容差：既能吸收浮点重排造成的末位差异，
+ * 又不会把不同模型的真实差异误判为"未变化"。
+ */
+private fun BodyMeasurement.isBiaEquivalentTo(other: BodyMeasurement): Boolean {
+    const val EPS = 1e-6
+    return abs(bodyFatPct - other.bodyFatPct) < EPS &&
+        abs(muscleKg - other.muscleKg) < EPS &&
+        abs(waterPct - other.waterPct) < EPS &&
+        abs(proteinPct - other.proteinPct) < EPS &&
+        abs(boneMassKg - other.boneMassKg) < EPS
 }

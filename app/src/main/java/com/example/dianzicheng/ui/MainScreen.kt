@@ -28,9 +28,10 @@ fun MainScreen(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    val items = listOf("测量", "历史", "我的")
-    val routes = listOf("dashboard", "history", "profile")
-    val icons = listOf(Icons.Default.Home, Icons.Default.DateRange, Icons.Default.Person)
+    // 常量列表缓存一次，避免每次重组重新分配
+    val items = remember { listOf("测量", "历史", "我的") }
+    val routes = remember { listOf("dashboard", "history", "profile") }
+    val icons = remember { listOf(Icons.Default.Home, Icons.Default.DateRange, Icons.Default.Person) }
 
     if (isPairingComplete == null) {
         // DataStore 异步读取中，渲染空背景，杜绝因初值 false 瞬时挂载 PairingScreen 并误触发 startPairingScan()

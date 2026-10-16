@@ -12,9 +12,22 @@ import androidx.room.TypeConverters
  *
  * 实例通过 Room.databaseBuilder() 在 Application 层创建，保证全局单例。
  */
-@Database(entities = [MemberEntity::class, MeasurementEntity::class], version = 1, exportSchema = false)
+@Database(entities = [MemberEntity::class, MeasurementEntity::class], version = 2, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     /** 提供对 members 和 measurements 表的所有 DAO 操作 */
     abstract fun scaleDao(): ScaleDao
+
+    companion object {
+        /**
+         * v1 → v2 迁移：为 measurements 表新增 memberId 与 measuredAtEpochMs 两个索引，
+         * 消除按成员过滤与按时间排序查询的全表扫描。
+         */
+        val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_measurements_memberId` ON `measurements` (`memberId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_measurements_measuredAtEpochMs` ON `measurements` (`measuredAtEpochMs`)")
+            }
+        }
+    }
 }

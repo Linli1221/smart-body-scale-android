@@ -22,6 +22,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -44,6 +47,49 @@ import com.example.dianzicheng.domain.FamilyMember
 import com.example.dianzicheng.ui.theme.电子秤Theme
 import java.text.SimpleDateFormat
 import java.util.*
+
+/**
+ * 构建走势图折线/填充路径。
+ * 只在数据或画布尺寸变化时调用（调用方通过 remember 缓存），
+ * 避免入场动画的每一帧都重新分配 Path 并重建所有贝塞尔曲线段。
+ *
+ * @param includeFill true 时闭合到图表底部形成填充区域路径，false 时仅折线
+ */
+private fun buildChartPaths(
+    values: List<Double>,
+    sizePx: IntSize,
+    lowerBound: Double,
+    valueRange: Double,
+    density: Density,
+    includeFill: Boolean
+): Path {
+    val path = Path()
+    if (sizePx.width <= 0 || sizePx.height <= 0 || values.isEmpty()) return path
+    val paddingLeft = with(density) { 8.dp.toPx() }
+    val paddingRight = with(density) { 8.dp.toPx() }
+    val paddingTop = with(density) { 12.dp.toPx() }
+    val paddingBottom = with(density) { 24.dp.toPx() }
+    val chartW = sizePx.width - paddingLeft - paddingRight
+    val chartH = sizePx.height - paddingTop - paddingBottom
+    val n = values.size
+
+    fun xOf(i: Int) = paddingLeft + i.toFloat() / (n - 1).toFloat() * chartW
+    fun yOf(value: Double) = paddingTop + chartH * (1.0 - (value - lowerBound) / valueRange).toFloat()
+
+    path.moveTo(xOf(0), yOf(values[0]))
+    for (i in 1 until n) {
+        val x0 = xOf(i - 1); val y0 = yOf(values[i - 1])
+        val x1 = xOf(i);     val y1 = yOf(values[i])
+        val cx = (x0 + x1) / 2f
+        path.cubicTo(cx, y0, cx, y1, x1, y1)
+    }
+    if (includeFill) {
+        path.lineTo(xOf(n - 1), sizePx.height - paddingBottom)
+        path.lineTo(xOf(0), sizePx.height - paddingBottom)
+        path.close()
+    }
+    return path
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -126,8 +172,13 @@ fun HistoryContent(
                                     label = { Text("全部 (${history.size})") }
                                 )
                             }
+                            // 每个成员的测量条数只随 history 变化时统计一次，
+                            // 避免每个 FilterChip 重组都 O(members × history) 全量扫描
+                            val memberCounts = remember(history) {
+                                history.groupingBy { it.memberId }.eachCount()
+                            }
                             items(members, key = { it.id }) { member ->
-                                val count = history.count { it.memberId == member.id }
+                                val count = memberCounts[member.id] ?: 0
                                 FilterChip(
                                     selected = selectedMemberId == member.id,
                                     onClick = { selectedMemberId = member.id },
@@ -182,10 +233,14 @@ fun HistoryContent(
                     }
                     if (series.size >= 2) {
                         Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                            // 拆出 values / timestamps 的派生列表跟随 series 缓存，
+                            // 避免重组时为每个图表额外分配两个新 List
+                            val chartValues = remember(series) { series.map { it.second } }
+                            val chartTimestamps = remember(series) { series.map { it.first.measuredAtEpochMs } }
                             MetricTrendChart(
                                 title = "${metric.label}走势",
-                                values = series.map { it.second!! },
-                                timestamps = series.map { it.first.measuredAtEpochMs },
+                                values = chartValues,
+                                timestamps = chartTimestamps,
                                 unit = metric.unit,
                                 decimals = metric.decimals
                             )
@@ -397,8 +452,9 @@ fun MetricTrendChart(
         animProgress.animateTo(1f, animationSpec = tween(durationMillis = 900))
     }
 
-    val minVal = values.min()
-    val maxVal = values.max()
+    // 极值/上下界仅随数据变化时计算一次，避免每次重组重复扫描 values
+    val minVal = remember(values) { values.min() }
+    val maxVal = remember(values) { values.max() }
     val hasDiff = maxVal > minVal
     // 数据无波动时给一个固定的上下padding，避免折线贴边导致视觉上是"平的"
     val pad = if (decimals == 0) 1.0 else Math.pow(10.0, -decimals.toDouble())
@@ -407,6 +463,22 @@ fun MetricTrendChart(
     val valueRange = upperBound - lowerBound
 
     val labelDateFormat = remember { SimpleDateFormat("MM/dd", Locale.getDefault()) }
+
+    // 日期标签只在时间戳变化时格式化一次，避免 draw 作用域内每帧分配 Date/String
+    val firstLabel = remember(timestamps) {
+        if (timestamps.isEmpty()) "" else labelDateFormat.format(Date(timestamps.first()))
+    }
+    val lastLabel = remember(timestamps) {
+        if (timestamps.isEmpty()) "" else labelDateFormat.format(Date(timestamps.last()))
+    }
+
+    // 日期标签绘制用的 Paint 只创建一次（textSize 依赖 density）
+    val labelPaint = remember(density) {
+        android.graphics.Paint().apply {
+            isAntiAlias = true
+            textSize = with(density) { 10.sp.toPx() }
+        }
+    }
 
     Card(
         modifier = modifier,
@@ -455,10 +527,22 @@ fun MetricTrendChart(
             }
             Spacer(modifier = Modifier.height(8.dp))
 
+            // Canvas 的实际像素尺寸（onSizeChanged 上报），用于缓存折线路径
+            var canvasSizePx by remember { mutableStateOf(IntSize.Zero) }
+
+            // 折线与填充路径只在数据或尺寸变化时重建，动画帧之间直接复用
+            val cachedLinePath = remember(values, canvasSizePx, lowerBound, valueRange) {
+                buildChartPaths(values, canvasSizePx, lowerBound, valueRange, density, includeFill = false)
+            }
+            val cachedFillPath = remember(values, canvasSizePx, lowerBound, valueRange) {
+                buildChartPaths(values, canvasSizePx, lowerBound, valueRange, density, includeFill = true)
+            }
+
             androidx.compose.foundation.Canvas(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(160.dp)
+                    .onSizeChanged { canvasSizePx = it }
             ) {
                 val w = size.width
                 val h = size.height
@@ -480,20 +564,14 @@ fun MetricTrendChart(
                     drawLine(gridColor, Offset(paddingLeft, gy), Offset(paddingLeft + chartW, gy), strokeWidth = 1.dp.toPx())
                 }
 
+                // 折线路径只在数据或尺寸变化时重建一次并缓存，
+                // 动画推进（每帧重绘）时直接复用，不再每帧分配两个 Path + 重建所有曲线段
+                val linePath = cachedLinePath
+                val fillPath = cachedFillPath
+
                 // Progress clip for animation
                 clipRect(left = 0f, top = 0f, right = paddingLeft + chartW * animProgress.value, bottom = h) {
                     // Gradient fill area
-                    val fillPath = Path()
-                    fillPath.moveTo(xOf(0), yOf(values[0]))
-                    for (i in 1 until n) {
-                        val x0 = xOf(i - 1); val y0 = yOf(values[i - 1])
-                        val x1 = xOf(i);     val y1 = yOf(values[i])
-                        val cx = (x0 + x1) / 2f
-                        fillPath.cubicTo(cx, y0, cx, y1, x1, y1)
-                    }
-                    fillPath.lineTo(xOf(n - 1), h - paddingBottom)
-                    fillPath.lineTo(xOf(0), h - paddingBottom)
-                    fillPath.close()
                     drawPath(
                         path = fillPath,
                         brush = Brush.verticalGradient(
@@ -504,14 +582,6 @@ fun MetricTrendChart(
                     )
 
                     // Line
-                    val linePath = Path()
-                    linePath.moveTo(xOf(0), yOf(values[0]))
-                    for (i in 1 until n) {
-                        val x0 = xOf(i - 1); val y0 = yOf(values[i - 1])
-                        val x1 = xOf(i);     val y1 = yOf(values[i])
-                        val cx = (x0 + x1) / 2f
-                        linePath.cubicTo(cx, y0, cx, y1, x1, y1)
-                    }
                     drawPath(
                         path = linePath,
                         color = primaryColor,
@@ -533,16 +603,10 @@ fun MetricTrendChart(
                     }
                 }
 
-                // Date labels: first and last（仅在提供了时间戳时绘制）
+                // Date labels: first and last（仅在提供了时间戳时绘制；Paint 与文本均已缓存）
                 if (timestamps.isNotEmpty()) {
-                    val labelPaint = android.graphics.Paint().apply {
-                        color = outlineColor.copy(alpha = 0.7f).toArgb()
-                        isAntiAlias = true
-                        textSize = with(density) { 10.sp.toPx() }
-                        textAlign = android.graphics.Paint.Align.LEFT
-                    }
-                    val firstLabel = labelDateFormat.format(Date(timestamps.first()))
-                    val lastLabel = labelDateFormat.format(Date(timestamps.last()))
+                    labelPaint.color = outlineColor.copy(alpha = 0.7f).toArgb()
+                    labelPaint.textAlign = android.graphics.Paint.Align.LEFT
                     val labelY = h - 4.dp.toPx()
                     drawContext.canvas.nativeCanvas.apply {
                         drawText(firstLabel, paddingLeft, labelY, labelPaint)

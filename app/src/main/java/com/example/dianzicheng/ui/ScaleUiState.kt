@@ -1,6 +1,7 @@
 package com.example.dianzicheng.ui
 
 import com.example.dianzicheng.data.ble.BleScaleClient
+import com.example.dianzicheng.domain.BiaModel
 import com.example.dianzicheng.domain.BodyMeasurement
 import com.example.dianzicheng.domain.FamilyMember
 import com.example.dianzicheng.domain.RememberedScale
@@ -30,6 +31,7 @@ import com.example.dianzicheng.domain.ScaleModel
  * @param pairedDeviceName   当前使用中的体脂秤名称（无则 null）
  * @param isDeviceRemembered 是否已记住至少一台体脂秤（决定是否开启自动连接）
  * @param selectedScaleModel 用户手动选择的体脂秤型号（默认 AUTO，自动识别薄荷健康/小米）
+ * @param selectedBiaModel   用户选择的电阻抗估算模型（默认 DEFAULT），决定体脂率计算公式
  */
 data class ScaleUiState(
     val connection: BleScaleClient.ConnectionState = BleScaleClient.ConnectionState.IDLE,
@@ -51,5 +53,6 @@ data class ScaleUiState(
     val discoveredScales: List<BleScaleClient.DiscoveredScaleDevice> = emptyList(),
     val isBluetoothEnabled: Boolean = true,
     val isLocationEnabled: Boolean = true,
-    val selectedScaleModel: ScaleModel = ScaleModel.AUTO
+    val selectedScaleModel: ScaleModel = ScaleModel.AUTO,
+    val selectedBiaModel: BiaModel = BiaModel.DEFAULT
 )

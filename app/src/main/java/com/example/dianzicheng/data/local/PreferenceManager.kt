@@ -14,6 +14,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 
 import com.example.dianzicheng.domain.BodyMetric
 import com.example.dianzicheng.domain.BodyMetricOrderCodec
+import com.example.dianzicheng.domain.BiaModel
 import com.example.dianzicheng.domain.RememberedScale
 import com.example.dianzicheng.domain.ScaleMemory
 import com.example.dianzicheng.domain.ScaleMemoryLogic
@@ -29,6 +30,9 @@ private val Context.dataStore by preferencesDataStore(name = "settings")
  *
  * 存储以下配置项：
  * - 蓝牙体脂秤配对状态与「已记住的多台体脂秤」列表（含当前使用中的一台）
+ * - 用户手动选择的体脂秤型号偏好
+ * - 用户选择的电阻抗（BIA）体成分估算模型
+ * - 用户自定义的身体指标展示顺序
  * - Health Connect 同步开关
  * - WebDAV 云备份的服务器地址、账号、密码
  * - 上次备份时间
@@ -86,6 +90,12 @@ class PreferenceManager(private val context: Context) {
      */
     private val BODY_METRIC_ORDER = stringPreferencesKey("body_metric_order_v1")
 
+    /**
+     * 用户选择的电阻抗估算模型 ID（如 "DEFAULT", "WU_2015", "JEBB_2000"）。
+     * 未设置时回落到 [com.example.dianzicheng.domain.BiaModel.DEFAULT]。
+     */
+    private val SELECTED_BIA_MODEL = stringPreferencesKey("selected_bia_model")
+
     // ── 读取操作（Flow） ─────────────────────────────────────────────────────
 
     /** 是否已完成设备配对，默认 false */
@@ -106,6 +116,19 @@ class PreferenceManager(private val context: Context) {
         .map { preferences ->
             BodyMetricOrderCodec.decode(preferences[BODY_METRIC_ORDER])
         }
+        .distinctUntilChanged()
+
+    /**
+     * 用户选择的电阻抗估算模型 ID 字符串，默认为 "DEFAULT"。
+     *
+     * 需要枚举值时请使用 [selectedBiaModel]。
+     */
+    val selectedBiaModelId: Flow<String> = context.dataStore.data
+        .map { preferences -> preferences[SELECTED_BIA_MODEL] ?: BiaModel.DEFAULT.id }
+
+    /** 用户选择的电阻抗估算模型（来自 DataStore，默认内置通用模型） */
+    val selectedBiaModel: Flow<BiaModel> = selectedBiaModelId
+        .map { BiaModel.fromId(it) }
         .distinctUntilChanged()
 
     /**
@@ -329,6 +352,13 @@ class PreferenceManager(private val context: Context) {
             } else {
                 preferences[BODY_METRIC_ORDER] = encoded
             }
+        }
+    }
+
+    /** 保存用户选择的电阻抗估算模型 */
+    suspend fun saveSelectedBiaModel(model: BiaModel) {
+        context.dataStore.edit { preferences ->
+            preferences[SELECTED_BIA_MODEL] = model.id
         }
     }
 

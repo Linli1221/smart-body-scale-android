@@ -1,6 +1,7 @@
 package com.example.dianzicheng.data.local
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.example.dianzicheng.domain.Sex
 
@@ -41,7 +42,11 @@ data class MemberEntity(
  * @param memberId           关联的家庭成员 ID（外键），null 表示未绑定
  * @param memberNameSnapshot 保存时成员姓名快照，防止改名后历史混乱
  */
-@Entity(tableName = "measurements")
+@Entity(
+    tableName = "measurements",
+    // 常用查询路径的索引：按成员过滤（WHERE memberId）与按时间排序（ORDER BY measuredAtEpochMs）
+    indices = [Index("memberId"), Index("measuredAtEpochMs")]
+)
 data class MeasurementEntity(
     @PrimaryKey val id: String,
     val measuredAtEpochMs: Long,

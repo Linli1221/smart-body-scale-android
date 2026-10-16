@@ -67,6 +67,9 @@ object AppLogger {
      * 追加一条日志记录到缓冲区，并同步写入 Logcat。
      * 线程安全，可从任意线程调用。
      *
+     * 性能说明：StateFlow 快照（O(N) 拷贝）仅在日志 UI 真正订阅时才发布；
+     * BLE 高频回调期间无人订阅时，追加一条日志只是 O(1) 的入队操作。
+     *
      * @param entry 要写入的日志记录
      */
     @Synchronized
@@ -74,8 +77,10 @@ object AppLogger {
         buffer.addLast(entry)
         // 超出上限时移除最旧的一条，保持环形滚动
         if (buffer.size > MAX_ENTRIES) buffer.pollFirst()
-        // 触发 UI 更新（StateFlow 只在值真正变化时推送）
-        _entries.value = buffer.toList()
+        // 仅在有订阅者时才拷贝快照推送 UI，避免无观察者时的 O(N) 开销
+        if (_entries.subscriptionCount.value > 0) {
+            _entries.value = buffer.toList()
+        }
 
         // 同步写入 Android logcat，方便 ADB 调试（纯 JVM 单元测试环境自动捕获并跳过）
         try {

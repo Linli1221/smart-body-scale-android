@@ -142,10 +142,17 @@ fun HistoryDataScreen(
                 )
             }
 
-            itemsIndexed(sorted.reversed(), key = { _, m -> m.id }) { index, measurement ->
+            // asReversed() 返回视图而非拷贝，且仅在 sorted 变化时重新计算，
+            // 避免每次重组都分配一份全新的倒序列表
+            val reversed = remember(sorted) { sorted.asReversed() }
+            // 日期字符串预格式化一次，避免每个列表项重组都分配 Date + format
+            val dateStrings = remember(sorted) {
+                sorted.associate { it.id to dateFormat.format(Date(it.measuredAtEpochMs)) }
+            }
+            itemsIndexed(reversed, key = { _, m -> m.id }) { index, measurement ->
                 ModernMeasurementCard(
                     measurement = measurement,
-                    dateStr = dateFormat.format(Date(measurement.measuredAtEpochMs)),
+                    dateStr = dateStrings[measurement.id] ?: "",
                     onDelete = { measurementToDelete = measurement },
                     onNavigateToDetail = {},
                     isMale = members.firstOrNull { it.id == measurement.memberId }?.sex == Sex.MALE

@@ -35,6 +35,10 @@ interface ScaleDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMember(member: MemberEntity)
 
+    /** 批量插入或更新家庭成员（单条预编译语句循环，远快于逐条 REPLACE） */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertMembers(members: List<MemberEntity>)
+
     /** 删除指定家庭成员 */
     @Delete
     suspend fun deleteMember(member: MemberEntity)
@@ -68,6 +72,14 @@ interface ScaleDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMeasurement(measurement: MeasurementEntity)
 
+    /** 批量插入或覆盖测量记录（WebDAV 恢复 / 历史重算使用，避免 N 条独立语句） */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertMeasurements(measurements: List<MeasurementEntity>)
+
+    /** 仅更新成员的参考体重字段，避免整行 REPLACE 重写 */
+    @Query("UPDATE members SET referenceWeightKg = :weightKg WHERE id = :memberId")
+    suspend fun updateMemberReferenceWeight(memberId: String, weightKg: Double)
+
     /** 删除指定测量记录 */
     @Delete
     suspend fun deleteMeasurement(measurement: MeasurementEntity)
@@ -92,7 +104,7 @@ interface ScaleDao {
      */
     @androidx.room.Transaction
     suspend fun restoreAll(members: List<MemberEntity>, measurements: List<MeasurementEntity>) {
-        members.forEach { insertMember(it) }
-        measurements.forEach { insertMeasurement(it) }
+        insertMembers(members)
+        insertMeasurements(measurements)
     }
 }

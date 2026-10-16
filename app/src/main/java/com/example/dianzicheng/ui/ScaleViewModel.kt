@@ -7,6 +7,7 @@ import com.example.dianzicheng.data.local.AppLogger
 import com.example.dianzicheng.data.repository.ScaleRepository
 import com.example.dianzicheng.domain.BodyAlgorithm
 import com.example.dianzicheng.domain.BodyMeasurement
+import com.example.dianzicheng.domain.BiaModel
 import com.example.dianzicheng.domain.FamilyMember
 import com.example.dianzicheng.domain.Sex
 import com.example.dianzicheng.domain.ScaleModel
@@ -120,6 +121,14 @@ class ScaleViewModel(
         private const val SUPERSEDE_THRESHOLD_KG = 3.0
     }
 
+    /**
+     * 当前选中的电阻抗（BIA）体成分估算模型。
+     *
+     * 来自 DataStore，用户在「我的」页切换后实时生效：下一次称重即按新模型计算体脂率。
+     * 历史记录不会被追溯重算。
+     */
+    private var selectedBiaModel: BiaModel = BiaModel.DEFAULT
+
     init {
         checkBluetoothAndLocationState()
         observeBle()        // 开始监听 BLE 数据流
@@ -205,7 +214,11 @@ class ScaleViewModel(
         val currentMeas = _uiState.value.currentMeasurement ?: return
         viewModelScope.launch {
             try {
-                val boundResult = repository.bindMeasurementToMember(currentMeas, member)
+                val boundResult = repository.bindMeasurementToMember(
+                    measurement = currentMeas,
+                    member = member,
+                    biaModel = selectedBiaModel
+                )
                 // 手动绑定即用户明确要保留这条记录，视为已写库
                 sessionCommitted = true
                 _uiState.update {
@@ -499,6 +512,13 @@ class ScaleViewModel(
                 bleClient.preferredModel = model
             }
         }
+        viewModelScope.launch {
+            pref.selectedBiaModel.collect { model ->
+                selectedBiaModel = model
+                _uiState.update { it.copy(selectedBiaModel = model) }
+                AppLogger.i(TAG, "电阻抗估算模型已切换: ${model.displayName} (${model.id})")
+            }
+        }
     }
 
     /**
@@ -559,13 +579,14 @@ class ScaleViewModel(
                     ?: repository.getBestMember(weight)
 
                 val measurement = if (targetMember != null) {
-                    // 有匹配成员：使用真实身体参数计算 BIA 指标
+                    // 有匹配成员：使用真实身体参数与所选电阻抗模型计算 BIA 指标
                     BodyAlgorithm.calculate(
                         weightKg = weight,
                         impedanceOhm = impedance,
                         sex = targetMember.sex,
                         heightCm = targetMember.heightCm,
-                        birthDateEpochMs = targetMember.birthDateEpochMs
+                        birthDateEpochMs = targetMember.birthDateEpochMs,
+                        biaModel = selectedBiaModel
                     )
                 } else {
                     // 没有精确匹配到成员时（如首测新成员、体重差异悬殊、或未建成员）：
@@ -610,7 +631,8 @@ class ScaleViewModel(
                         val r = repository.saveMeasurement(
                             finalMeasurement,
                             targetMember = targetMember,
-                            existingId = sessionId
+                            existingId = sessionId,
+                            biaModel = selectedBiaModel
                         )
                         sessionCommitted = true
                         displayMeasurement = r.first

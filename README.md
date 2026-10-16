@@ -15,6 +15,7 @@ ios版项目地址 https://github.com/maoziban/smart-body-scale-IOS
 - ⚡ **极速蓝牙连接**：支持 BLE 低功耗蓝牙扫描与自动重连，连接后自动申请高优先级连接模式（`CONNECTION_PRIORITY_HIGH`），确保服务搜索和特征订阅零延迟。
 - 📊 **多维身体指标计算 (BIA)**：
   - 测得阻抗时，使用双频阻抗算法高精度计算身体成分。
+  - **多套国际公认估算模型可切换**：内置通用模型、亚洲人专属模型 (Wu et al., 2015)、通用修正模型 (Jebb et al., 2000)，在「我的 → 体脂估算模型」中一键切换；切换时自动把全部历史记录重算到同一口径，历史曲线不会断层。
   - 穿袜子或阻抗测得为 0 时，自动无缝降级为基于身高、年龄、性别的智能估算算法，确保称重必定有数据反馈。
 - 👥 **多成员家庭管理**：
   - 支持添加、删除家庭成员，**免去烦琐的体重估算输入**。
@@ -34,6 +35,55 @@ ios版项目地址 https://github.com/maoziban/smart-body-scale-IOS
 > 两个入口分别由 `BuildConfig.RUNTIME_LOG_VIEWER` 与 `BuildConfig.BLE_PROTOCOL_CAPTURE` 控制，
 > 在 Release 构建中均被显式写死为 `false`（且叠加 `BuildConfig.DEBUG`），入口与弹窗都不会渲染，
 > 协议抓包器也一条报文都不会记录（详见 [实现约束](#实现约束release-包为什么拿不到协议报文)）。
+
+---
+
+## 🧮 体脂估算模型（BIA 公式切换）
+
+不同人群体脂构成的差异很大，同一套公式不可能对所有人都准。本项目把三套经过同行评议的
+**F-F（脚踩式）生物电阻抗预测公式**做成了可切换选项，入口在
+**「我的 → 应用设置 → 体脂估算模型」**。
+
+| 模型 | 公式 | 适用人群 | 金标准 |
+| :--- | :--- | :--- | :--- |
+| **内置通用模型**（默认） | 男：`0.18×BMI + 0.012×年龄 + 0.018×Z − 3.2`<br>女：`0.26×BMI + 0.011×年龄 + 0.020×Z − 2.5` | 通用，结果偏保守稳定 | 内置经验公式 |
+| **亚洲人专属** (Wu et al., 2015) | `FFM = 13.055 + 0.204×体重 + 0.394×(身高²/Z) − 0.136×年龄 + 8.125×性别`<br>体脂率 `= (1 − FFM ÷ 体重) × 100%` | **最适合亚洲人** | DXA（双能 X 线） |
+| **通用修正** (Jebb et al., 2000) | `%FM = −156.1 − 89.1×ln(身高m) + 45.6×ln(体重kg) + 0.120×年龄 + 0.0494×Z`<br>女性额外 `+ 19.6×ln(身高m)` | 高加索人群 / 通用修正 | 四室模型 |
+
+> 公式中 `Z` 为体内阻抗（Ω），身高以 cm 计（Jebb 公式中取 m），体重以 kg 计，性别男=1、女=0。
+
+### 行为约定
+
+- **切换后自动重算全部历史记录**：确认新模型的那一刻，应用会把数据库中所有
+  「已绑定成员 + 有有效阻抗」的记录一次性换算到同一公式，历史曲线不会前后断层。
+  重算在单个数据库事务内完成——要么全部成功，要么整体回滚，不会留下混合数据。
+- **重算时保留记录的身份信息**：记录 ID、称重时间、体重、阻抗、成员绑定关系、
+  成员姓名快照全部原样保留，只覆盖体脂率及其派生的肌肉量/水分/蛋白质/骨量，
+  因此不会产生新记录，也不会打乱历史排序。
+- **跳过的记录保持原值**：未绑定成员（或成员已被删除）、未赤脚测阻抗的记录
+  无法参与公式换算，保持原值不动，并在完成提示中告知跳过了几条。
+- **幂等**：同一模型重复触发重算时，判定为"未变化"并跳过写库，不产生无意义 IO。
+- **对话框内直接展示公式原文与来源**：选中某个模型即可看到完整公式、适用人群与文献出处，不必退出页面查资料。
+- **测量结果卡片标注当前模型**：称重完成后，结果卡片底部会显示「估算模型：xxx」，让体脂率的口径一目了然。
+- **结果收敛到生理合理区间**：每个模型自带体脂率上下限（`fatMin`/`fatMax`），
+  极端输入（身高异常、阻抗异常大）下也不会输出生理上不可能的值。
+- **无阻抗时不估算**：未赤脚称重（`Z = 0`）时任何模型都返回 `0.0`，不会用虚假参数凑数。
+
+### 代码位置
+
+| 关注点 | 文件 |
+| :--- | :--- |
+| 模型枚举与公式元数据 | [`BiaModel.kt`](app/src/main/java/com/example/dianzicheng/domain/BiaModel.kt) |
+| 三套公式的具体实现 | [`BodyAlgorithm.kt`](app/src/main/java/com/example/dianzicheng/domain/BodyAlgorithm.kt) 的 `calculateBodyFatPct()` |
+| **历史记录重算** | [`ScaleRepository.kt`](app/src/main/java/com/example/dianzicheng/data/repository/ScaleRepository.kt) 的 `recalculateHistory()` |
+| 模型选择对话框 | [`SelectBiaModelDialog.kt`](app/src/main/java/com/example/dianzicheng/ui/SelectBiaModelDialog.kt) |
+| 偏好持久化 | [`PreferenceManager.kt`](app/src/main/java/com/example/dianzicheng/data/local/PreferenceManager.kt) 的 `selectedBiaModel` / `saveSelectedBiaModel` |
+| 单元测试 | [`BiaModelTest.kt`](app/src/test/java/com/example/dianzicheng/BiaModelTest.kt)、[`BodyAlgorithmTest.kt`](app/src/test/java/com/example/dianzicheng/BodyAlgorithmTest.kt)、[`ScaleRepositoryRecalcHistoryTest.kt`](app/src/test/java/com/example/dianzicheng/ScaleRepositoryRecalcHistoryTest.kt) |
+
+单元测试直接用文档示例值做回归：`62.2kg / 1.73m / 21 岁 / Z=650Ω` 的男性受试者，
+Wu 2015 模型应得 **≈ 21.0%**，Jebb 2000 模型应得 **≈ 18.0%**。
+历史重算的测试覆盖了：正常换算、跳过无阻抗记录、跳过无成员记录、
+同模型幂等、身份字段不被篡改、空历史、以及汇总文案。
 
 ---
 
@@ -144,7 +194,8 @@ app/src/main/java/com/example/dianzicheng/
 │   ├── local/            # Room 数据库配置 (ScaleDao, Entities, AppDatabase) 与实体转换器
 │   └── repository/       # 统一数据仓库 (ScaleRepository) 负责数据匹配与持久化
 │
-├── domain/               # 业务实体 (Models)、支持型号枚举 (ScaleModel) 及 BIA 身体指标核心算法 (BodyAlgorithm)
+├── domain/               # 业务实体 (Models)、支持型号枚举 (ScaleModel)、
+│                         #   电阻抗估算模型枚举 (BiaModel) 及 BIA 身体指标核心算法 (BodyAlgorithm)
 │
 └── ui/                   # 主页 (DashboardScreen)、历史 (HistoryScreen)、我的 (ProfileScreen)、
                           # 配对 (PairingScreen) 及对应的 ViewModel 和 Theme 主题包
