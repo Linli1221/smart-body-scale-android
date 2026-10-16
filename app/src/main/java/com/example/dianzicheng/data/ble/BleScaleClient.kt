@@ -68,6 +68,11 @@ class BleScaleClient(private val context: Context) {
         MultiScalePacketParser.UUID_SERVICE_SIG_BCS     // 0x181B (小米体脂秤 2 代 Body Composition)
     )
 
+    companion object {
+        /** 已知体脂秤芯片厂商 Company ID 集合（0xFF 厂商自定义数据），常量避免每个广播包分配 List */
+        private val KNOWN_SCALE_COMPANY_IDS = setOf(0x01A7, 0x0157, 0x0209)
+    }
+
     // -------------------------------------------------------------------------
     // 对外暴露的 StateFlow 状态流
     // -------------------------------------------------------------------------
@@ -441,7 +446,7 @@ class BleScaleClient(private val context: Context) {
                 if (type == 0xFF && len >= 3) {
                     val companyId = (rawBytes[i + 2].toInt() and 0xFF) or ((rawBytes[i + 3].toInt() and 0xFF) shl 8)
                     // 0x01A7 (Yolanda / Fitdays), 0x0209 (Yolanda 变体), 0x0157 (Huami / Xiaomi)
-                    if (companyId in listOf(0x01A7, 0x0157, 0x0209)) return true
+                    if (companyId in KNOWN_SCALE_COMPANY_IDS) return true
                 }
                 if (type == 0x16 && len >= 2) {
                     val b0 = rawBytes[i + 2].toInt() and 0xFF
@@ -551,7 +556,16 @@ class BleScaleClient(private val context: Context) {
                         protocolName = advScaleData?.protocolName ?: matchedModel.protocolName,
                         liveWeightKg = liveWeight
                     )
+                    // 【性能保护】同一台设备每秒会广播多次，若列表内容与上次几乎一致
+                    // （名称/型号/是否秤/实时体重相同，且 RSSI 变化小于 5dBm），
+                    // 则直接跳过重建列表与 StateFlow 推送，避免以广播频率重组整个配对界面。
                     if (existingIndex >= 0) {
+                        val old = currentList[existingIndex]
+                        val rssiUnchanged = kotlin.math.abs(old.rssi - item.rssi) < 5
+                        val restUnchanged = old.copy(rssi = item.rssi) == item
+                        if (rssiUnchanged && restUnchanged) {
+                            return
+                        }
                         currentList[existingIndex] = item
                     } else {
                         currentList.add(item)
@@ -647,8 +661,8 @@ class BleScaleClient(private val context: Context) {
                     _discoveredDevice.value = Pair(name, device.address)
 
                     // 重置 2.5s 无广播数据超时定时器（无论体重是否为 0 均重置，避免超时回调再次归零干扰）
-                    inactivityRunnable?.let { handler.removeCallbacks(it) }
-                    val watchdog = Runnable {
+                    // 复用同一个 Runnable 实例，避免广播高峰期每包分配新对象
+                    val watchdog = inactivityRunnable ?: Runnable {
                         AppLogger.d(TAG, "无广播数据超时 (2.5s): 用户已下秤，重置测量状态")
                         broadcastSessionMac = null
                         _weight.value = 0.0
@@ -657,8 +671,8 @@ class BleScaleClient(private val context: Context) {
                         if (_connectionState.value == ConnectionState.MEASURING) {
                             _connectionState.value = ConnectionState.CONNECTED
                         }
-                    }
-                    inactivityRunnable = watchdog
+                    }.also { inactivityRunnable = it }
+                    handler.removeCallbacks(watchdog)
                     handler.postDelayed(watchdog, 2500)
 
                     // 广播秤保持扫描流以持续接收实时示数，直接返回，不走 GATT 连接逻辑
@@ -1296,26 +1310,21 @@ class BleScaleClient(private val context: Context) {
      */
     private fun handleIncomingData(data: ByteArray, charUuid: String) {
         val scaleResult = MultiScalePacketParser.parseNotification(data, charUuid, preferredModel)
-        // 【Debug 抓包】完整记录上行报文原始字节 + 解析结论（未识别报文也照常记录，供协议逆向）
-        val parsedCharUuid = try { java.util.UUID.fromString(charUuid) } catch (e: Exception) { null }
-        BleProtocolRecorder.recordNotification(parsedCharUuid, data, scaleResult)
-
-        val parsedDetails = buildString {
-            if (scaleResult != null) {
-                append(" [${scaleResult.protocolName}] | 体重=${String.format(Locale.US, "%.2f", scaleResult.weightKg)}kg, 锁定=${scaleResult.isStable}")
-                if (scaleResult.impedanceOhm != null) {
-                    append(", 阻抗=${scaleResult.impedanceOhm.toInt()}Ω")
-                }
-            }
-        }
-        // 完整十六进制原始报文只在 Debug 构建输出：Release 包不再把蓝牙原始载荷写入日志系统，
-        // 避免运行日志（可复制/可分享）成为 Release 版泄漏完整协议数据的旁路。
-        // 注意：hexStr 必须在分支内构造，否则 Release 版仍会为每条通知白白拼接一次十六进制字符串。
+        // 【Debug 抓包】完整记录上行报文原始字节 + 解析结论（未识别报文也照常记录，供协议逆向）。
+        // 仅在抓包开关打开时才做 UUID 解析与记录调用，避免每帧无谓的 UUID.fromString 分配。
         if (BleProtocolRecorder.isEnabled) {
+            val parsedCharUuid = try { java.util.UUID.fromString(charUuid) } catch (e: Exception) { null }
+            BleProtocolRecorder.recordNotification(parsedCharUuid, data, scaleResult)
+            // 完整十六进制原始报文只在抓包开启时拼接并输出：Release 包不再把蓝牙原始载荷写入日志系统，
+            // 避免运行日志（可复制/可分享）成为 Release 版泄漏完整协议数据的旁路。
+            val parsedDetails = if (scaleResult != null) {
+                " [${scaleResult.protocolName}] | 体重=${String.format(Locale.US, "%.2f", scaleResult.weightKg)}kg, 锁定=${scaleResult.isStable}" +
+                    (scaleResult.impedanceOhm?.let { ", 阻抗=${it.toInt()}Ω" } ?: "")
+            } else ""
             val hexStr = data.joinToString(" ") { "%02X".format(it) }
             AppLogger.d(TAG, "收到原始蓝牙数据: $hexStr$parsedDetails")
         } else {
-            AppLogger.d(TAG, "收到蓝牙数据 (${data.size} 字节)$parsedDetails")
+            AppLogger.d(TAG, "收到蓝牙数据 (${data.size} 字节)")
         }
 
         // 薄荷健康 B1 (AFU-BH-TZ-B1)：20 字节 AF 45 帧由专属状态机处理，
@@ -1369,8 +1378,9 @@ class BleScaleClient(private val context: Context) {
      * 确保下一次称重生成全新记录而不会叠加到上一次结果上。
      */
     private fun resetInactivityWatchdog() {
-        inactivityRunnable?.let { handler.removeCallbacks(it) }
-        val watchdog = Runnable {
+        // 复用同一个 Runnable 实例：称重高峰期每秒十余条通知，
+        // 每帧新建 Runnable 会造成明显的 GC 压力
+        val watchdog = inactivityRunnable ?: Runnable {
             AppLogger.d(TAG, "无数据超时 (2.5s): 用户已下秤，重置测量状态")
             // 超时后将所有测量状态重置为 0，为下次称重做准备
             _weight.value = 0.0
@@ -1379,8 +1389,8 @@ class BleScaleClient(private val context: Context) {
             if (_connectionState.value == ConnectionState.MEASURING) {
                 _connectionState.value = ConnectionState.CONNECTED
             }
-        }
-        inactivityRunnable = watchdog
+        }.also { inactivityRunnable = it }
+        handler.removeCallbacks(watchdog)
         handler.postDelayed(watchdog, 2500)  // 2500ms 无数据则认为用户已下秤
     }
 
@@ -1434,9 +1444,12 @@ class BleScaleClient(private val context: Context) {
     private fun writeAfuB1(frame: ByteArray): Boolean {
         val gatt = bluetoothGatt ?: return false
         val characteristic = resolveAfuB1WriteCharacteristic(gatt)
-        val frameHex = frame.joinToString(" ") { "%02X".format(it) }
+        // 十六进制字符串仅用于日志/抓包，延迟到真正需要时再拼接（每收到一帧都会 ACK 一次）
+        val captureEnabled = BleProtocolRecorder.isEnabled
         if (characteristic == null) {
-            AppLogger.w(TAG, "B1 写入特征 (af000002) 不存在，跳过命令: $frameHex")
+            if (captureEnabled) {
+                AppLogger.w(TAG, "B1 写入特征 (af000002) 不存在，跳过命令: ${frame.joinToString(" ") { "%02X".format(it) }}")
+            }
             return false
         }
         val props = characteristic.properties
@@ -1456,14 +1469,16 @@ class BleScaleClient(private val context: Context) {
             @Suppress("DEPRECATION")
             gatt.writeCharacteristic(characteristic)
         }
-        BleProtocolRecorder.recordWrite(
-            charUuid = characteristic.uuid,
-            serviceUuid = afuB1WriteServiceUuid ?: AFUB1PacketParser.WRITE_SERVICE_UUID,
-            value = frame,
-            writeType = writeType,
-            success = success
-        )
-        AppLogger.d(TAG, "B1 下发命令 (${if (success) "成功" else "失败"}): $frameHex")
+        if (captureEnabled) {
+            BleProtocolRecorder.recordWrite(
+                charUuid = characteristic.uuid,
+                serviceUuid = afuB1WriteServiceUuid ?: AFUB1PacketParser.WRITE_SERVICE_UUID,
+                value = frame,
+                writeType = writeType,
+                success = success
+            )
+            AppLogger.d(TAG, "B1 下发命令 (${if (success) "成功" else "失败"}): ${frame.joinToString(" ") { "%02X".format(it) }}")
+        }
         return success
     }
 

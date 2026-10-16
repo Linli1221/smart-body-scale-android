@@ -332,9 +332,10 @@ JSON Lines（`.jsonl`）——首行是抓包元信息，其余每行一条报�
 - 抓包缓冲与 `AppLogger` 的日志缓冲**相互独立**（`BleProtocolRecorder.MAX_ENTRIES = 6000`），不会被 1000 条运行日志滚动挤掉；
 - 导出文件只写入 `cacheDir/ble-protocol/`，该路径是 `FileProvider` 唯一对外暴露的目录（`res/xml/file_paths.xml`），
   分享时通过 `FLAG_GRANT_READ_URI_PERMISSION` 临时授权，接收方无法访问 App 的其它文件；
-- 需要说明的一点：本项目 Release 构建**未开启 R8 minify**（`isMinifyEnabled = false`），
-  因此抓包器的方法体依然会打包进 Release APK，只是永远不会执行。
-  若日后开启 minify，这些恒为 false 的分支会被自动裁剪掉。
+- 需要说明的一点：Release 构建现已开启 R8（`isMinifyEnabled = true` + `isShrinkResources = true`）。
+  由于 `BuildConfig.DEBUG` / `BLE_PROTOCOL_CAPTURE` 在 Release 下恒为 `false`，
+  抓包器与日志查看器中那些「恒不成立」的分支会被 R8 直接裁剪掉，
+  相关代码不再进入 Release APK（这也是开启压缩后体积收益最明显的一块）。
 
 ---
 

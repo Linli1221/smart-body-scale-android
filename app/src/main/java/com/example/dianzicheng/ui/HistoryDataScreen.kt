@@ -60,6 +60,16 @@ fun HistoryDataScreen(
     val dateFormat = remember { SimpleDateFormat("yyyy年MM月dd日 HH:mm", Locale.getDefault()) }
     var measurementToDelete by remember { mutableStateOf<BodyMeasurement?>(null) }
 
+    // 时间倒序视图（最新在最上）：asReversed() 返回视图而非拷贝，且仅在 sorted 变化时重建，
+    // 避免每次重组都分配一份全新的倒序列表。
+    // 注意：必须在这里（@Composable 作用域）计算，不能放进 LazyColumn 的 LazyListScope 里。
+    val reversedMeasurements = remember(sorted) { sorted.asReversed() }
+
+    // 每个列表项的日期字符串预格式化一次，避免每次重组都分配 Date + format
+    val dateStrings = remember(sorted) {
+        sorted.associate { it.id to dateFormat.format(Date(it.measuredAtEpochMs)) }
+    }
+
     // 五项身体成分的统计序列（0 值 = 未测出，已过滤）
     val summaries = remember(sorted) {
         listOf(
@@ -142,14 +152,7 @@ fun HistoryDataScreen(
                 )
             }
 
-            // asReversed() 返回视图而非拷贝，且仅在 sorted 变化时重新计算，
-            // 避免每次重组都分配一份全新的倒序列表
-            val reversed = remember(sorted) { sorted.asReversed() }
-            // 日期字符串预格式化一次，避免每个列表项重组都分配 Date + format
-            val dateStrings = remember(sorted) {
-                sorted.associate { it.id to dateFormat.format(Date(it.measuredAtEpochMs)) }
-            }
-            itemsIndexed(reversed, key = { _, m -> m.id }) { index, measurement ->
+            itemsIndexed(reversedMeasurements, key = { _, m -> m.id }) { index, measurement ->
                 ModernMeasurementCard(
                     measurement = measurement,
                     dateStr = dateStrings[measurement.id] ?: "",

@@ -29,12 +29,23 @@ object AFUPacketParser {
      * @param data 蓝牙特征值通知回调中收到的原始字节数组。
      * @return 解析成功时返回 [WeightData]；数据不足或未找到帧头时返回 null。
      */
+    /**
+     * 手写循环查找 0xAC 帧头偏移。
+     * 替代 [ByteArray.indexOfFirst]（lambda 版本在部分 ART 版本上每帧产生闭包分配）。
+     */
+    private fun findAfuHeader(data: ByteArray): Int {
+        for (i in data.indices) {
+            if ((data[i].toInt() and 0xFF) == 0xAC) return i
+        }
+        return -1
+    }
+
     fun parseWeight(data: ByteArray): WeightData? {
         // 空包直接返回
         if (data.isEmpty()) return null
 
         // 在字节数组中查找 AFU 协议帧头标志字节 0xAC 的起始偏移
-        val offset = data.indexOfFirst { (it.toInt() and 0xFF) == 0xAC }
+        val offset = findAfuHeader(data)
 
         // 只要数据包含 0xAC 且剩余至少 7 字节（包含体重最高、中、低及状态位），即可解析（兼顾 7/8 字节实时动态体重包）
         if (offset < 0 || data.size - offset < 7) return null
@@ -84,8 +95,8 @@ object AFUPacketParser {
         // 空包直接返回
         if (data.isEmpty()) return null
 
-        // 查找 AFU 协议帧头 0xAC 的位置
-        val offset = data.indexOfFirst { (it.toInt() and 0xFF) == 0xAC }
+        // 查找 AFU 协议帧头 0xAC 的位置（手写循环，避免每帧 lambda 分配）
+        val offset = findAfuHeader(data)
         if (offset < 0 || data.size - offset < 9) return null
 
         // 校验是否符合 AFU 协议特征 (w3 in 0x68..0x6E)

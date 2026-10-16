@@ -187,13 +187,16 @@ class HealthConnectManager(private val context: Context) {
         var success = 0
         var failed = 0
 
+        // 时区规则查询开销较大且与记录无关，循环外解析一次即可
+        val zoneRules = ZoneOffset.systemDefault().rules
+
         // 每批最多 20 条，避免单次请求过大
         measurements.chunked(20).forEach { batch ->
             try {
                 val records = mutableListOf<androidx.health.connect.client.records.Record>()
                 batch.forEach { measurement ->
                     val instant = Instant.ofEpochMilli(measurement.measuredAtEpochMs)
-                    val zoneOffset = ZoneOffset.systemDefault().rules.getOffset(instant)
+                    val zoneOffset = zoneRules.getOffset(instant)
                     val weightMetadata = if (measurement.id.isNotBlank()) {
                         Metadata(clientRecordId = "weight_${measurement.id}")
                     } else {

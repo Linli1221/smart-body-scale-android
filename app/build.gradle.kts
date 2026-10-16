@@ -43,7 +43,9 @@ android {
             buildConfigField("boolean", "RUNTIME_LOG_VIEWER", "true")
         }
         release {
-            isMinifyEnabled = false
+            // 启用 R8 代码压缩与资源压缩：显著减小 APK 体积并优化运行时性能
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             // 显式关闭：Release 包不包含任何蓝牙协议抓包与导出能力
             buildConfigField("boolean", "BLE_PROTOCOL_CAPTURE", "false")

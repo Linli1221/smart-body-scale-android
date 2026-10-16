@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.math.round
 
 import com.example.dianzicheng.data.health.HealthConnectManager
 import com.example.dianzicheng.data.local.PreferenceManager
@@ -257,11 +258,16 @@ class ScaleViewModel(
         viewModelScope.launch {
             bleClient.weight.collect { weight ->
                 val shouldClearImpedance = weight < 3.0 || !_uiState.value.isStable
+                // 【性能保护】界面只展示到 0.01kg。秤在动态示数阶段每秒上报十余次、
+                // 且常在末位反复抖动，若原值直接写入 uiState，Dashboard 会按包频率整页重组。
+                // 这里先按显示精度取整，值未变化时 MutableStateFlow 会自动合并、不触发重组。
+                // 注意：仅影响 UI 显示字段，入库使用的仍是 BLE 原始值。
+                val displayWeight = round(weight * 100.0) / 100.0
                 _uiState.update {
                     if (shouldClearImpedance) {
-                        it.copy(liveWeightKg = weight, impedanceOhm = 0.0)
+                        it.copy(liveWeightKg = displayWeight, impedanceOhm = 0.0)
                     } else {
-                        it.copy(liveWeightKg = weight)
+                        it.copy(liveWeightKg = displayWeight)
                     }
                 }
                 if (weight >= 3.0) {

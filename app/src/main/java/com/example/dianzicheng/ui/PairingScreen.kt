@@ -111,10 +111,14 @@ fun PairingScreen(
         }
     }
 
-    // 离开页面时注销配对模式
+    // 离开页面时注销配对模式。
+    // 注意：DisposableEffect(Unit) 的 onDispose 会捕获创建时的 uiState 快照，
+    // 用捕获值判断"是否正在扫描"会读到陈旧状态，导致扫描残留、持续耗电。
+    // 因此这里通过 rememberUpdatedState 持有最新状态引用。
+    val latestConnection by rememberUpdatedState(uiState.connection)
     DisposableEffect(Unit) {
         onDispose {
-            if (uiState.connection == BleScaleClient.ConnectionState.SCANNING) {
+            if (latestConnection == BleScaleClient.ConnectionState.SCANNING) {
                 viewModel.stopPairingScan()
             }
         }

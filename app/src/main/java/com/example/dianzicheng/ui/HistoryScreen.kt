@@ -114,6 +114,13 @@ fun HistoryContent(
         }
     }
 
+    // 每个成员的测量条数只随 history 变化时统计一次，
+    // 避免每个 FilterChip 重组都做一次 O(history) 的全量扫描。
+    // 注意：必须在这里（@Composable 作用域）计算，LazyRow 的 LazyListScope 里不能用 remember。
+    val memberCounts = remember(history) {
+        history.groupingBy { it.memberId }.eachCount()
+    }
+
     if (showMetricOrderDialog) {
         MetricOrderDialog(
             order = metricOrder,
@@ -171,11 +178,6 @@ fun HistoryContent(
                                     onClick = { selectedMemberId = null },
                                     label = { Text("全部 (${history.size})") }
                                 )
-                            }
-                            // 每个成员的测量条数只随 history 变化时统计一次，
-                            // 避免每个 FilterChip 重组都 O(members × history) 全量扫描
-                            val memberCounts = remember(history) {
-                                history.groupingBy { it.memberId }.eachCount()
                             }
                             items(members, key = { it.id }) { member ->
                                 val count = memberCounts[member.id] ?: 0
@@ -455,6 +457,9 @@ fun MetricTrendChart(
     // 极值/上下界仅随数据变化时计算一次，避免每次重组重复扫描 values
     val minVal = remember(values) { values.min() }
     val maxVal = remember(values) { values.max() }
+    // 极值所在下标：绘制高亮点时需要，跟随数据缓存，避免每帧重复扫描
+    val maxIdx = remember(values, maxVal) { values.indexOfFirst { it == maxVal } }
+    val minIdx = remember(values, minVal) { values.indexOfFirst { it == minVal } }
     val hasDiff = maxVal > minVal
     // 数据无波动时给一个固定的上下padding，避免折线贴边导致视觉上是"平的"
     val pad = if (decimals == 0) 1.0 else Math.pow(10.0, -decimals.toDouble())
@@ -568,6 +573,7 @@ fun MetricTrendChart(
                 // 动画推进（每帧重绘）时直接复用，不再每帧分配两个 Path + 重建所有曲线段
                 val linePath = cachedLinePath
                 val fillPath = cachedFillPath
+                // 极值下标同样跟随数据缓存，避免每帧两次 indexOfFirst 扫描
 
                 // Progress clip for animation
                 clipRect(left = 0f, top = 0f, right = paddingLeft + chartW * animProgress.value, bottom = h) {
@@ -589,8 +595,6 @@ fun MetricTrendChart(
                     )
 
                     // Data points
-                    val maxIdx = values.indexOfFirst { it == maxVal }
-                    val minIdx = values.indexOfFirst { it == minVal }
                     for (i in 0 until n) {
                         val px = xOf(i); val py = yOf(values[i])
                         val isHighlight = hasDiff && (i == maxIdx || i == minIdx || i == 0 || i == n - 1)

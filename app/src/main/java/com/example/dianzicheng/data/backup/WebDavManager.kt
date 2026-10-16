@@ -19,11 +19,24 @@ import com.example.dianzicheng.domain.Sex
 
 class WebDavManager(private val dao: ScaleDao) {
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .writeTimeout(15, TimeUnit.SECONDS)
-        .build()
+    /**
+     * 复用的 OkHttpClient 单例。
+     *
+     * OkHttp 的连接池与线程池挂在 client 实例上：每次新建 WebDavManager 都建一个 client，
+     * 会让连接池无法复用（每次备份/恢复都重新 TLS 握手），并持续占用线程资源。
+     */
+    private val client: OkHttpClient
+        get() = sharedClient
+
+    companion object {
+        private val sharedClient: OkHttpClient by lazy {
+            OkHttpClient.Builder()
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(15, TimeUnit.SECONDS)
+                .writeTimeout(15, TimeUnit.SECONDS)
+                .build()
+        }
+    }
 
     private fun normalizeUrl(url: String): String {
         var trimmed = url.trim()

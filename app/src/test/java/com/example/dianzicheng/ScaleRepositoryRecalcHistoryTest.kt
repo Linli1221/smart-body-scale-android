@@ -49,6 +49,18 @@ class ScaleRepositoryRecalcHistoryTest {
             members.value = members.value.filterNot { it.id == member.id }
         }
 
+        /** 批量插入：语义与 Room 的 @Insert(REPLACE) 一致，逐条覆盖同 ID 记录 */
+        override suspend fun insertMembers(members: List<MemberEntity>) {
+            members.forEach { insertMember(it) }
+        }
+
+        /** 仅更新参考体重字段，模拟 Room 的定向 UPDATE（不触碰其它列） */
+        override suspend fun updateMemberReferenceWeight(memberId: String, weightKg: Double) {
+            members.value = members.value.map {
+                if (it.id == memberId) it.copy(referenceWeightKg = weightKg) else it
+            }
+        }
+
         override fun getAllMeasurements(): Flow<List<MeasurementEntity>> = measurements
         override suspend fun getAllMeasurementsList(): List<MeasurementEntity> = measurements.value
         override fun getMeasurementsForMember(memberId: String): Flow<List<MeasurementEntity>> =
@@ -56,6 +68,11 @@ class ScaleRepositoryRecalcHistoryTest {
 
         override suspend fun insertMeasurement(measurement: MeasurementEntity) {
             measurements.value = measurements.value.filterNot { it.id == measurement.id } + measurement
+        }
+
+        /** 批量插入：语义与 Room 的 @Insert(REPLACE) 一致，逐条覆盖同 ID 记录 */
+        override suspend fun insertMeasurements(measurements: List<MeasurementEntity>) {
+            measurements.forEach { insertMeasurement(it) }
         }
 
         override suspend fun deleteMeasurement(measurement: MeasurementEntity) {

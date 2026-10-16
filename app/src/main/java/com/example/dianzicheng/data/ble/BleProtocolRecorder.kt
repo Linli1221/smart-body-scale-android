@@ -193,8 +193,11 @@ object BleProtocolRecorder {
             buffer.pollFirst()
             droppedCount++
         }
-        // 与 AppLogger 一致：StateFlow 仅在值真正变化时推送
-        _entries.value = buffer.toList()
+        // 快照推送（O(N) 拷贝）仅在抓包查看 UI 真正订阅时执行；
+        // 扫描高峰期每包一条记录，无观察者时跳过一次最多 6000 条的拷贝
+        if (_entries.subscriptionCount.value > 0) {
+            _entries.value = buffer.toList()
+        }
         return entry
     }
 
