@@ -433,7 +433,7 @@ fun MetricTrendChart(
             }
             Spacer(modifier = Modifier.height(4.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                val fmt = "%.\f"
+                val fmt = "%.${decimals}f"
                 if (hasDiff) {
                     Text(
                         text = String.format("↓ " + fmt, minVal) + unit,
