@@ -64,12 +64,20 @@ ios版项目地址 https://github.com/maoziban/smart-body-scale-IOS
 
 ### 2. 小米体脂秤 2 代 / 米家 — 免配对广播秤
 
-小米体脂秤 2 代通过蓝牙广播 `0x181B` (Body Composition Service) 的 **13 字节 Service Data** 上报数据，**即踩即读，无需建立 GATT 连接**：
+小米体脂秤 2 代通过蓝牙广播 `0x181B` (Body Composition Service) 的 **13 字节 Service Data** 上报数据，**即踩即读，无需建立 GATT 连接**（广播名 `MIBFS`，厂商数据 Company ID `0x0157`）：
 
-- **Byte 0-1**：Flags (小端序，Bit 0 = lbs，Bit 4 = 斤，Bit 5 = 测量完成，Bit 7 = 阻抗有效)
-- **Byte 2-8**：年月日时分秒时间戳
-- **Byte 9-10**：阻抗 (UINT16 小端序，Ω)
-- **Byte 11-12**：体重 (UINT16 小端序，kg 精度 1/200)
+| 字节偏移 | 说明 |
+| :--- | :--- |
+| **Byte 0** | `control_byte_1`：单位/型号标识，`0x02` = kg，`0x03` = lbs |
+| **Byte 1** | `control_byte_2`：状态标志位 —— bit 1 = 阻抗已测出，bit 5 = 读数已稳定锁定，bit 6 = 单位为斤 (catty)，bit 7 = 已下秤 / 读数已移除 |
+| **Byte 2-8** | 年月日时分秒时间戳 |
+| **Byte 9-10** | 阻抗 (UINT16 小端序，Ω；未测出时为 `0x0000` 或 `0xFFFF`) |
+| **Byte 11-12** | 体重 (UINT16 小端序；kg 精度 1/200，斤与 lbs 精度 1/100) |
+
+> ⚠️ 标志位必须**按字节分别取位**：`Byte 1` 承载全部状态位，`Byte 0` 只承载单位标识。
+> 若把 `Byte 0~1` 当作一个小端序 16 位 flags 字，`bit 1 / bit 5 / bit 7` 都会落到 `Byte 0` 上而永远无法命中——
+> 结果是阻抗永远读不出来，且秤唤醒时重播的上一次旧读数会被误判成一次稳定测量。
+> 另外 `bit 7`（读数已移除）置位的包只是秤在重播收尾结果，不能当作新的稳定测量写库。
 
 ---
 

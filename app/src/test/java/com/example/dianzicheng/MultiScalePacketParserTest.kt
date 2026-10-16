@@ -364,53 +364,145 @@ class MultiScalePacketParserTest {
     // 小米体脂秤 2 代
     // -------------------------------------------------------------------------
 
-    @Test
-    fun testXiaomiBodyCompositionScale2Notification() {
-        // 小米体脂秤 2 (13 字节广播 / GATT 数据帧)
-        // Flags (小端序): 0x00A2 (Bit 1: 稳定, Bit 5: 完成, Bit 7: 阻抗有效, 单位 kg)
-        // Date: 2026-09-15 12:00:30
-        // Impedance: 500 Ω, Weight: 65.0 kg
-        val xiaomiData = byteArrayOf(
-            0xA2.toByte(), 0x00.toByte(),
-            0xEA.toByte(), 0x07.toByte(), 0x09.toByte(), 0x0F.toByte(), 0x0C.toByte(), 0x00.toByte(), 0x1E.toByte(),
-            0xF4.toByte(), 0x01.toByte(),
-            0xC8.toByte(), 0x32.toByte()
-        )
+    // ── 以下帧全部取自实机蓝牙抓包 scale-ble-capture-20261017-004517.jsonl ──
+    //    设备：小米体脂秤 2 代 MIBFS [5C:CA:D3:54:BA:2F]，0x181B 广播 Service Data（13 字节）
+    //    02A6… 秤唤醒时重播的上一次旧读数（weight removed=1）
+    //    0204… 踩秤过程中实时爬升的示数（stabilized 未置位）
+    //    0224… 读数已稳定，但阻抗尚未测出（0x0000 / 0xFFFF）
+    //    0226… 读数稳定且阻抗有效（661Ω）
+    //    0204… / 0284… 下秤阶段残留的 0.1kg 读数
 
-        val result = MultiScalePacketParser.parseNotification(xiaomiData, null)
+    @Test
+    fun testXiaomiScale2StabilizedWithImpedance() {
+        // 0226 EA07 0A10 102C05 9502 E830 → 62.600kg + 661Ω，stabilized(bit5)=1
+        val result = MultiScalePacketParser.parseNotification("0226EA070A10102C059502E830".hexToBytes(), null)
         assertNotNull(result)
-        assertTrue(result!!.protocolName.contains("Xiaomi"))
-        assertEquals(65.0, result.weightKg, 0.01)
-        assertTrue(result.isStable)
-        assertEquals(500.0, result.impedanceOhm!!, 0.1)
+        assertEquals("Xiaomi Mi Scale 2", result!!.protocolName)
+        assertEquals(62.600, result.weightKg, 0.001)
+        assertTrue("stabilized(bit5) 置位且未下秤时必须判定为稳定锁定", result.isStable)
+        assertEquals("has_impedance(bit1) 置位时必须解析出真实阻抗", 661.0, result.impedanceOhm!!, 0.001)
     }
 
     @Test
-    fun testXiaomiBodyCompositionScale2BroadcastAdvertisement() {
-        // 小米体脂秤 2 的 0x181B 广播 Service Data：即踩即读，无需 GATT 连接
-        val bcsData = byteArrayOf(
-            0xA2.toByte(), 0x00.toByte(),
-            0xEA.toByte(), 0x07.toByte(), 0x09.toByte(), 0x0F.toByte(), 0x0C.toByte(), 0x00.toByte(), 0x1E.toByte(),
-            0xF4.toByte(), 0x01.toByte(),
-            0xC8.toByte(), 0x32.toByte()
+    fun testXiaomiScale2LiveWeightRampIsNotStable() {
+        // 0204 EA07 0A10 102C01 0000 1E2D → 踩秤爬升中的 57.75kg
+        val result = MultiScalePacketParser.parseNotification("0204EA070A10102C0100001E2D".hexToBytes(), null)
+        assertNotNull(result)
+        assertEquals(57.75, result.weightKg, 0.001)
+        assertFalse("stabilized(bit5) 未置位时严禁锁定", result.isStable)
+        assertNull("has_impedance(bit1) 未置位时不得产生阻抗", result.impedanceOhm)
+    }
+
+    @Test
+    fun testXiaomiScale2StabilizedBeforeImpedanceHasNoImpedance() {
+        // 0224 EA07 0A10 102C05 FEFF E830 → 体重已稳定 62.600kg，但阻抗仍是 0xFFFF 无效占位
+        val invalidImp = MultiScalePacketParser.parseNotification("0224EA070A10102C05FEFFE830".hexToBytes(), null)
+        assertNotNull(invalidImp)
+        assertEquals(62.600, invalidImp!!.weightKg, 0.001)
+        assertTrue(invalidImp.isStable)
+        assertNull("has_impedance(bit1) 未置位时严禁读取 0xFFFF 占位值", invalidImp.impedanceOhm)
+
+        // 0224 …0000… → 阻抗 0x0000 同样无效（穿袜 / 未踩电极）
+        val zeroImp = MultiScalePacketParser.parseNotification("0224EA070A10102C050000E830".hexToBytes(), null)
+        assertNotNull(zeroImp)
+        assertNull(zeroImp!!.impedanceOhm)
+    }
+
+    @Test
+    fun testXiaomiScale2WakeUpStalePreviousReadingIsNotStable() {
+        // 02A6 EA07 0A10 100B21 8802 5230 → 秤刚唤醒时重播的上一次旧读数：
+        // weight removed(bit7)=1，虽带阻抗 648Ω，但绝非本次测量，严禁锁定入库
+        val result = MultiScalePacketParser.parseNotification("02A6EA070A10100B2188025230".hexToBytes(), null)
+        assertNotNull(result)
+        assertEquals(61.850, result.weightKg, 0.001)
+        assertFalse("weight removed(bit7) 置位的旧读数严禁判定为稳定测量", result.isStable)
+    }
+
+    @Test
+    fun testXiaomiScale2StepOffResidualWeightTreatedAsZero() {
+        // 0204 / 0284 … 1200 0014 00 → 下秤阶段残留的 0.1kg 读数，必须归零以触发上层复位
+        for (hex in listOf("0204EA070A10102C1200001400", "0284EA070A10102C1200001400")) {
+            val result = MultiScalePacketParser.parseNotification(hex.hexToBytes(), null)
+            assertNotNull(result)
+            assertEquals("下秤残余读数必须归零: $hex", 0.0, result!!.weightKg, 0.001)
+            assertFalse(result.isStable)
+            assertNull(result.impedanceOhm)
+        }
+    }
+
+    @Test
+    fun testXiaomiScale2UnitVariants() {
+        // kg：control_byte_1 = 0x02，精度 1/200 → 12500 / 200 = 62.5kg
+        val kg = MultiScalePacketParser.parseNotification("0224EA070A10102C050000D430".hexToBytes(), null)
+        assertNotNull(kg)
+        assertEquals(62.5, kg!!.weightKg, 0.001)
+
+        // 斤：control_byte_2 bit6 置位，精度 1/100 → 125.00 斤 × 0.5 = 62.5kg
+        val jin = MultiScalePacketParser.parseNotification("0244EA070A10102C050000D430".hexToBytes(), null)
+        assertNotNull(jin)
+        assertEquals(62.5, jin!!.weightKg, 0.001)
+
+        // lbs：control_byte_1 = 0x03，精度 1/100 → 137.79 lbs × 0.45359237 = 62.5kg
+        val lbs = MultiScalePacketParser.parseNotification("0324EA070A10102C050000D335".hexToBytes(), null)
+        assertNotNull(lbs)
+        assertEquals(62.5, lbs!!.weightKg, 0.01)
+    }
+
+    @Test
+    fun testXiaomiScale2FullWeighingSessionReplay() {
+        // 按时间顺序复刻实机抓包中的一次完整称重（17 种唯一报文）
+        val frames = listOf(
+            "02A6EA070A10100B2188025230", // 唤醒重播旧读数 61.85kg / 648Ω（removed）
+            "0204EA070A10102C0100001E2D", // 57.75kg 爬升
+            "0204EA070A10102C0100005230", // 61.85kg
+            "0204EA070A10102C0200009830", // 62.20kg
+            "0204EA070A10102C020000FC30", // 62.70kg
+            "0204EA070A10102C030000DE30", // 62.55kg
+            "0204EA070A10102C040000F230", // 62.65kg
+            "0204EA070A10102C050000F230", // 62.65kg
+            "0224EA070A10102C050000E830", // 稳定 62.600kg，阻抗待测
+            "0224EA070A10102C05FEFFE830", // 稳定 62.600kg，阻抗 0xFFFF 无效
+            "0226EA070A10102C059502E830", // 稳定 62.600kg + 661Ω ← 本次有效测量
+            "02A6EA070A10102C109502E830", // 下秤后重播最终结果
+            "0204EA070A10102C1200001400", // 0.1kg 残余
+            "0284EA070A10102C1200001400"  // 0.1kg 残余（removed）
         )
 
+        val parsed = frames.map { MultiScalePacketParser.parseNotification(it.hexToBytes(), null) }
+        assertTrue("实机抓包的每一帧都应能被解析", parsed.all { it != null })
+
+        // 只有第 9/10/11 帧（stabilized 且尚未下秤）才允许触发锁定
+        val stable = parsed.filter { it!!.isStable }
+        assertEquals("锁定帧数量", 3, stable.size)
+        assertEquals("锁定体重必须唯一且为最终值", listOf(62.6), stable.map { it!!.weightKg }.distinct())
+
+        // 阻抗只允许出现在带 has_impedance 标志的帧上
+        assertEquals(listOf(648.0, 661.0, 661.0), parsed.mapNotNull { it!!.impedanceOhm })
+
+        // 唤醒重播的旧读数与下秤残余值都不得进入稳定序列
+        assertTrue(stable.all { kotlin.math.abs(it!!.weightKg - 62.600) < 0.001 })
+    }
+
+    @Test
+    fun testXiaomiScale2BroadcastAdvertisement() {
+        // 实机完整 0x181B 广播 AD 结构（即踩即读，无需 GATT 连接）
         val result = MultiScalePacketParser.parseAdvertisementBytes(
-            rawBytes = byteArrayOf(0x02, 0x01, 0x06),
-            serviceUuidStrings = listOf("0000181B-0000-1000-8000-00805F9B34FB"),
-            bcsServiceData = bcsData
+            rawBytes = ("02010603021B1810161B180226EA070A10102C059502E830" +
+                        "06094D4942465309FF57015CCAD354BA2F").hexToBytes(),
+            serviceUuidStrings = listOf("0000181b-0000-1000-8000-00805f9b34fb"),
+            bcsServiceData = "0226EA070A10102C059502E830".hexToBytes()
         )
 
         assertNotNull("小米体脂秤 2 代广播 Service Data 必须被正确解析", result)
         assertEquals("Xiaomi Mi Scale 2", result!!.protocolName)
-        assertEquals(65.0, result.weightKg, 0.01)
+        assertEquals(62.600, result.weightKg, 0.001)
         assertTrue(result.isStable)
-        assertEquals(500.0, result.impedanceOhm!!, 0.1)
+        assertEquals(661.0, result.impedanceOhm!!, 0.001)
     }
 
     @Test
     fun testXiaomiBodyCompositionScale2StepOffZeroWeight() {
-        // 小米体脂秤 2 下秤 0.00kg 数据帧
+        // 小米体脂秤 2 下秤 0.00kg 数据帧（flags 全 0）
         val xiaomiZero = byteArrayOf(
             0x00.toByte(), 0x00.toByte(),
             0xEA.toByte(), 0x07.toByte(), 0x09.toByte(), 0x0F.toByte(), 0x0C.toByte(), 0x00.toByte(), 0x1E.toByte(),
@@ -499,21 +591,17 @@ class MultiScalePacketParserTest {
 
     @Test
     fun testPreferredModelPrioritizationXiaomi() {
-        val xiaomiData = byteArrayOf(
-            0xA2.toByte(), 0x00.toByte(),
-            0xEA.toByte(), 0x07.toByte(), 0x09.toByte(), 0x0F.toByte(), 0x0C.toByte(), 0x00.toByte(), 0x1E.toByte(),
-            0xF4.toByte(), 0x01.toByte(),
-            0xC8.toByte(), 0x32.toByte()
-        )
+        // 实机帧：0226… → 62.600kg + 661Ω
         val result = MultiScalePacketParser.parseNotification(
-            xiaomiData,
+            "0226EA070A10102C059502E830".hexToBytes(),
             null,
             preferredModel = ScaleModel.XIAOMI_SCALE_2
         )
         assertNotNull(result)
         assertTrue(result!!.protocolName.contains("Xiaomi"))
-        assertEquals(65.0, result.weightKg, 0.01)
+        assertEquals(62.600, result.weightKg, 0.001)
         assertTrue(result.isStable)
+        assertEquals(661.0, result.impedanceOhm!!, 0.001)
     }
 
     @Test
@@ -594,4 +682,8 @@ class MultiScalePacketParserTest {
         assertEquals("普通体脂秤", list[1].name)
         assertEquals("未知蓝牙设备", list[2].name)
     }
+
+    /** 把实机抓包中的十六进制报文直接写成测试用例。 */
+    private fun String.hexToBytes(): ByteArray =
+        chunked(2).map { it.toInt(16).toByte() }.toByteArray()
 }

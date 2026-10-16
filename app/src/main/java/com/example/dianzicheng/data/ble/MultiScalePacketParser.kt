@@ -431,36 +431,51 @@ object MultiScalePacketParser {
     // -------------------------------------------------------------------------
 
     /**
-     * 解析小米体脂秤 2 (Mi Body Composition Scale, 0x181B) 广播 Service Data。
-     * 13 字节结构：
-     * - Byte 0~1: Flags (小端序)
-     *   - Bit 0: 1 = lbs
-     *   - Bit 1: 1 = 读数锁定稳定 (stabilized)
-     *   - Bit 4: 1 = 斤 (catty)
-     *   - Bit 5: 1 = 测量完成 (stabilized)
-     *   - Bit 7: 1 = 阻抗已测出 (impedance measured)
-     * - Byte 2~7: 年月日时分秒
-     * - Byte 8~9: 阻抗 (UINT16 小端序，Ω)
-     * - Byte 10~11 或 11~12: 体重 (UINT16 小端序)
+     * 解析小米体脂秤 2 代 (Mi Body Composition Scale, 0x181B) 广播 / 通知数据帧（13 字节）。
+     *
+     * 字节布局（与开源实现 ble_monitor `miscale.py` 的 Mi Scale V2 分支一致，已用实机抓包逐帧核对）：
+     * - Byte 0     control_byte_1：单位/型号标识，`0x02` = kg，`0x03` = lbs
+     * - Byte 1     control_byte_2：状态标志位
+     *              - bit 1：阻抗已测出 (has impedance)
+     *              - bit 5：读数已稳定锁定 (stabilized)
+     *              - bit 6：单位为斤 / catty
+     *              - bit 7：已下秤 / 读数已移除 (weight removed)
+     * - Byte 2~8   年月日时分秒时间戳
+     * - Byte 9~10  阻抗 (UINT16 小端序，单位 Ω；未测出时为 0x0000 或 0xFFFF)
+     * - Byte 11~12 体重 (UINT16 小端序；kg 精度 1/200，斤与 lbs 精度 1/100)
+     *
+     * 历史缺陷（已修复）：早期实现把 Byte 0~1 当成一个小端序 16 位 flags 字，
+     * 于是 `hasImpedance` 实际测试的是 Byte 0 的 bit7（恒为 0，阻抗永远解析不出来），
+     * `isStable` 命中的是 Byte 0 的 bit1（恒为 1，把秤刚唤醒时重播的上一次旧读数也误判成稳定测量）。
      */
     private fun parseXiaomiBodyCompositionServiceData(data: ByteArray): ParsedScaleData? {
-        if (data.size < 12) return null
+        if (data.size < 13) return null
 
-        val flags = (data[0].toInt() and 0xFF) or ((data[1].toInt() and 0xFF) shl 8)
-        val isLbs = (flags and 0x01) != 0
-        val isCatty = (flags and 0x10) != 0
-        val isStable = (flags and (1 shl 5)) != 0 || (flags and (1 shl 1)) != 0
-        val hasImpedance = (flags and (1 shl 7)) != 0
+        val controlByte1 = data[0].toInt() and 0xFF
+        val controlByte2 = data[1].toInt() and 0xFF
 
-        // 阻抗位于 Byte 9~10 (13 字节包含秒数时) 或 Byte 8~9 (12 字节变体)
-        val impOffset = if (data.size >= 13) 9 else 8
-        val rawImp = (data[impOffset].toInt() and 0xFF) or ((data[impOffset + 1].toInt() and 0xFF) shl 8)
-        val impedance = if (hasImpedance && rawImp in 100..1500) rawImp.toDouble() else null
+        val hasImpedance = (controlByte2 and (1 shl 1)) != 0
+        val isStabilized = (controlByte2 and (1 shl 5)) != 0
+        val isCatty = (controlByte2 and (1 shl 6)) != 0
+        val weightRemoved = (controlByte2 and (1 shl 7)) != 0
+        val isLbs = controlByte1 == 3
 
-        // 体重位于尾部最后 2 字节（data.size - 2）
-        val wOffset = data.size - 2
-        val rawWeight = (data[wOffset].toInt() and 0xFF) or ((data[wOffset + 1].toInt() and 0xFF) shl 8)
-        if (rawWeight == 0) {
+        // 阻抗固定位于 Byte 9~10（小端序，单位 Ω）
+        val rawImpedance = (data[9].toInt() and 0xFF) or ((data[10].toInt() and 0xFF) shl 8)
+        val impedance = if (hasImpedance && rawImpedance in 100..1500) rawImpedance.toDouble() else null
+
+        // 体重固定位于 Byte 11~12（小端序）
+        val rawWeight = (data[11].toInt() and 0xFF) or ((data[12].toInt() and 0xFF) shl 8)
+
+        val weightKg = when {
+            isCatty -> (rawWeight / 100.0) * 0.5           // 1 斤 = 0.5 kg
+            isLbs   -> (rawWeight / 100.0) * 0.45359237    // 1 lb = 0.45359237 kg
+            else    -> rawWeight / 200.0                   // kg 精度 1/200 = 0.005kg
+        }
+
+        // 空秤与下秤残余读数：小米离秤阶段仍会持续广播约 0.1kg 的值，统一归零，
+        // 让上层像处理 0.0kg 离秤包一样复位测量状态
+        if (weightKg < 0.5) {
             return ParsedScaleData(
                 weightKg = 0.0,
                 isStable = false,
@@ -469,17 +484,14 @@ object MultiScalePacketParser {
             )
         }
 
-        val weightKg = when {
-            isCatty -> (rawWeight / 100.0) * 0.5   // 1 斤 = 0.5 kg
-            isLbs   -> (rawWeight / 100.0) * 0.45359237
-            else    -> rawWeight / 200.0           // 小米 kg 格式精度 1/200 = 0.005kg
-        }
-
-        if (weightKg < 2.0 || weightKg > 350.0) return null
+        if (weightKg > 350.0) return null
 
         return ParsedScaleData(
             weightKg = weightKg,
-            isStable = isStable && weightKg >= 3.0,
+            // 仅"读数已稳定 且 人仍站在秤上"才算有效锁定；
+            // 置了 weight removed(bit7) 的包通常是秤唤醒时重播的上一次旧读数，绝不能当作新测量入库
+            isStable = isStabilized && !weightRemoved && weightKg >= 3.0,
+            // 阻抗仍照常上报：部分固件只在带 removed 标志的收尾包中给出稳定阻抗，丢掉会永远测不出体脂
             impedanceOhm = impedance,
             protocolName = "Xiaomi Mi Scale 2"
         )
