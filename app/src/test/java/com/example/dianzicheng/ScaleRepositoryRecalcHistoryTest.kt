@@ -127,6 +127,32 @@ class ScaleRepositoryRecalcHistoryTest {
         biaModel = BiaModel.DEFAULT
     ).bodyFatPct
 
+    /**
+     * 用默认模型算一次，得到一条**五项指标都已填好**的完整基线记录。
+     *
+     * 注意：[measurement] 只填体脂率，肌肉量/水分/蛋白质/骨量都留 0；
+     * 而 [BodyMeasurement.isBiaEquivalentTo] 会逐项比较这五项，
+     * 用这种"只有体脂率"的记录去验证「同模型重算应判定为未变化」必然失败
+     * （其余四项 0.0 与重算出的非 0 值不等）。因此这里需要完整基线。
+     */
+    private fun baselineMeasurement(id: String, memberId: String? = "m1"): MeasurementEntity {
+        val calc = BodyAlgorithm.calculate(
+            weightKg = 70.0,
+            impedanceOhm = 500.0,
+            sex = Sex.MALE,
+            heightCm = 175.0,
+            birthDateEpochMs = member.birthDateEpochMs,
+            biaModel = BiaModel.DEFAULT
+        )
+        return measurement(id, memberId).copy(
+            bodyFatPct = calc.bodyFatPct,
+            muscleKg = calc.muscleKg,
+            waterPct = calc.waterPct,
+            proteinPct = calc.proteinPct,
+            boneMassKg = calc.boneMassKg
+        )
+    }
+
     /** 期望的新模型体脂率 */
     private fun expectedFat(model: BiaModel): Double = BodyAlgorithm.calculate(
         weightKg = 70.0,
@@ -215,10 +241,10 @@ class ScaleRepositoryRecalcHistoryTest {
     fun recalculateReportsUnchangedWhenSameModel() = runBlocking {
         val dao = FakeDao().apply {
             members.value = listOf(member)
-            // 先写入默认模型的精确结果，再用默认模型重算 → 应判定为未变化
+            // 先写入默认模型的精确结果（含全部五项派生指标），再用默认模型重算 → 应判定为未变化
             measurements.value = listOf(
-                measurement("a", fat = baselineFat()),
-                measurement("b", fat = baselineFat())
+                baselineMeasurement("a"),
+                baselineMeasurement("b")
             )
         }
         val repo = ScaleRepository(dao)
