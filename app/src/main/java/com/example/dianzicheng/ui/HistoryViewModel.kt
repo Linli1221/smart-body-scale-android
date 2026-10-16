@@ -6,6 +6,7 @@ import com.example.dianzicheng.data.health.HealthConnectManager
 import com.example.dianzicheng.data.local.PreferenceManager
 import com.example.dianzicheng.data.repository.ScaleRepository
 import com.example.dianzicheng.domain.BodyMeasurement
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -39,6 +40,30 @@ class HistoryViewModel(
      */
     val members: StateFlow<List<com.example.dianzicheng.domain.FamilyMember>> = repository.getMembers()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /**
+     * 用户自定义的身体指标展示顺序（体重 / BMI / 体脂率 / 肌肉量 / 蛋白质 / 骨量）。
+     *
+     * 历史页的趋势卡片按此顺序渲染；未自定义时由
+     * [com.example.dianzicheng.domain.BodyMetric.defaultOrder] 提供默认顺序。
+     */
+    val bodyMetricOrder: StateFlow<List<com.example.dianzicheng.domain.BodyMetric>> =
+        preferenceManager?.bodyMetricOrder
+            ?.stateIn(viewModelScope, SharingStarted.Eagerly, com.example.dianzicheng.domain.BodyMetric.defaultOrder)
+            ?: MutableStateFlow(com.example.dianzicheng.domain.BodyMetric.defaultOrder)
+
+    /**
+     * 保存用户调整后的指标顺序。
+     *
+     * 立即写入 DataStore，[bodyMetricOrder] 随后自动推送新顺序刷新界面。
+     * 未注入 [PreferenceManager] 时为无操作（如 Preview 场景）。
+     */
+    fun saveBodyMetricOrder(order: List<com.example.dianzicheng.domain.BodyMetric>) {
+        val manager = preferenceManager ?: return
+        viewModelScope.launch {
+            manager.saveBodyMetricOrder(order)
+        }
+    }
 
     /**
      * 删除单条测量记录。

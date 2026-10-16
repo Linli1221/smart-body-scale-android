@@ -19,6 +19,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -42,6 +45,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.dianzicheng.domain.BodyMeasurement
+import com.example.dianzicheng.domain.BodyMetric
+import com.example.dianzicheng.domain.BodyMetricOrderCodec
 import com.example.dianzicheng.domain.FamilyMember
 import com.example.dianzicheng.domain.Sex
 import com.example.dianzicheng.ui.theme.电子秤Theme
@@ -53,6 +58,8 @@ import java.util.*
 fun HistoryContent(
     history: List<BodyMeasurement>,
     members: List<FamilyMember> = emptyList(),
+    metricOrder: List<BodyMetric> = BodyMetric.defaultOrder,
+    onSaveMetricOrder: (List<BodyMetric>) -> Unit = {},
     onDelete: (BodyMeasurement) -> Unit,
     onNavigateToDetail: (String) -> Unit,
     /** 点击列表最底部的「历史数据」入口，进入完整的历史数据统计页 */
@@ -62,6 +69,7 @@ fun HistoryContent(
     val dateFormat = remember { SimpleDateFormat("MM月dd日 HH:mm", Locale.getDefault()) }
     var selectedMemberId by remember { mutableStateOf<String?>(null) }
     var measurementToDelete by remember { mutableStateOf<BodyMeasurement?>(null) }
+    var showMetricOrderDialog by remember { mutableStateOf(false) }
 
     val filteredHistory = remember(history, selectedMemberId) {
         if (selectedMemberId == null) {
@@ -94,6 +102,17 @@ fun HistoryContent(
                     Text("取消")
                 }
             }
+        )
+    }
+
+    if (showMetricOrderDialog) {
+        MetricOrderDialog(
+            order = metricOrder,
+            onMove = { from, to ->
+                onSaveMetricOrder(BodyMetricOrderCodec.move(metricOrder, from, to))
+            },
+            onReset = { onSaveMetricOrder(BodyMetric.defaultOrder) },
+            onDismiss = { showMetricOrderDialog = false }
         )
     }
 
@@ -163,6 +182,57 @@ fun HistoryContent(
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 8.dp)
                     )
+                }
+
+                // ── 指标趋势区：按用户自定义顺序渲染各指标的趋势卡片 ──
+                item(key = "metric_trend_header") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "指标趋势",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(
+                            onClick = { showMetricOrderDialog = true },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                            modifier = Modifier.height(32.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Sort,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("调整顺序", fontSize = 12.sp)
+                        }
+                    }
+                }
+
+                items(metricOrder, key = { "trend_${it.name}" }) { metric ->
+                    // 时间正序取该指标的全部有效值；0 值（未赤脚称重）由 valueOf 过滤
+                    val series = remember(filteredHistory, metric) {
+                        filteredHistory
+                            .sortedBy { it.measuredAtEpochMs }
+                            .mapNotNull { metric.valueOf(it) }
+                    }
+                    if (series.isNotEmpty()) {
+                        Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                            MetricTrendCard(
+                                label = metric.label,
+                                values = series,
+                                unit = metric.unit,
+                                decimals = metric.decimals,
+                                hint = "仅一次测量，暂无趋势"
+                            )
+                        }
+                    }
                 }
 
                 if (filteredHistory.isEmpty()) {
@@ -469,6 +539,216 @@ fun HistoryDataEntryCard(onClick: () -> Unit, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * 历史页的指标趋势卡片。
+ *
+ * 卡片顶部为指标名 + 最新值，下方是按时间正序绘制的迷你走势线。
+ * 走势线只反映变化趋势（按序列自身归一化），具体数值由上方文字给出。
+ *
+ * 数据不足时的降级：
+ * - 有效值少于 2 个时不画走势线，仅在右上角提示原因；
+ * - 完全没有有效值时整张卡片不渲染（由调用方过滤）。
+ *
+ * @param label     指标名（如「BMI」「体脂率」）
+ * @param values    按时间正序的有效值序列
+ * @param unit      单位后缀
+ * @param decimals  数值小数位数
+ * @param hint      数据不足时展示的说明文字
+ */
+@Composable
+fun MetricTrendCard(
+    label: String,
+    values: List<Double>,
+    unit: String,
+    decimals: Int,
+    hint: String,
+    modifier: Modifier = Modifier
+) {
+    val fmt = "%.${decimals}f"
+    val latest = values.lastOrNull()
+
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = (latest?.let { String.format(fmt, it) + unit } ?: "--"),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Black,
+                    color = if (latest != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                )
+            }
+
+            if (values.size >= 2) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Sparkline(
+                    values = values.takeLast(20),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp)
+                )
+            } else {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = hint,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 迷你走势线：折线 + 渐变面积 + 末点高亮。
+ *
+ * 纵向按序列自身的最小/最大值归一化，不绘制坐标轴与刻度，
+ * 因此图形只表达趋势形状，不表达绝对区间。
+ */
+@Composable
+fun Sparkline(
+    values: List<Double>,
+    modifier: Modifier = Modifier,
+    lineColor: Color = MaterialTheme.colorScheme.primary
+) {
+    if (values.size < 2) return
+
+    androidx.compose.foundation.Canvas(modifier = modifier) {
+        val minVal = values.min()
+        val maxVal = values.max()
+        val range = if (maxVal > minVal) maxVal - minVal else 1.0
+        val w = size.width
+        val h = size.height
+        val step = w / (values.size - 1).toFloat()
+
+        fun yOf(v: Double) = (h * (1.0 - (v - minVal) / range)).toFloat()
+
+        val fillPath = Path()
+        fillPath.moveTo(0f, yOf(values.first()))
+        for (i in 1 until values.size) {
+            fillPath.lineTo(i * step, yOf(values[i]))
+        }
+        fillPath.lineTo(w, h)
+        fillPath.lineTo(0f, h)
+        fillPath.close()
+        drawPath(
+            path = fillPath,
+            brush = Brush.verticalGradient(
+                colors = listOf(lineColor.copy(alpha = 0.22f), lineColor.copy(alpha = 0f)),
+                startY = 0f,
+                endY = h
+            )
+        )
+
+        val linePath = Path()
+        linePath.moveTo(0f, yOf(values.first()))
+        for (i in 1 until values.size) {
+            linePath.lineTo(i * step, yOf(values[i]))
+        }
+        drawPath(
+            path = linePath,
+            color = lineColor,
+            style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+        )
+
+        drawCircle(lineColor, radius = 3.5.dp.toPx(), center = Offset(w, yOf(values.last())))
+    }
+}
+
+/**
+ * 指标顺序调整弹窗。
+ *
+ * 列表项可上移/下移，实时生效（每次移动即写回 DataStore），
+ * 因此「恢复默认」与「完成」都不需要显式保存动作。
+ * 顺序持久化由 [HistoryViewModel.saveBodyMetricOrder] 完成。
+ */
+@Composable
+fun MetricOrderDialog(
+    order: List<BodyMetric>,
+    onMove: (Int, Int) -> Unit,
+    onReset: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("调整指标顺序", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "拖动或点击箭头调整趋势卡片的展示顺序",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+
+                order.forEachIndexed { index, metric ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${index + 1}.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.width(28.dp)
+                        )
+                        Text(
+                            text = metric.label,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(
+                            onClick = { onMove(index, index - 1) },
+                            enabled = index > 0,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.KeyboardArrowUp,
+                                contentDescription = "上移",
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = { onMove(index, index + 1) },
+                            enabled = index < order.lastIndex,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.KeyboardArrowDown,
+                                contentDescription = "下移",
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("完成")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onReset) {
+                Text("恢复默认")
+            }
+        }
+    )
+}
+
 
 @Composable
 fun WeightTrendChart(
@@ -654,9 +934,12 @@ fun HistoryScreen(
 ) {
     val history by viewModel.history.collectAsState()
     val members by viewModel.members.collectAsState()
+    val metricOrder by viewModel.bodyMetricOrder.collectAsState()
     HistoryContent(
         history = history,
         members = members,
+        metricOrder = metricOrder,
+        onSaveMetricOrder = { viewModel.saveBodyMetricOrder(it) },
         onDelete = { viewModel.deleteMeasurement(it) },
         onNavigateToDetail = onNavigateToDetail,
         onNavigateToHistoryData = onNavigateToHistoryData,

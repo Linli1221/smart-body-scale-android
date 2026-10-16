@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.map
 
 import androidx.datastore.preferences.core.stringPreferencesKey
 
+import com.example.dianzicheng.domain.BodyMetric
+import com.example.dianzicheng.domain.BodyMetricOrderCodec
 import com.example.dianzicheng.domain.RememberedScale
 import com.example.dianzicheng.domain.ScaleMemory
 import com.example.dianzicheng.domain.ScaleMemoryLogic
@@ -78,6 +80,12 @@ class PreferenceManager(private val context: Context) {
     /** 用户手动选择的体脂秤型号 ID（如 "BOOHEE_YOLANDA", "XIAOMI_SCALE_2", 默认为 "AUTO"） */
     private val SELECTED_SCALE_MODEL = stringPreferencesKey("selected_scale_model")
 
+    /**
+     * 用户自定义的身体指标展示顺序（逗号分隔的枚举名，见 [com.example.dianzicheng.domain.BodyMetricOrderCodec]）。
+     * 未设置时回落到 [com.example.dianzicheng.domain.BodyMetric.defaultOrder]。
+     */
+    private val BODY_METRIC_ORDER = stringPreferencesKey("body_metric_order_v1")
+
     // ── 读取操作（Flow） ─────────────────────────────────────────────────────
 
     /** 是否已完成设备配对，默认 false */
@@ -87,6 +95,18 @@ class PreferenceManager(private val context: Context) {
     /** 用户手动选择的体脂秤型号 ID，默认为 "AUTO" */
     val selectedScaleModel: Flow<String> = context.dataStore.data
         .map { preferences -> preferences[SELECTED_SCALE_MODEL] ?: "AUTO" }
+
+    /**
+     * 用户自定义的身体指标展示顺序。
+     *
+     * 始终返回包含全部指标的完整列表；解析逻辑对脏数据宽容，
+     * 见 [com.example.dianzicheng.domain.BodyMetricOrderCodec.decode]。
+     */
+    val bodyMetricOrder: Flow<List<com.example.dianzicheng.domain.BodyMetric>> = context.dataStore.data
+        .map { preferences ->
+            BodyMetricOrderCodec.decode(preferences[BODY_METRIC_ORDER])
+        }
+        .distinctUntilChanged()
 
     /**
      * 全部已记住的体脂秤（最近使用优先）。
@@ -292,6 +312,23 @@ class PreferenceManager(private val context: Context) {
     suspend fun saveSelectedScaleModel(modelId: String) {
         context.dataStore.edit { preferences ->
             preferences[SELECTED_SCALE_MODEL] = modelId
+        }
+    }
+
+    /**
+     * 保存用户自定义的身体指标展示顺序。
+     *
+     * 传入空列表时等价于恢复默认顺序（直接移除该键，
+     * 让读取侧回落到 [com.example.dianzicheng.domain.BodyMetric.defaultOrder]）。
+     */
+    suspend fun saveBodyMetricOrder(order: List<com.example.dianzicheng.domain.BodyMetric>) {
+        context.dataStore.edit { preferences ->
+            val encoded = BodyMetricOrderCodec.encode(order)
+            if (encoded.isBlank()) {
+                preferences.remove(BODY_METRIC_ORDER)
+            } else {
+                preferences[BODY_METRIC_ORDER] = encoded
+            }
         }
     }
 
