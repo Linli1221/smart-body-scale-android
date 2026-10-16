@@ -14,11 +14,27 @@ import java.util.*
 
 private const val TAG = "BleScaleClient"
 
+/** 薄荷健康 B1：秤在该时长内不再上报任何数据帧，即判定用户已下秤（秤进入空闲）。 */
+private const val AFUB1_IDLE_MS = 2000L
+
+/** 薄荷健康 B1：提交流程等待秤空闲的轮询间隔。 */
+private const val AFUB1_IDLE_POLL_MS = 250L
+
+/** 薄荷健康 B1：下发「拉取本次记录」命令后，等待秤端回推最新记录的最长时间。 */
+private const val AFUB1_COMMIT_TIMEOUT_MS = 15000L
+
+/** 薄荷健康 B1：判定「本次刚产生的记录」时允许的时间偏差（秒）。 */
+private const val AFUB1_FRESH_RECORD_WINDOW_S = 600L
+
+/** 薄荷健康 B1：判定「本次刚产生的记录」时允许的体重偏差（克）。 */
+private const val AFUB1_FRESH_WEIGHT_TOLERANCE_G = 1000
+
 /**
  * BLE 蓝牙体脂秤客户端，负责完整的蓝牙生命周期管理：
  * 扫描 → 发现设备 → GATT 连接 → 服务发现 → 订阅通知 → 握手 → 数据接收与解析。
  *
- * 内部通过 [MultiScalePacketParser] 对收到的特征值通知数据进行解析（薄荷健康/沃莱与小米体脂秤 2 代），
+ * 内部通过 [MultiScalePacketParser] 解析薄荷健康/沃莱与小米体脂秤 2 代报文；
+ * 薄荷健康 B1（AFU-BH-TZ-B1）的 20 字节 AF 45 帧则由 [AFUB1PacketParser] 配合专属状态机处理，
  * 并以 [StateFlow] 的形式向上层（ViewModel / UI）暴露实时状态：
  * - [connectionState]：当前连接状态枚举
  * - [weight]：实时体重（kg）
@@ -46,6 +62,7 @@ class BleScaleClient(private val context: Context) {
     private val SUPPORTED_SERVICE_UUIDS = setOf(
         MultiScalePacketParser.UUID_SERVICE_AFU,        // 0xFFB0 (薄荷健康/沃莱 AFU 私有协议)
         MultiScalePacketParser.UUID_SERVICE_YOLANDA,    // 0xFFA0 (薄荷健康/沃莱 Yolanda 扩展)
+        AFUB1PacketParser.SERVICE_UUID,                 // 0xFC50 (薄荷健康 B1 / AFU-BH-TZ-B1)
         MultiScalePacketParser.UUID_SERVICE_SIG_BCS     // 0x181B (小米体脂秤 2 代 Body Composition)
     )
 
@@ -141,6 +158,42 @@ class BleScaleClient(private val context: Context) {
     private val MAX_GATT_RETRY = 5
 
     // -------------------------------------------------------------------------
+    // 薄荷健康 B1 (AFU-BH-TZ-B1) 专属会话状态
+    // -------------------------------------------------------------------------
+
+    /** 当前连接设备是否为薄荷健康 B1（AFU-BH-TZ-B1，自定义服务 0xFC50）。 */
+    private var isAfuB1Device = false
+
+    /** B1 命令写入特征（af000002）所在服务与特征 UUID，连接后从 GATT 树动态解析。 */
+    private var afuB1WriteServiceUuid: java.util.UUID? = null
+    private var afuB1WriteCharUuid: java.util.UUID? = null
+
+    /** B1 握手是否已完成、用户档案是否已下发。 */
+    private var afuB1HandshakeDone = false
+    private var afuB1ProfileSent = false
+
+    /** 最近一次收到 B1 数据帧的时刻，用于判定秤是否已空闲（用户下秤）。 */
+    private var afuB1LastFrameAt = 0L
+
+    /** 本次称重最终锁定的体重（克），用于识别秤端回推的是否为「本次」记录。 */
+    private var afuB1FinalWeightG = 0
+
+    /** B1 提交流程状态：是否已启动、是否已下发拉取命令、截止时刻、是否已收到本次记录。 */
+    private var afuB1CommitStarted = false
+    private var afuB1CommitRequested = false
+    private var afuB1CommitDeadline = 0L
+    private var afuB1FreshRecordSeen = false
+    private var afuB1CommitRunnable: Runnable? = null
+
+    /** 已处理过的 B1 记录指纹，避免秤端反复重投同一条历史记录造成重复入库。 */
+    private val afuB1SeenRecords = mutableSetOf<String>()
+
+    /** B1 用户档案参数（年龄 / 是否男性 / 目标体重），由上层按所选家庭成员同步。 */
+    var afuB1UserAge: Int = 30
+    var afuB1UserIsMale: Boolean = true
+    var afuB1UserTargetKg: Double = 60.0
+
+    // -------------------------------------------------------------------------
     // 广播数据辅助解析工具方法
     // -------------------------------------------------------------------------
 
@@ -171,6 +224,12 @@ class BleScaleClient(private val context: Context) {
             name.contains("小米", ignoreCase = true) ||
             scanRecord?.serviceUuids?.any { it.uuid.toString().uppercase().contains("181B") } == true) {
             return ScaleModel.XIAOMI_SCALE_2
+        }
+
+        // 薄荷健康 B1 (AFU-BH-TZ-B1)：广播名以 AFU 开头（如 AFU-BH-TZ-B1 / AFU-WL-TZ-A1），服务 0xFC50
+        if (name.startsWith("AFU", ignoreCase = true) ||
+            scanRecord?.serviceUuids?.any { it.uuid == AFUB1PacketParser.SERVICE_UUID } == true) {
+            return ScaleModel.BOOHEE_YOLANDA
         }
 
         // 薄荷健康 / 沃莱：0xFFB0 专属服务，或设备名包含品牌关键词
@@ -278,7 +337,10 @@ class BleScaleClient(private val context: Context) {
             name.startsWith("BH-", ignoreCase = true) ||
             name.contains("Fitdays", ignoreCase = true) ||
             name.contains("轻牛", ignoreCase = true) ||
-            name.contains("合泰", ignoreCase = true)
+            name.contains("合泰", ignoreCase = true) ||
+            name.startsWith("AFU", ignoreCase = true) ||
+            name.contains("TZ-B1", ignoreCase = true) ||
+            name.contains("BH-TZ", ignoreCase = true)
         } == true
         if (nameMatched) return true
 
@@ -311,8 +373,9 @@ class BleScaleClient(private val context: Context) {
                 }
                 if (type == 0x16 && len >= 2) {
                     val b0 = rawBytes[i + 2].toInt() and 0xFF
-                    // 服务数据首字节为 0xAC / 0xA2 / 0xA3 / 0xCA 时判定为薄荷健康/沃莱
-                    if (b0 == 0xAC || b0 == 0xA2 || b0 == 0xA3 || b0 == 0xCA) return true
+                    // 服务数据首字节为 0xAC / 0xA2 / 0xA3 / 0xCA 时判定为薄荷健康/沃莱；
+                    // 0xAF 为薄荷健康 B1 (AFU-BH-TZ-B1) 的 0xFC50 服务数据帧头
+                    if (b0 == 0xAC || b0 == 0xA2 || b0 == 0xA3 || b0 == 0xCA || b0 == 0xAF) return true
                 }
                 i += len + 1
             }
@@ -680,6 +743,8 @@ class BleScaleClient(private val context: Context) {
         connectTimeoutRunnable = null
         descriptorTimeoutRunnable?.let { handler.removeCallbacks(it) }
         descriptorTimeoutRunnable = null
+        // 每次重新扫描都重置薄荷健康 B1 会话，避免上一轮记录指纹抑制本次识别
+        resetAfuB1Session()
 
         // 关闭旧的 GATT 连接，释放系统蓝牙资源
         try {
@@ -827,6 +892,8 @@ class BleScaleClient(private val context: Context) {
         // 取消描述符超时看门狗
         descriptorTimeoutRunnable?.let { handler.removeCallbacks(it) }
         descriptorTimeoutRunnable = null
+        // 清空薄荷健康 B1 会话状态与未执行的提交流程
+        resetAfuB1Session()
 
         stopScan()
         try {
@@ -1001,6 +1068,15 @@ class BleScaleClient(private val context: Context) {
                 }
             }
         }
+
+        // 薄荷健康 B1 (AFU-BH-TZ-B1)：握手为「对时 + 连续两次同步请求」。
+        // 用户档案（0x3F）必须等实时称重开始后再下发，过早下发会把秤切到称重模式并阻断其历史队列。
+        if (isAfuB1Device) {
+            sendAfuB1TimeSync()
+            sendAfuB1SyncRequestPair()
+            afuB1HandshakeDone = true
+            AppLogger.i(TAG, "薄荷健康 B1 握手已发送 (对时 + 2x 同步请求)")
+        }
     }
 
     /**
@@ -1118,7 +1194,8 @@ class BleScaleClient(private val context: Context) {
      * 处理流程：
      * 1. 打印原始十六进制数据日志，便于调试。
      * 2. 重置 2.5 秒无数据超时看门狗定时器。
-     * 3. 调用 [MultiScalePacketParser.parseNotification] 解析薄荷健康/沃莱或小米体脂秤 2 代报文；
+     * 3. 薄荷健康 B1 的 20 字节 AF 45 帧交给 [handleAfuB1Frame] 专属状态机处理（需逐帧确认）；
+     *    其余报文调用 [MultiScalePacketParser.parseNotification] 解析薄荷健康/沃莱或小米体脂秤 2 代，
      *    若体重 >= 3.0kg 且协议标志为稳定，则锁定稳定状态并切换到 [ConnectionState.MEASURING]。
      * 4. 解析出的有效阻抗会实时更新阻抗状态流。
      *
@@ -1149,20 +1226,16 @@ class BleScaleClient(private val context: Context) {
             AppLogger.d(TAG, "收到蓝牙数据 (${data.size} 字节)$parsedDetails")
         }
 
-        // 重置 2.5s 无数据包超时定时器（下秤停测后，自动重置状态，确保下一次称重生成全新记录）
-        inactivityRunnable?.let { handler.removeCallbacks(it) }
-        val watchdog = Runnable {
-            AppLogger.d(TAG, "无数据超时 (2.5s): 用户已下秤，重置测量状态")
-            // 超时后将所有测量状态重置为 0，为下次称重做准备
-            _weight.value = 0.0
-            _isStable.value = false
-            _impedance.value = 0.0
-            if (_connectionState.value == ConnectionState.MEASURING) {
-                _connectionState.value = ConnectionState.CONNECTED
-            }
+        // 薄荷健康 B1 (AFU-BH-TZ-B1)：20 字节 AF 45 帧由专属状态机处理，
+        // 需要逐帧回确认、并在用户下秤后主动拉取本次测量记录，不能走通用解析分支。
+        if (AFUB1PacketParser.isAfuB1Frame(data)) {
+            resetInactivityWatchdog()
+            handleAfuB1Frame(data)
+            return
         }
-        inactivityRunnable = watchdog
-        handler.postDelayed(watchdog, 2500)  // 2500ms 无数据则认为用户已下秤
+
+        // 重置 2.5s 无数据包超时定时器（下秤停测后，自动重置状态，确保下一次称重生成全新记录）
+        resetInactivityWatchdog()
 
         // 更新测量结果
         scaleResult?.let { result ->
@@ -1197,6 +1270,282 @@ class BleScaleClient(private val context: Context) {
                 }
             }
         }
+    }
+
+    /**
+     * 重置 2.5 秒无数据看门狗。超时即视为用户已下秤，归零全部测量状态，
+     * 确保下一次称重生成全新记录而不会叠加到上一次结果上。
+     */
+    private fun resetInactivityWatchdog() {
+        inactivityRunnable?.let { handler.removeCallbacks(it) }
+        val watchdog = Runnable {
+            AppLogger.d(TAG, "无数据超时 (2.5s): 用户已下秤，重置测量状态")
+            // 超时后将所有测量状态重置为 0，为下次称重做准备
+            _weight.value = 0.0
+            _isStable.value = false
+            _impedance.value = 0.0
+            if (_connectionState.value == ConnectionState.MEASURING) {
+                _connectionState.value = ConnectionState.CONNECTED
+            }
+        }
+        inactivityRunnable = watchdog
+        handler.postDelayed(watchdog, 2500)  // 2500ms 无数据则认为用户已下秤
+    }
+
+    // -------------------------------------------------------------------------
+    // 薄荷健康 B1 (AFU-BH-TZ-B1) 专属状态机
+    // -------------------------------------------------------------------------
+
+    /** 在服务发现结果中识别薄荷健康 B1，并动态定位其命令写入特征（af000002）。 */
+    private fun detectAfuB1Device(gatt: BluetoothGatt) {
+        if (gatt.services.none { it.uuid == AFUB1PacketParser.SERVICE_UUID }) {
+            isAfuB1Device = false
+            return
+        }
+        isAfuB1Device = true
+        afuB1HandshakeDone = false
+        afuB1ProfileSent = false
+        afuB1SeenRecords.clear()
+        afuB1WriteServiceUuid = null
+        afuB1WriteCharUuid = null
+
+        outer@ for (service in gatt.services) {
+            for (char in service.characteristics) {
+                if (char.uuid == AFUB1PacketParser.WRITE_CHARACTERISTIC_UUID) {
+                    afuB1WriteServiceUuid = service.uuid
+                    afuB1WriteCharUuid = char.uuid
+                    break@outer
+                }
+            }
+        }
+        AppLogger.i(
+            TAG,
+            "识别到薄荷健康 B1 (AFU-BH-TZ-B1)，命令写入特征: " +
+                (afuB1WriteCharUuid?.toString() ?: "未在 GATT 树中找到，将按默认 UUID 尝试")
+        )
+    }
+
+    /** 解析 B1 命令写入特征：优先使用服务发现阶段记录的实例，其次全树兜底查找。 */
+    private fun resolveAfuB1WriteCharacteristic(gatt: BluetoothGatt): BluetoothGattCharacteristic? {
+        afuB1WriteServiceUuid?.let { svcUuid ->
+            gatt.getService(svcUuid)
+                ?.getCharacteristic(AFUB1PacketParser.WRITE_CHARACTERISTIC_UUID)
+                ?.let { return it }
+        }
+        for (service in gatt.services) {
+            service.getCharacteristic(AFUB1PacketParser.WRITE_CHARACTERISTIC_UUID)?.let { return it }
+        }
+        return null
+    }
+
+    /** 向 B1 下发一个 20 字节协议帧。 */
+    private fun writeAfuB1(frame: ByteArray): Boolean {
+        val gatt = bluetoothGatt ?: return false
+        val characteristic = resolveAfuB1WriteCharacteristic(gatt)
+        val frameHex = frame.joinToString(" ") { "%02X".format(it) }
+        if (characteristic == null) {
+            AppLogger.w(TAG, "B1 写入特征 (af000002) 不存在，跳过命令: $frameHex")
+            return false
+        }
+        val props = characteristic.properties
+        val writeType = if (props and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0 &&
+            props and BluetoothGattCharacteristic.PROPERTY_WRITE == 0) {
+            BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+        } else {
+            BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+        }
+        characteristic.writeType = writeType
+        val success = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            gatt.writeCharacteristic(characteristic, frame, writeType) ==
+                android.bluetooth.BluetoothStatusCodes.SUCCESS
+        } else {
+            @Suppress("DEPRECATION")
+            characteristic.value = frame
+            @Suppress("DEPRECATION")
+            gatt.writeCharacteristic(characteristic)
+        }
+        BleProtocolRecorder.recordWrite(
+            charUuid = characteristic.uuid,
+            serviceUuid = afuB1WriteServiceUuid ?: AFUB1PacketParser.WRITE_SERVICE_UUID,
+            value = frame,
+            writeType = writeType,
+            success = success
+        )
+        AppLogger.d(TAG, "B1 下发命令 (${if (success) "成功" else "失败"}): $frameHex")
+        return success
+    }
+
+    private fun sendAfuB1TimeSync() {
+        writeAfuB1(AFUB1PacketParser.buildTimeSync(System.currentTimeMillis() / 1000L))
+    }
+
+    private fun sendAfuB1SyncRequestPair() {
+        writeAfuB1(AFUB1PacketParser.buildSyncRequest(AFUB1PacketParser.SyncRequestVariant.FIRST))
+        writeAfuB1(AFUB1PacketParser.buildSyncRequest(AFUB1PacketParser.SyncRequestVariant.SECOND))
+    }
+
+    private fun sendAfuB1UserProfile(variant: AFUB1PacketParser.ProfileVariant) {
+        writeAfuB1(
+            AFUB1PacketParser.buildUserProfile(
+                variant = variant,
+                nowEpochSeconds = System.currentTimeMillis() / 1000L,
+                user = AFUB1PacketParser.SCALE_USER_SLOT,
+                age = afuB1UserAge,
+                sex = if (afuB1UserIsMale) 1 else 0,
+                targetKg = afuB1UserTargetKg.toFloat()
+            )
+        )
+    }
+
+    /**
+     * 处理一帧薄荷健康 B1 数据。
+     *
+     * 与旧协议的差别：
+     * 1. 秤端未被确认的帧会反复重投，因此每一帧都必须回确认（记录帧还需回带序号）；
+     * 2. 体重锁定后必须等用户下秤、秤进入空闲，再主动下发「重新测量 + 分片请求」，
+     *    才能拉取到本次的完整记录（含阻抗）；否则只能拿到实时体重。
+     */
+    private fun handleAfuB1Frame(raw: ByteArray) {
+        val frame = AFUB1PacketParser.parse(raw) ?: return
+        afuB1LastFrameAt = System.currentTimeMillis()
+
+        if (frame.ackReplyByte != 0) {
+            val correlation = (frame as? AFUB1PacketParser.Frame.StoredRecord)?.sequence ?: 0
+            writeAfuB1(AFUB1PacketParser.buildAck(frame.ackReplyByte, correlation))
+        }
+
+        when (frame) {
+            is AFUB1PacketParser.Frame.LiveWeight -> {
+                val weightKg = frame.weightGrams / 1000.0
+                _weight.value = weightKg
+                val locked = frame.locked && weightKg >= 3.0
+                _isStable.value = locked
+                if (locked) {
+                    if (_connectionState.value != ConnectionState.MEASURING) {
+                        _connectionState.value = ConnectionState.MEASURING
+                    }
+                    afuB1FinalWeightG = frame.weightGrams
+                    startAfuB1CommitFlow()
+                } else {
+                    // 实时动态称重阶段强制清零阻抗，杜绝上一轮残留
+                    _impedance.value = 0.0
+                }
+                // 开始实时称重后才允许下发用户档案（过早下发会阻断秤端历史队列）
+                if (afuB1HandshakeDone && !afuB1ProfileSent) {
+                    afuB1ProfileSent = true
+                    sendAfuB1UserProfile(AFUB1PacketParser.ProfileVariant.INITIAL)
+                    AppLogger.i(TAG, "B1 实时称重已开始，用户档案 (0x3F) 已下发")
+                }
+            }
+
+            is AFUB1PacketParser.Frame.StoredRecord -> {
+                val weightKg = frame.weightGrams / 1000.0
+                val fingerprint = "${frame.timestampEpochSeconds}:${frame.weightGrams}:${frame.resistanceOhms}"
+                val isNew = afuB1SeenRecords.add(fingerprint)
+                // 仅接受「本次称重刚产生」的记录：历史记录绝不能覆盖当前测量结果
+                val isFresh = afuB1FinalWeightG > 0 &&
+                    Math.abs(frame.weightGrams - afuB1FinalWeightG) <= AFUB1_FRESH_WEIGHT_TOLERANCE_G &&
+                    Math.abs(System.currentTimeMillis() / 1000L - frame.timestampEpochSeconds) <= AFUB1_FRESH_RECORD_WINDOW_S
+                if (isFresh) {
+                    afuB1FreshRecordSeen = true
+                    // 只取用记录里的阻抗：体重与锁定状态已由 0x51 实时帧给出。
+                    // 若此处再改写 _weight/_isStable，上层会把「记录回推」误判成又踩了一次秤，
+                    // 从而为同一次称重生成重复记录。
+                    if (frame.resistanceOhms > 0) {
+                        _impedance.value = frame.resistanceOhms.toDouble()
+                    }
+                }
+                AppLogger.i(
+                    TAG,
+                    "B1 记录: ${weightKg}kg 阻抗=${frame.resistanceOhms}Ω 时间=${frame.timestampEpochSeconds} " +
+                        (if (isFresh) "本次" else "历史") + (if (isNew) " 新" else " 重复")
+                )
+            }
+
+            is AFUB1PacketParser.Frame.ImpedanceResult -> {
+                if (frame.valid && frame.adcOhms > 0) {
+                    _impedance.value = frame.adcOhms.toDouble()
+                    AppLogger.i(TAG, "B1 单次阻抗结果: ${frame.adcOhms}Ω")
+                }
+            }
+
+            // 加密报告分片 / 确认帧 / 其它控制帧：无测量数据，已在上面统一确认
+            else -> Unit
+        }
+    }
+
+    /** 体重锁定后启动提交流程：等秤空闲 → 重新对时并索要本次记录。 */
+    private fun startAfuB1CommitFlow() {
+        if (afuB1CommitStarted) return
+        afuB1CommitStarted = true
+        afuB1CommitRequested = false
+        afuB1FreshRecordSeen = false
+        scheduleAfuB1CommitStep(AFUB1_IDLE_POLL_MS)
+    }
+
+    private fun scheduleAfuB1CommitStep(delayMs: Long) {
+        afuB1CommitRunnable?.let { handler.removeCallbacks(it) }
+        val runnable = Runnable { runAfuB1CommitStep() }
+        afuB1CommitRunnable = runnable
+        handler.postDelayed(runnable, delayMs)
+    }
+
+    private fun runAfuB1CommitStep() {
+        val now = System.currentTimeMillis()
+        if (afuB1CommitRequested) {
+            if (afuB1FreshRecordSeen || now >= afuB1CommitDeadline) {
+                if (!afuB1FreshRecordSeen) {
+                    AppLogger.w(TAG, "B1 未在 ${AFUB1_COMMIT_TIMEOUT_MS}ms 内回推本次记录，沿用实时体重")
+                }
+                sendAfuB1Finalize()
+                afuB1CommitStarted = false
+                afuB1CommitRequested = false
+                return
+            }
+            scheduleAfuB1CommitStep(AFUB1_IDLE_POLL_MS)
+            return
+        }
+
+        // 秤仍在推送数据 → 用户尚未下秤，继续等待空闲
+        if (now - afuB1LastFrameAt < AFUB1_IDLE_MS) {
+            scheduleAfuB1CommitStep(AFUB1_IDLE_POLL_MS)
+            return
+        }
+
+        afuB1CommitRequested = true
+        afuB1CommitDeadline = now + AFUB1_COMMIT_TIMEOUT_MS
+        AppLogger.i(TAG, "B1 已空闲（用户下秤），重新对时并拉取本次测量记录…")
+        sendAfuB1TimeSync()
+        sendAfuB1SyncRequestPair()
+        sendAfuB1UserProfile(AFUB1PacketParser.ProfileVariant.GET_WEIGH_AGAIN_1)
+        sendAfuB1UserProfile(AFUB1PacketParser.ProfileVariant.GET_WEIGH_AGAIN_2)
+        writeAfuB1(AFUB1PacketParser.buildChunkRequest())
+        scheduleAfuB1CommitStep(AFUB1_IDLE_POLL_MS)
+    }
+
+    /** 结束本次会话并让秤准备好下一次称重（0x68 档案 + 对时 + 同步请求）。 */
+    private fun sendAfuB1Finalize() {
+        sendAfuB1UserProfile(AFUB1PacketParser.ProfileVariant.FINAL)
+        sendAfuB1TimeSync()
+        sendAfuB1SyncRequestPair()
+    }
+
+    /** 清空 B1 会话状态与未执行的提交流程任务。 */
+    private fun resetAfuB1Session() {
+        afuB1CommitRunnable?.let { handler.removeCallbacks(it) }
+        afuB1CommitRunnable = null
+        isAfuB1Device = false
+        afuB1WriteServiceUuid = null
+        afuB1WriteCharUuid = null
+        afuB1HandshakeDone = false
+        afuB1ProfileSent = false
+        afuB1LastFrameAt = 0L
+        afuB1FinalWeightG = 0
+        afuB1CommitStarted = false
+        afuB1CommitRequested = false
+        afuB1CommitDeadline = 0L
+        afuB1FreshRecordSeen = false
+        afuB1SeenRecords.clear()
     }
 
     // -------------------------------------------------------------------------
@@ -1416,6 +1765,9 @@ class BleScaleClient(private val context: Context) {
                         }
                     }
                 }
+
+                // 识别薄荷健康 B1 (AFU-BH-TZ-B1)：服务 0xFC50 + 专属 af0000xx 特征
+                detectAfuB1Device(gatt)
 
                 AppLogger.i(TAG, "共找到 ${pendingSubscribeList.size} 个有效通知特征")
                 // 【Debug 抓包】记录本次确定的完整订阅清单

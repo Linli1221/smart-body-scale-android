@@ -37,10 +37,10 @@ enum class ScaleModel(
     ),
     BOOHEE_YOLANDA(
         id = "BOOHEE_YOLANDA",
-        displayName = "薄荷健康 / 沃莱 (Yolanda / 轻牛)",
+        displayName = "薄荷健康 / 沃莱 (Yolanda / 轻牛 / B1)",
         brand = "薄荷健康 / 沃莱",
         category = "热门品牌",
-        description = "采用 0xAC 8 字节流式与 20 字节复合帧协议，支持 BIA 生物电阻抗与体脂率计算",
+        description = "旧款为 0xAC 8 字节流与 20 字节复合帧；薄荷健康 B1 (AFU-BH-TZ-B1) 为 0xFC50 服务 + AF 45 帧，均支持 BIA 生物电阻抗",
         wakeGuidance = "请踩秤亮屏，若测体脂需光脚站立在金属电极片上，稳定后自动回传阻抗",
         protocolName = "Yolanda/Boohee"
     ),

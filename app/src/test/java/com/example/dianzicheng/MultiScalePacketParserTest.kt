@@ -683,6 +683,46 @@ class MultiScalePacketParserTest {
         assertEquals("未知蓝牙设备", list[2].name)
     }
 
+    @Test
+    fun testBooheeB1NotificationIsRecognized() {
+        val b1Char = "af000003-9f2d-4c8a-8d6f-6a7b45f90000"
+
+        // 薄荷健康 B1 (AFU-BH-TZ-B1) 实时体重帧：12.400 kg，bit31 已锁定
+        val live = MultiScalePacketParser.parseNotification(
+            "AF457030088002800188384B0000000000005107".hexToBytes(), b1Char
+        )
+        assertNotNull("B1 实时体重帧必须被识别", live)
+        assertEquals("AFU-BH-TZ-B1 (0x51)", live!!.protocolName)
+        assertEquals(12.4, live.weightKg, 0.001)
+        assertTrue(live.isStable)
+        assertNull(live.impedanceOhm)
+
+        // 未锁定的上升帧必须判为动态称重
+        val ramp = MultiScalePacketParser.parseNotification(
+            "AF458A02080002800188384B0000000000005113".hexToBytes(), b1Char
+        )
+        assertNotNull(ramp)
+        assertEquals(0.65, ramp!!.weightKg, 0.001)
+        assertFalse("未锁定帧严禁判定为稳定", ramp.isStable)
+
+        // 存储记录帧：体重与锁定帧一致，未测出阻抗时为 null
+        val record = MultiScalePacketParser.parseNotification(
+            "AF4500DB64D26A7030088000010000000000005418".hexToBytes(), b1Char
+        )
+        assertNotNull(record)
+        assertEquals("AFU-BH-TZ-B1 (0x54)", record!!.protocolName)
+        assertEquals(12.4, record.weightKg, 0.001)
+        assertTrue(record.isStable)
+        assertNull("阻抗为 0 时不得产生假阻抗", record.impedanceOhm)
+
+        // 控制帧不产生测量数据
+        assertNull(
+            MultiScalePacketParser.parseNotification(
+                "AF45190100050100010300010002000000AA5F10".hexToBytes(), b1Char
+            )
+        )
+    }
+
     /** 把实机抓包中的十六进制报文直接写成测试用例。 */
     private fun String.hexToBytes(): ByteArray =
         chunked(2).map { it.toInt(16).toByte() }.toByteArray()

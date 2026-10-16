@@ -8,6 +8,7 @@ import com.example.dianzicheng.data.repository.ScaleRepository
 import com.example.dianzicheng.domain.BodyAlgorithm
 import com.example.dianzicheng.domain.BodyMeasurement
 import com.example.dianzicheng.domain.FamilyMember
+import com.example.dianzicheng.domain.Sex
 import com.example.dianzicheng.domain.ScaleModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -149,6 +150,8 @@ class ScaleViewModel(
                         selectedMember = updatedSelected
                     )
                 }
+                // 家庭成员变化后同步 B1 秤端用户档案（年龄/性别/目标体重）
+                syncAfuB1UserProfile(_uiState.value.selectedMember ?: members.firstOrNull())
             }
         }
     }
@@ -162,10 +165,31 @@ class ScaleViewModel(
      */
     fun selectMember(member: FamilyMember?) {
         _uiState.update { it.copy(selectedMember = member) }
+        syncAfuB1UserProfile(member ?: _uiState.value.availableMembers.firstOrNull())
         val currentMeas = _uiState.value.currentMeasurement
         if (currentMeas != null && member != null) {
             bindCurrentMeasurementToMember(member)
         }
+    }
+
+    /**
+     * 将所选家庭成员的身体参数同步给薄荷健康 B1（AFU-BH-TZ-B1）。
+     *
+     * 秤端需要年龄 / 性别 / 目标体重来完成自身换算，并为下一次称重「武装」阻抗测量（档案 0x5B）。
+     * 本应用的体脂率仍由本地 BIA 算法（[BodyAlgorithm]）计算，这里的档案只用于驱动秤端行为。
+     */
+    private fun syncAfuB1UserProfile(member: FamilyMember?) {
+        bleClient.afuB1UserAge = member?.let { ageFromBirthDate(it.birthDateEpochMs) } ?: 30
+        bleClient.afuB1UserIsMale = member?.sex == Sex.MALE
+        bleClient.afuB1UserTargetKg = member?.referenceWeightKg?.takeIf { it > 0.0 } ?: 60.0
+    }
+
+    /** 由出生日期毫秒时间戳推算年龄（岁），异常值回退为 30 岁。 */
+    private fun ageFromBirthDate(birthDateEpochMs: Long): Int {
+        if (birthDateEpochMs <= 0L) return 30
+        val millisPerYear = 365.2425 * 24 * 60 * 60 * 1000L
+        val age = ((System.currentTimeMillis() - birthDateEpochMs) / millisPerYear).toInt()
+        return age.coerceIn(10, 99)
     }
 
     /**

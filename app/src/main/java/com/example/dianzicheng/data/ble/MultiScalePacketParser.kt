@@ -85,8 +85,8 @@ object MultiScalePacketParser {
     /**
      * 解析特征值通知或指示（GATT Notification / Indication）数据包。
      *
-     * 依次尝试薄荷健康/沃莱协议与小米体脂秤 2 代协议，支持传入用户手动选择的型号
-     * [preferredModel] 优先匹配。
+     * 依次尝试薄荷健康 B1 (AFU-BH-TZ-B1) 20 字节 AF 45 帧、薄荷健康/沃莱协议与
+     * 小米体脂秤 2 代协议，支持传入用户手动选择的型号 [preferredModel] 优先匹配。
      *
      * @param data           接收到的原始字节数组
      * @param charUuid       发出通知的特征 UUID（用于辅助区分各厂商私有特征）
@@ -101,6 +101,10 @@ object MultiScalePacketParser {
         if (data.isEmpty()) return null
 
         val uuidStr = charUuid?.uppercase() ?: ""
+
+        // 优先分支 0：薄荷健康 B1 (AFU-BH-TZ-B1) 的 20 字节 AF 45 帧。
+        // 帧头 + 校验和可唯一确定该协议，直接优先识别，避免落入其它 0xAC 系协议的兜底匹配。
+        parseAfuB1(data)?.let { return it }
 
         // 优先分支 1：用户明确指定了偏好型号，优先执行该型号的专属解析
         when (preferredModel) {
@@ -137,6 +141,38 @@ object MultiScalePacketParser {
         parseXiaomiPayload(data)?.let { return it }
 
         return null
+    }
+
+    /**
+     * 解析薄荷健康 B1 (AFU-BH-TZ-B1) 的 20 字节 AF 45 帧。
+     *
+     * 仅提取测量相关帧；控制帧 / 确认帧 / 加密报告分片不产生测量数据，返回 null。
+     */
+    private fun parseAfuB1(data: ByteArray): ParsedScaleData? {
+        return when (val frame = AFUB1PacketParser.parse(data)) {
+            is AFUB1PacketParser.Frame.LiveWeight -> ParsedScaleData(
+                weightKg = frame.weightGrams / 1000.0,
+                isStable = frame.locked && frame.weightGrams >= 3000,
+                impedanceOhm = null,
+                protocolName = "AFU-BH-TZ-B1 (0x51)"
+            )
+
+            is AFUB1PacketParser.Frame.StoredRecord -> ParsedScaleData(
+                weightKg = frame.weightGrams / 1000.0,
+                isStable = frame.locked && frame.weightGrams >= 3000,
+                impedanceOhm = if (frame.resistanceOhms > 0) frame.resistanceOhms.toDouble() else null,
+                protocolName = "AFU-BH-TZ-B1 (0x54)"
+            )
+
+            is AFUB1PacketParser.Frame.ImpedanceResult -> ParsedScaleData(
+                weightKg = 0.0,
+                isStable = true,
+                impedanceOhm = if (frame.adcOhms > 0) frame.adcOhms.toDouble() else null,
+                protocolName = "AFU-BH-TZ-B1 (0x52)"
+            )
+
+            else -> null
+        }
     }
 
     /**
