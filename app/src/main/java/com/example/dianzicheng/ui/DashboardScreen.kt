@@ -688,14 +688,20 @@ fun SelectMemberDialog(
     )
 }
 
-private fun getBmiStatus(bmi: Double): String = when {
+/**
+ * BMI 健康区间文案，历史页的指标卡片复用同一套标准。
+ */
+fun getBmiStatus(bmi: Double): String = when {
     bmi < 18.5 -> "偏瘦"
     bmi < 24.0 -> "标准"
     bmi < 28.0 -> "超重"
     else -> "肥胖"
 }
 
-private fun getFatStatus(fat: Double, isMale: Boolean): String = when {
+/**
+ * 体脂率健康区间文案（男女标准不同），历史页的指标卡片复用同一套标准。
+ */
+fun getFatStatus(fat: Double, isMale: Boolean): String = when {
     isMale -> when {
         fat < 8.0  -> "偏低"
         fat < 20.0 -> "标准"

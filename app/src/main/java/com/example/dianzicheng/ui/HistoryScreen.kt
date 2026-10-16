@@ -16,6 +16,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -34,11 +36,14 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.dianzicheng.domain.BodyMeasurement
 import com.example.dianzicheng.domain.FamilyMember
+import com.example.dianzicheng.domain.Sex
 import com.example.dianzicheng.ui.theme.电子秤Theme
 import java.text.SimpleDateFormat
 import java.util.*
@@ -50,6 +55,8 @@ fun HistoryContent(
     members: List<FamilyMember> = emptyList(),
     onDelete: (BodyMeasurement) -> Unit,
     onNavigateToDetail: (String) -> Unit,
+    /** 点击列表最底部的「历史数据」入口，进入完整的历史数据统计页 */
+    onNavigateToHistoryData: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val dateFormat = remember { SimpleDateFormat("MM月dd日 HH:mm", Locale.getDefault()) }
@@ -176,8 +183,18 @@ fun HistoryContent(
                                 measurement = measurement,
                                 dateStr = dateFormat.format(Date(measurement.measuredAtEpochMs)),
                                 onDelete = { measurementToDelete = measurement },
-                                onNavigateToDetail = onNavigateToDetail
+                                onNavigateToDetail = onNavigateToDetail,
+                                isMale = members.firstOrNull { it.id == measurement.memberId }?.sex == Sex.MALE
                             )
+                        }
+                    }
+                }
+
+                // ── 列表最底部：「历史数据」入口，点击进入完整的历史数据统计 ──
+                if (filteredHistory.isNotEmpty()) {
+                    item(key = "history_data_entry") {
+                        Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            HistoryDataEntryCard(onClick = onNavigateToHistoryData)
                         }
                     }
                 }
@@ -191,7 +208,9 @@ fun ModernMeasurementCard(
     measurement: BodyMeasurement,
     dateStr: String,
     onDelete: () -> Unit,
-    onNavigateToDetail: (String) -> Unit
+    onNavigateToDetail: (String) -> Unit,
+    /** 该记录所属成员是否为男性，用于体脂率健康区间判断（男女标准不同） */
+    isMale: Boolean = true
 ) {
     Card(
         modifier = Modifier
@@ -204,33 +223,18 @@ fun ModernMeasurementCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
+            // 头部：左侧日期 + 成员标签，右侧删除按钮；体重由下方六指标卡片统一呈现
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = dateStr, 
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        Text(
-                            text = String.format("%.2f", measurement.weightKg),
-                            fontSize = 32.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                        Text(
-                            text = " kg",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(bottom = 6.dp),
-                            color = MaterialTheme.colorScheme.outline
-                        )
-                    }
-                }
-                
+                Text(
+                    text = dateStr,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f)
+                )
+
                 IconButton(
                     onClick = onDelete,
                     colors = IconButtonDefaults.iconButtonColors(
@@ -240,8 +244,6 @@ fun ModernMeasurementCard(
                     Icon(Icons.Default.Delete, contentDescription = "删除", modifier = Modifier.size(20.dp))
                 }
             }
-
-            Spacer(modifier = Modifier.height(8.dp))
 
             // Member Name tag if present
             if (measurement.memberNameSnapshot != null) {
@@ -260,32 +262,213 @@ fun ModernMeasurementCard(
             }
 
             val hasBia = measurement.impedanceOhm > 0.0 && measurement.bodyFatPct > 0.0
+            // 卡片式指标区：左侧体重主数值，右侧 BMI / 体脂率 / 肌肉量 / 蛋白质 / 骨量 五张小卡
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Bottom
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                    HistoryMiniMetric("体脂", if (hasBia) String.format("%.1f%%", measurement.bodyFatPct) else "--")
-                    HistoryMiniMetric("BMI", if (measurement.bmi > 0.0) String.format("%.1f", measurement.bmi) else "--")
+                // 体重：作为本次测量的主指标单独成块，用大号数字突出
+                Column(
+                    modifier = Modifier
+                        .weight(1.1f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f))
+                        .padding(vertical = 10.dp, horizontal = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "体重",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = String.format("%.2f", measurement.weightKg),
+                        fontSize = 26.sp,
+                        fontWeight = FontWeight.Black,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1
+                    )
+                    Text(
+                        text = "kg",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        maxLines = 1
+                    )
                 }
+
+                Column(
+                    modifier = Modifier.weight(1.6f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        HistoryMetricCard(
+                            label = "BMI",
+                            value = if (measurement.bmi > 0.0) String.format("%.1f", measurement.bmi) else "--",
+                            status = if (measurement.bmi > 0.0) getBmiStatus(measurement.bmi) else null,
+                            modifier = Modifier.weight(1f)
+                        )
+                        HistoryMetricCard(
+                            label = "体脂率",
+                            value = if (hasBia) String.format("%.1f%%", measurement.bodyFatPct) else "--",
+                            status = if (hasBia) getFatStatus(measurement.bodyFatPct, isMale) else null,
+                            modifier = Modifier.weight(1f)
+                        )
+                        HistoryMetricCard(
+                            label = "肌肉量",
+                            value = if (hasBia) String.format("%.1f", measurement.muscleKg) else "--",
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        HistoryMetricCard(
+                            label = "蛋白质",
+                            value = if (hasBia) String.format("%.1f%%", measurement.proteinPct) else "--",
+                            modifier = Modifier.weight(1f)
+                        )
+                        HistoryMetricCard(
+                            label = "骨量",
+                            value = if (hasBia) String.format("%.1f", measurement.boneMassKg) else "--",
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text(
+                text = "点击查看详情 ›",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.End
+            )
+        }
+    }
+}
+
+/**
+ * 历史记录卡片中的单个指标小卡片。
+ *
+ * 每个指标独立成卡（浅色容器 + 圆角）：上方是指标名、下方是数值，
+ * 有健康区间结论时再补一枚状态标签（如 BMI「标准」、体脂率「偏高」）。
+ * 数据缺失（未赤脚称重、无阻抗）时数值显示为 --，且不展示状态标签。
+ */
+@Composable
+fun HistoryMetricCard(
+    label: String,
+    value: String,
+    status: String? = null,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+            .padding(vertical = 10.dp, horizontal = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline,
+            maxLines = 1
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Bold,
+            color = if (value == "--") MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface,
+            maxLines = 1
+        )
+        if (status != null) {
+            val statusColor = if (status == "标准") Color(0xFF4CAF50) else MaterialTheme.colorScheme.error
+            Surface(
+                color = statusColor.copy(alpha = 0.1f),
+                shape = CircleShape,
+                modifier = Modifier.padding(top = 4.dp)
+            ) {
                 Text(
-                    text = "点击查看详情 ›",
+                    text = status,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary
+                    fontSize = 10.sp,
+                    color = statusColor
                 )
             }
         }
     }
 }
 
+/**
+ * 历史列表最底部的「历史数据」入口卡片。
+ *
+ * 作为列表收尾项，引导用户进入完整的历史数据统计页（各项指标的历史数据与趋势）。
+ */
 @Composable
-fun HistoryMiniMetric(label: String, value: String, modifier: Modifier = Modifier) {
-    Column(modifier = modifier) {
-        Text(text = label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-        Text(text = value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+fun HistoryDataEntryCard(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.DateRange,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "历史数据",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "查看 BMI、体脂率、肌肉量等指标的完整历史数据",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
     }
 }
+
 
 @Composable
 fun WeightTrendChart(
@@ -466,6 +649,7 @@ fun WeightTrendChart(
 fun HistoryScreen(
     viewModel: HistoryViewModel,
     onNavigateToDetail: (String) -> Unit,
+    onNavigateToHistoryData: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val history by viewModel.history.collectAsState()
@@ -475,6 +659,7 @@ fun HistoryScreen(
         members = members,
         onDelete = { viewModel.deleteMeasurement(it) },
         onNavigateToDetail = onNavigateToDetail,
+        onNavigateToHistoryData = onNavigateToHistoryData,
         modifier = modifier
     )
 }

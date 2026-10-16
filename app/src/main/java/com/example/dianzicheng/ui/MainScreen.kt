@@ -52,7 +52,10 @@ fun MainScreen(
         return
     }
 
-    val isSubScreen = currentRoute == "pairing" || currentRoute?.startsWith("detail/") == true
+    // 配对页 / 测量详情页 / 历史数据页均为二级页面：隐藏底部导航栏，由页面内返回键退出
+    val isSubScreen = currentRoute == "pairing" ||
+        currentRoute?.startsWith("detail/") == true ||
+        currentRoute == "history_data"
 
     Scaffold(
         bottomBar = {
@@ -98,6 +101,9 @@ fun MainScreen(
                     viewModel = historyViewModel,
                     onNavigateToDetail = { id ->
                         navController.navigate("detail/$id")
+                    },
+                    onNavigateToHistoryData = {
+                        navController.navigate("history_data")
                     }
                 )
             }
@@ -122,6 +128,14 @@ fun MainScreen(
                 MeasurementDetailScreen(
                     measurementId = id,
                     viewModel = historyViewModel,
+                    onNavigateBack = { navController.popBackStack() }
+                )
+            }
+            composable("history_data") {
+                // 直接订阅 historyViewModel 的 Flow：删除记录后本页数据同步刷新
+                val historyData by historyViewModel.history.collectAsState()
+                HistoryDataScreen(
+                    history = historyData,
                     onNavigateBack = { navController.popBackStack() }
                 )
             }
