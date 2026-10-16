@@ -3,8 +3,12 @@ name: Android CI
 # 说明：本项目不在本地构建，APK 一律由 GitHub Actions 在云端完成编译、单元测试与打包。
 #
 # 默认只构建 Debug 版本：
-#   - BLE 协议完整抓包导出（Profile → 蓝牙协议抓包）依赖 BuildConfig.DEBUG，仅 Debug 包具备；
-#   - Release 包需要显式触发（见下方 workflow_dispatch 的 build_release 开关）。
+#   - BLE 协议完整抓包导出（Profile → 蓝牙协议抓包）与「查看运行日志」入口
+#     都依赖 BuildConfig.DEBUG，仅 Debug 包具备；
+#   - Release 包需要显式触发（见下方 workflow_dispatch 的 build_release 开关）；
+#
+# ABI：defaultConfig.ndk.abiFilters 只放行 arm64-v8a，Debug / Release 包都只带 arm64 原生库，
+#      每个打包步骤后都有一步校验（详见各 Verify ... arm64-v8a only 步骤）。
 on:
   push:
     branches: [ main, master ]
@@ -67,6 +71,27 @@ jobs:
       - name: Build debug APK
         run: ./gradlew assembleDebug --stacktrace --no-daemon
 
+      # ABI 校验：app/build.gradle.kts 的 defaultConfig.ndk.abiFilters 只放行 arm64-v8a。
+      # 必要性：Compose 的传递依赖 androidx.graphics:graphics-path 自带
+      # armeabi-v7a / arm64-v8a / x86 / x86_64 四份 libandroidx.graphics.path.so，
+      # 一旦 abiFilters 被误删，这里会立刻失败而不是悄悄把 4 份 .so 打进包。
+      - name: Verify debug APK is arm64-v8a only
+        run: |
+          set -euo pipefail
+          apk="$(ls app/build/outputs/apk/debug/*.apk | head -n1)"
+          echo "APK: $apk"
+          echo "打包的原生库："
+          unzip -Z1 "$apk" | grep '^lib/' || true
+          arm64="$(unzip -Z1 "$apk" | grep -c '^lib/arm64-v8a/' || true)"
+          other="$(unzip -Z1 "$apk" | grep '^lib/' | grep -vc '^lib/arm64-v8a/' || true)"
+          echo "arm64-v8a: ${arm64:-0} 个，其它 ABI: ${other:-0} 个"
+          if [ "${other:-0}" -ne 0 ]; then
+            echo "::error::发现非 arm64-v8a 的原生库，abiFilters 可能被移除："
+            unzip -Z1 "$apk" | grep '^lib/' | grep -v '^lib/arm64-v8a/' || true
+            exit 1
+          fi
+          echo "✅ 仅包含 arm64-v8a 原生库"
+
       - name: Upload unit test report
         if: always()
         uses: actions/upload-artifact@v4
@@ -89,6 +114,25 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.build_release
         run: ./gradlew assembleRelease -PbuildRelease=true --stacktrace --no-daemon
 
+      # Release 包同样只允许 arm64-v8a：与 debug 校验同一套规则。
+      - name: Verify release APK is arm64-v8a only (opt-in)
+        if: github.event_name == 'workflow_dispatch' && inputs.build_release
+        run: |
+          set -euo pipefail
+          apk="$(ls app/build/outputs/apk/release/*.apk | head -n1)"
+          echo "APK: $apk"
+          echo "打包的原生库："
+          unzip -Z1 "$apk" | grep '^lib/' || true
+          arm64="$(unzip -Z1 "$apk" | grep -c '^lib/arm64-v8a/' || true)"
+          other="$(unzip -Z1 "$apk" | grep '^lib/' | grep -vc '^lib/arm64-v8a/' || true)"
+          echo "arm64-v8a: ${arm64:-0} 个，其它 ABI: ${other:-0} 个"
+          if [ "${other:-0}" -ne 0 ]; then
+            echo "::error::发现非 arm64-v8a 的原生库，abiFilters 可能被移除："
+            unzip -Z1 "$apk" | grep '^lib/' | grep -v '^lib/arm64-v8a/' || true
+            exit 1
+          fi
+          echo "✅ 仅包含 arm64-v8a 原生库"
+
       - name: Upload release APK (unsigned, opt-in)
         if: github.event_name == 'workflow_dispatch' && inputs.build_release
         uses: actions/upload-artifact@v4
@@ -102,7 +146,8 @@ jobs:
   #
   # 背景：Debug 是默认构建目标，release 变体在配置阶段被禁用，
   # 因此主 build job 永远不会编译 Release —— 一旦有人只改坏了 Release 专属路径
-  # （例如 BLE_PROTOCOL_CAPTURE=false 的接线、proguard 规则），错误会一直隐藏到发版才暴露。
+  # （例如 BLE_PROTOCOL_CAPTURE=false / RUNTIME_LOG_VIEWER=false 的接线、proguard 规则），
+  # 错误会一直隐藏到发版才暴露。
   #
   # 折中策略（保持"默认只构建 Debug"）：
   #   - 只在推送到 main/master 时运行，PR 与日常开发仍然只构建 Debug；
@@ -150,3 +195,21 @@ jobs:
       # 注意它会连同 lintVitalRelease 一起跑，因此本作业失败也可能是致命 lint 问题，而非单纯编译错误。
       - name: Assemble release APK (unsigned, compile check only)
         run: ./gradlew assembleRelease -PbuildRelease=true --stacktrace --no-daemon
+
+      # 顺带校验 Release 包的原生库只剩 arm64-v8a（规则与主 build job 的 debug 校验一致）。
+      - name: Verify release APK is arm64-v8a only
+        run: |
+          set -euo pipefail
+          apk="$(ls app/build/outputs/apk/release/*.apk | head -n1)"
+          echo "APK: $apk"
+          echo "打包的原生库："
+          unzip -Z1 "$apk" | grep '^lib/' || true
+          arm64="$(unzip -Z1 "$apk" | grep -c '^lib/arm64-v8a/' || true)"
+          other="$(unzip -Z1 "$apk" | grep '^lib/' | grep -vc '^lib/arm64-v8a/' || true)"
+          echo "arm64-v8a: ${arm64:-0} 个，其它 ABI: ${other:-0} 个"
+          if [ "${other:-0}" -ne 0 ]; then
+            echo "::error::发现非 arm64-v8a 的原生库，abiFilters 可能被移除："
+            unzip -Z1 "$apk" | grep '^lib/' | grep -v '^lib/arm64-v8a/' || true
+            exit 1
+          fi
+          echo "✅ 仅包含 arm64-v8a 原生库"

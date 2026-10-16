@@ -26,7 +26,14 @@ ios版项目地址 https://github.com/maoziban/smart-body-scale-IOS
 - 🎨 **极简科技风 UI 设计**：
   - 全站界面基于 Material Design 3 标准，配合动感渐变色与平滑动效。
   - 全站统一收紧为直观干练的 `8.dp` 现代微圆角风格，视觉更加精致、高级。
-- 🧪 **蓝牙协议完整抓包（Debug 专用）**：Debug 包内置协议抓包器，完整记录扫描广播、GATT 连接、服务/特征拓扑、CCCD 订阅、AFU 握手包与体重/阻抗通知的**全部原始十六进制字节**，支持一键导出 `.jsonl` 文件分享到电脑离线分析。Release 包不包含该能力。
+- 🧪 **蓝牙协议完整抓包（Debug 专用）**：Debug 包内置协议抓包器，完整记录扫描广播、GATT 连接、服务/特征拓扑、CCCD 订阅、AFU 握手包与体重/阻抗通知的**全部原始十六进制字节**，支持一键导出 `.jsonl` 文件分享到电脑离线分析。
+- 🔍 **运行日志查看器（Debug 专用）**：Debug 包的「我的 → 查看运行日志」可实时查看内存环形缓冲中的运行日志，并支持复制/分享导出。
+- 📦 **仅 arm64-v8a**：`defaultConfig.ndk.abiFilters` 只保留 `arm64-v8a`，APK 内不再打包其它 ABI 的 `.so`（Compose 的传递依赖 `androidx.graphics:graphics-path` 原本会带入 armeabi-v7a / arm64-v8a / x86 / x86_64 四份 `libandroidx.graphics.path.so`），安装包更小。
+
+> **Release 包不含上述两个调试入口**：正式包的「我的」页面里既没有「查看运行日志」，也没有「蓝牙协议抓包」。
+> 两个入口分别由 `BuildConfig.RUNTIME_LOG_VIEWER` 与 `BuildConfig.BLE_PROTOCOL_CAPTURE` 控制，
+> 在 Release 构建中均被显式写死为 `false`（且叠加 `BuildConfig.DEBUG`），入口与弹窗都不会渲染，
+> 协议抓包器也一条报文都不会记录（详见 [实现约束](#实现约束release-包为什么拿不到协议报文)）。
 
 ---
 
@@ -40,6 +47,7 @@ ios版项目地址 https://github.com/maoziban/smart-body-scale-IOS
 - **蓝牙通信**：Android BLE Core APIs (基于 GATT 协议开发，高度定制化 PacketParser)
 - **协议调试**：Debug 专用 BLE 协议完整抓包器（JSON Lines 导出 + FileProvider 文件分享）
 - **构建环境**：JDK 21 / Gradle 9.5 / AGP 9.3 / compileSdk 36
+- **ABI 策略**：仅 `arm64-v8a`（`defaultConfig.ndk.abiFilters`）
 
 ---
 
@@ -163,14 +171,37 @@ app/src/main/java/com/example/dianzicheng/
 2. `actions/setup-java` 安装 **JDK 21**（与 `gradle/gradle-daemon-jvm.properties` 的 `toolchainVersion=21` 一致）；
 3. `android-actions/setup-android` 安装 Android SDK（`platform-tools`、`platforms;android-36`）；
 4. `./gradlew testDebugUnitTest` 运行单元测试；
-5. `./gradlew assembleDebug` 打包 Debug APK；
+5. `./gradlew assembleDebug` 打包 Debug APK，并**校验 APK 的原生库只剩 `arm64-v8a`**（见下方「ABI 策略」）；
 6. 上传产物 Artifacts：`app-debug-apk`、`unit-test-report`；
 7. **仅 `push` 到 `main`/`master` 时**，额外运行 `release-compile-check` 作业：
    `./gradlew assembleRelease -PbuildRelease=true`（独立并发组、不取消），
-   确保 Release 专属代码路径不会一直隐藏到发版当天才暴露问题（该作业不上传产物）。
+   确保 Release 专属代码路径不会一直隐藏到发版当天才暴露问题（该作业不上传产物，同样会校验 ABI）。
+
+### ABI 策略：只编译 arm64-v8a
+
+`app/build.gradle.kts` 的 `defaultConfig.ndk.abiFilters` 只放行 `arm64-v8a`：
+
+```kotlin
+defaultConfig {
+    ndk {
+        abiFilters += "arm64-v8a"   // 只编译 / 只打包 arm64
+    }
+}
+```
+
+为什么必须显式限制：本项目依赖里的原生库来自 Compose 的传递依赖
+`androidx.compose.ui:ui-graphics` → `androidx.graphics:graphics-path`，它自带
+`libandroidx.graphics.path.so`，AAR 里同时提供 **armeabi-v7a / arm64-v8a / x86 / x86_64** 四份；
+不加限制四份会全部打进 APK。加上该过滤后，APK 的 `lib/` 下只会保留 `lib/arm64-v8a/`。
+
+- 生效范围：**Debug 与 Release 都只出 arm64**（写在 `defaultConfig` 里）；
+- 副作用：x86 / x86_64 模拟器上会因缺少该 `.so` 而无法正常运行 Compose 的路径绘制与矢量图标。
+  本项目调试与分发一律使用 arm64 真机，若确需模拟器调试，请临时把对应 ABI 加回 `abiFilters`；
+- 回归保护：CI 在 Debug 打包后、Release 打包后都会检查 APK 里是否有非 `lib/arm64-v8a/` 的原生库，
+  一旦 `abiFilters` 被误删就直接失败。
 
 > **默认只构建 Debug 版本。** 原因有二：
-> 1. 蓝牙协议完整抓包导出仅存在于 Debug 包（依赖 `BuildConfig.DEBUG`）；
+> 1. 蓝牙协议完整抓包导出与「查看运行日志」查看器仅存在于 Debug 包（依赖 `BuildConfig.DEBUG`）；
 > 2. 日常分发与自测都使用 Debug 包，无需为每次提交额外编译 Release。
 >
 > 实现方式是**在 Gradle 配置阶段直接禁用 release 构建变体**（`app/build.gradle.kts` 中的
@@ -187,8 +218,8 @@ app/src/main/java/com/example/dianzicheng/
 
 1. 打开本仓库的 **Actions** 页面；
 2. 进入最近一次成功的 **Android CI** 运行；
-3. 在页面底部 **Artifacts** 区域下载 `app-debug-apk`（可直接安装，且自带蓝牙协议抓包能力）；
-4. 如需正式发布，请按上一节手动构建 Release 包并自行签名。
+3. 在页面底部 **Artifacts** 区域下载 `app-debug-apk`（arm64 真机可直接安装，且自带蓝牙协议抓包与运行日志查看能力）；
+4. 如需正式发布，请按上一节手动构建 Release 包并自行签名（同一 APK 不含上述两个调试入口，且同样为 arm64-only）。
 
 ---
 
@@ -243,6 +274,8 @@ JSON Lines（`.jsonl`）——首行是抓包元信息，其余每行一条报�
   叠加 `BuildConfig.DEBUG` 后，Release 版本的 `isEnabled` 恒为 `false`：
   所有记录方法首行直接返回，不格式化字符串、不分配缓冲、不推送状态流，
   **一条报文都不会被记录**，UI 入口也整体不渲染；
+- 同样地，「查看运行日志」入口由 `BuildConfig.RUNTIME_LOG_VIEWER` 控制，**仅 debug 构建为 `true`**：
+  Release 版本不仅没有该入口与查看弹窗，也没有任何日志导出路径（`AppLogger` 仍写 Logcat，仅不可在应用内查看）；
 - 完整的十六进制原始报文（收包与握手发包）**只在 Debug 构建写入运行日志**；
   Release 版本日志里只保留「收到蓝牙数据 (N 字节)」这类摘要，不会把协议载荷带进可复制/可分享的日志里；
 - 抓包缓冲与 `AppLogger` 的日志缓冲**相互独立**（`BleProtocolRecorder.MAX_ENTRIES = 6000`），不会被 1000 条运行日志滚动挤掉；
@@ -258,6 +291,6 @@ JSON Lines（`.jsonl`）——首行是抓包元信息，其余每行一条报�
 
 1. **下载 APK**：按上一节从 GitHub Actions Artifacts 获取 APK；
 2. **部署运行**：
-   - 准备一台拥有蓝牙功能的 Android 真机（API 26+，开启手机蓝牙）；
+   - 准备一台拥有蓝牙功能的 **arm64** Android 真机（API 26+，开启手机蓝牙；APK 只打包 arm64-v8a，x86 模拟器不可用）；
    - 安装 APK 后打开应用，在「绑定体脂秤」页选择你的型号（薄荷健康/沃莱 或 小米体脂秤 2 代）并站上体脂秤完成配对；
    - 之后每次开启应用直接站上体脂秤即可开始称重与体脂分析。

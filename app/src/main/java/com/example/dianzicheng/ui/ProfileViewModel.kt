@@ -53,8 +53,12 @@ private const val BLE_CAPTURE_AUTHORITY_SUFFIX = ".fileprovider"
  * 1. 家庭成员的增删管理
  * 2. Health Connect 同步开关控制与批量历史数据同步
  * 3. WebDAV 云端备份的配置、测试连接、立即备份和数据恢复
- * 4. 应用运行日志的对外暴露（供 UI 实时显示）
+ * 4. **Debug 专用**：应用运行日志查看器的对外暴露（Release 版本不提供该入口）
  * 5. **Debug 专用**：蓝牙协议完整抓包（[BleProtocolRecorder]）的查看、复制与文件分享
+ *
+ * 说明：第 4、5 项的入口由 `BuildConfig.RUNTIME_LOG_VIEWER` / `BuildConfig.BLE_PROTOCOL_CAPTURE`
+ * 控制，两个开关在 Release 构建中恒为 `false`，因此正式包既看不到运行日志查看器，
+ * 也看不到蓝牙协议抓包入口。
  */
 class ProfileViewModel(
     private val repository: ProfileRepository,
@@ -332,6 +336,15 @@ class ProfileViewModel(
     fun clearSyncProgress() { _syncProgress.value = null }
 
     // ── 日志 ──────────────────────────────────────────────────────────────────
+
+    /**
+     * 当前构建是否提供「查看运行日志」入口（**Debug 专用**）。
+     *
+     * 由 `BuildConfig.DEBUG && BuildConfig.RUNTIME_LOG_VIEWER` 决定：
+     * Release 版本恒为 false，UI 中「查看运行日志」入口与日志查看弹窗都会被移除。
+     * 注意：[logEntries] 仍然照常采集（Release 下仅用于 Logcat），只是没有查看入口。
+     */
+    val isLogViewerSupported: Boolean = BuildConfig.DEBUG && BuildConfig.RUNTIME_LOG_VIEWER
 
     /**
      * 实时日志条目列表（来自 [AppLogger] 的 StateFlow）。

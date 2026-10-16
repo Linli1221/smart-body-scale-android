@@ -81,6 +81,8 @@ fun ProfileContent(
     logEntries: List<AppLogger.LogEntry> = emptyList(),
     onClearLogs: () -> Unit = {},
     onShareLogs: () -> Unit = {},
+    /** Debug 专用：当前构建是否提供「查看运行日志」入口（Release 恒为 false，入口与弹窗整体隐藏） */
+    isLogViewerSupported: Boolean = false,
     /** Debug 专用：当前构建是否开启蓝牙协议抓包导出（Release 恒为 false，入口整体隐藏） */
     isBleCaptureSupported: Boolean = false,
     /** Debug 专用：蓝牙协议抓包记录 */
@@ -417,16 +419,21 @@ fun ProfileContent(
                         icon = Icons.Default.Tune,
                         onClick = { showModelDialog = true }
                     )
-                    HorizontalDivider(
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                    )
-                    SettingsItem(
-                        title = "查看运行日志",
-                        subtitle = if (logEntries.isEmpty()) "暂无日志" else "共 ${logEntries.size} 条记录",
-                        icon = Icons.AutoMirrored.Filled.Article,
-                        onClick = { showLogDialog = true }
-                    )
+                    // ── Debug 专用：运行日志查看器入口 ──
+                    // isLogViewerSupported 来自 BuildConfig，Release 构建恒为 false。
+                    // 分隔线与入口一起放进 if 内，避免 Release 下出现两条相邻分隔线。
+                    if (isLogViewerSupported) {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
+                        SettingsItem(
+                            title = "查看运行日志",
+                            subtitle = if (logEntries.isEmpty()) "暂无日志" else "共 ${logEntries.size} 条记录",
+                            icon = Icons.AutoMirrored.Filled.Article,
+                            onClick = { showLogDialog = true }
+                        )
+                    }
                     // ── Debug 专用：蓝牙协议完整抓包入口 ──
                     // isBleCaptureSupported 来自 BuildConfig，Release 构建恒为 false，此区块整体不渲染。
                     if (isBleCaptureSupported) {
@@ -464,7 +471,8 @@ fun ProfileContent(
         }
     }
 
-    if (showLogDialog) {
+    // 两个弹窗都再叠加一次 BuildConfig 开关：即使状态被意外置位，Release 也不会渲染出来。
+    if (isLogViewerSupported && showLogDialog) {
         LogViewerDialog(
             entries = logEntries,
             onDismiss = { showLogDialog = false },
@@ -473,7 +481,7 @@ fun ProfileContent(
         )
     }
 
-    if (showBleCaptureDialog) {
+    if (isBleCaptureSupported && showBleCaptureDialog) {
         BleProtocolCaptureDialog(
             entries = bleCaptureEntries,
             onDismiss = { showBleCaptureDialog = false },
@@ -1375,6 +1383,7 @@ fun ProfileScreen(
             }
             context.startActivity(android.content.Intent.createChooser(intent, "分享日志"))
         },
+        isLogViewerSupported = viewModel.isLogViewerSupported,
         isBleCaptureSupported = viewModel.isBleCaptureSupported,
         bleCaptureEntries = bleCaptureEntries,
         onClearBleCapture = { viewModel.clearBleCapture() },

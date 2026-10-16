@@ -16,19 +16,39 @@ android {
         versionName = "1.4.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // ─────────────────────────────────────────────────────────────────────
+        // 只编译 / 只打包 arm64-v8a
+        //
+        // 本应用的调试与分发一律使用 arm64 真机（BLE 无法在模拟器上真实验证）。
+        // 注意：本项目依赖里的原生库来自 Compose 的传递依赖
+        // `androidx.compose.ui:ui-graphics` → `androidx.graphics:graphics-path`，
+        // 它自带 `libandroidx.graphics.path.so`，AAR 同时提供
+        // armeabi-v7a / arm64-v8a / x86 / x86_64 四份 .so；不加限制四份会全部打进 APK。
+        // 这里显式只保留 arm64-v8a，其余 ABI 的 .so 不再进入 APK。
+        //
+        // ⚠️ 副作用：x86 / x86_64 模拟器将缺少该 .so（Compose 路径绘制与矢量图标会崩溃）。
+        //    若确需在模拟器上调试，请临时把对应 ABI 加回 `abiFilters`。
+        // ─────────────────────────────────────────────────────────────────────
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     buildTypes {
         debug {
-            // Debug 是默认构建类型：BLE 协议完整抓包导出在此类型下真正生效。
-            // 抓包开关通过 BuildConfig.BLE_PROTOCOL_CAPTURE 下发，Release 恒为 false。
+            // Debug 是默认构建类型：BLE 协议完整抓包导出与运行日志查看器在此类型下真正生效。
+            // 两个开关都通过 BuildConfig 下发，Release 恒为 false。
             buildConfigField("boolean", "BLE_PROTOCOL_CAPTURE", "true")
+            buildConfigField("boolean", "RUNTIME_LOG_VIEWER", "true")
         }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             // 显式关闭：Release 包不包含任何蓝牙协议抓包与导出能力
             buildConfigField("boolean", "BLE_PROTOCOL_CAPTURE", "false")
+            // 显式关闭：Release 包不提供运行日志查看器（无入口、无导出）
+            buildConfigField("boolean", "RUNTIME_LOG_VIEWER", "false")
         }
     }
     compileOptions {
