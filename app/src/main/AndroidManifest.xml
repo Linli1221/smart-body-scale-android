@@ -49,6 +49,21 @@
                 <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
             </intent-filter>
         </activity>
+
+        <!--
+          Debug 专用：将导出的蓝牙协议抓包文件（.jsonl）以 content:// URI 分享给其它应用。
+          该 Provider 不导出（exported=false），仅在 App 内通过 FileProvider.getUriForFile 使用。
+          authority 必须与 ProfileViewModel 中的常量保持一致。
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

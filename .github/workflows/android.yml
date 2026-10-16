@@ -1,24 +1,35 @@
 name: Android CI
 
 # 说明：本项目不在本地构建，APK 一律由 GitHub Actions 在云端完成编译、单元测试与打包。
+#
+# 默认只构建 Debug 版本：
+#   - BLE 协议完整抓包导出（Profile → 蓝牙协议抓包）依赖 BuildConfig.DEBUG，仅 Debug 包具备；
+#   - Release 包需要显式触发（见下方 workflow_dispatch 的 build_release 开关）。
 on:
   push:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
   workflow_dispatch:
+    inputs:
+      build_release:
+        description: '同时构建未签名 Release APK（默认关闭，仅构建 Debug）'
+        type: boolean
+        default: false
 
-# 同一分支的重复触发只保留最新一次，避免浪费 Actions 配额
+# 并发控制：对 PR 同一分支的重复触发只保留最新一次，避免浪费 Actions 配额；
+# 对 main/master 的 push 则**不取消**（串行排队），否则会连带取消掉 release-compile-check，
+# 导致"某个中间提交引入的 Release 专属编译错误"永远不被发现。
 concurrency:
   group: android-ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
   build:
-    name: Build & Unit Test
+    name: Build & Unit Test (Debug)
     runs-on: ubuntu-latest
 
     steps:
@@ -48,14 +59,13 @@ jobs:
           java -version
           ./gradlew --version
 
-      - name: Run unit tests
+      # Debug 是默认构建目标：app/build.gradle.kts 在配置阶段禁用了 release 变体，
+      # 因此这里的 assemble/test 任务只会处理 Debug，不会隐式编译 Release。
+      - name: Run unit tests (Debug)
         run: ./gradlew testDebugUnitTest --stacktrace --no-daemon
 
       - name: Build debug APK
         run: ./gradlew assembleDebug --stacktrace --no-daemon
-
-      - name: Build release APK (unsigned)
-        run: ./gradlew assembleRelease --stacktrace --no-daemon
 
       - name: Upload unit test report
         if: always()
@@ -72,9 +82,71 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
-      - name: Upload release APK
+      # ── 非默认路径：仅在手动触发并勾选 build_release 时构建未签名 Release 包 ──
+      # app/build.gradle.kts 默认在配置阶段禁用 release 变体，必须传入 -PbuildRelease=true 才放行，
+      # 否则 `assembleRelease` 任务不存在。
+      - name: Build release APK (unsigned, opt-in)
+        if: github.event_name == 'workflow_dispatch' && inputs.build_release
+        run: ./gradlew assembleRelease -PbuildRelease=true --stacktrace --no-daemon
+
+      - name: Upload release APK (unsigned, opt-in)
+        if: github.event_name == 'workflow_dispatch' && inputs.build_release
         uses: actions/upload-artifact@v4
         with:
           name: app-release-apk-unsigned
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: warn
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Release 变体编译检查
+  #
+  # 背景：Debug 是默认构建目标，release 变体在配置阶段被禁用，
+  # 因此主 build job 永远不会编译 Release —— 一旦有人只改坏了 Release 专属路径
+  # （例如 BLE_PROTOCOL_CAPTURE=false 的接线、proguard 规则），错误会一直隐藏到发版才暴露。
+  #
+  # 折中策略（保持"默认只构建 Debug"）：
+  #   - 只在推送到 main/master 时运行，PR 与日常开发仍然只构建 Debug；
+  #   - 用 assembleRelease（未签名、不上传产物）做校验，不跑测试、不发版；
+  #   - 不违反上面的变体禁用：必须显式传 -PbuildRelease=true 才放行。
+  # 说明：单靠下面这个 job 级并发组无法保证"每次 push 都被校验"——
+  # 工作流级并发组才是能取消整个 run 的那一层，所以已把它的 cancel-in-progress
+  # 改为仅对 pull_request 生效（见文件顶部）。本 job 级小组仅用于串行化自身。
+  # ─────────────────────────────────────────────────────────────────────────────
+  release-compile-check:
+    name: Release Variant Compile Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    # 独立并发组并关闭取消：尽力保证每次推送到 main 的提交都被校验过一次。
+    # （严格"每次必查"需要 queue: max 这类能力；在默认的"1 运行 + 1 排队"槽位下，
+    #   极短时间内连续第三次推送仍可能顶掉第二次的排队。）
+    # 关键在于工作流级并发组已改为仅对 PR 取消（见文件顶部），否则本作业会被新推送直接杀掉。
+    concurrency:
+      group: release-compile-${{ github.ref }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36'
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      # release 变体默认在配置阶段被禁用，必须显式传 -PbuildRelease=true 才放行。
+      # assembleRelease 已覆盖 KSP/Kotlin/资源/dex/打包全流程，无需再单独跑 compileReleaseKotlin；
+      # 注意它会连同 lintVitalRelease 一起跑，因此本作业失败也可能是致命 lint 问题，而非单纯编译错误。
+      - name: Assemble release APK (unsigned, compile check only)
+        run: ./gradlew assembleRelease -PbuildRelease=true --stacktrace --no-daemon

@@ -1,8 +1,13 @@
 package com.example.dianzicheng.ui
 
+import android.content.Context
+import android.content.Intent
+import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.dianzicheng.BuildConfig
 import com.example.dianzicheng.data.backup.WebDavManager
+import com.example.dianzicheng.data.ble.BleProtocolRecorder
 import com.example.dianzicheng.data.health.HealthConnectManager
 import com.example.dianzicheng.data.local.AppLogger
 import com.example.dianzicheng.data.local.PreferenceManager
@@ -11,6 +16,7 @@ import com.example.dianzicheng.data.repository.ScaleRepository
 import com.example.dianzicheng.domain.FamilyMember
 import com.example.dianzicheng.domain.ScaleModel
 import com.example.dianzicheng.domain.Sex
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -18,7 +24,27 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.UUID
+
+/**
+ * 蓝牙协议抓包文件的落盘目录名（cacheDir 下的子目录）。
+ *
+ * ⚠️ 必须与 `app/src/main/res/xml/file_paths.xml` 中声明的 `<cache-path path="...">` 保持一致，
+ * 否则 [FileProvider.getUriForFile] 会抛出 IllegalArgumentException 导致分享失败。
+ */
+private const val BLE_CAPTURE_DIR_NAME = "ble-protocol"
+
+/**
+ * FileProvider authority。
+ *
+ * ⚠️ 必须与 `AndroidManifest.xml` 中 provider 的 `android:authorities="${applicationId}.fileprovider"` 一致。
+ */
+private const val BLE_CAPTURE_AUTHORITY_SUFFIX = ".fileprovider"
 
 /**
  * "我的"（设置/个人）页面的 ViewModel。
@@ -28,6 +54,7 @@ import java.util.UUID
  * 2. Health Connect 同步开关控制与批量历史数据同步
  * 3. WebDAV 云端备份的配置、测试连接、立即备份和数据恢复
  * 4. 应用运行日志的对外暴露（供 UI 实时显示）
+ * 5. **Debug 专用**：蓝牙协议完整抓包（[BleProtocolRecorder]）的查看、复制与文件分享
  */
 class ProfileViewModel(
     private val repository: ProfileRepository,
@@ -328,4 +355,98 @@ class ProfileViewModel(
      * @return 格式为 "[HH:mm:ss.SSS] LEVEL tag: message" 的多行文本
      */
     fun exportLogsText(): String = AppLogger.exportText()
+
+    // ── Debug 专用：蓝牙协议完整抓包 ───────────────────────────────────────────
+
+    /**
+     * 当前构建是否支持蓝牙协议抓包导出。
+     *
+     * 由 `BuildConfig.DEBUG && BuildConfig.BLE_PROTOCOL_CAPTURE` 决定：
+     * Release 版本恒为 false，UI 中整个「蓝牙协议抓包」入口都会被移除。
+     */
+    val isBleCaptureSupported: Boolean = BuildConfig.DEBUG && BuildConfig.BLE_PROTOCOL_CAPTURE
+
+    /**
+     * 蓝牙协议抓包记录流（实时刷新）。
+     *
+     * Release 构建下 [BleProtocolRecorder.entries] 恒为空列表，UI 不会渲染该入口。
+     * 注：不复用 AppLogger 的 1000 条环形缓冲，抓包使用独立且更大的缓冲（见 [BleProtocolRecorder.MAX_ENTRIES]）。
+     */
+    val bleCaptureEntries: StateFlow<List<BleProtocolRecorder.Entry>> = BleProtocolRecorder.entries
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    /** 清空蓝牙协议抓包缓冲。 */
+    fun clearBleCapture() {
+        BleProtocolRecorder.clear()
+        _statusMessage.value = "蓝牙协议抓包已清空"
+    }
+
+    /** 导出抓包为 JSON Lines 文本（每行一个 JSON 对象，便于脚本解析）。 */
+    fun exportBleCaptureJson(): String = BleProtocolRecorder.exportJsonLines()
+
+    /** 导出抓包为人类可读对齐文本（含完整十六进制载荷）。 */
+    fun exportBleCaptureText(): String = BleProtocolRecorder.exportText()
+
+    /**
+     * 将抓包写入 cacheDir/ble-protocol 并返回可直接用于 `startActivity` 的分享 Intent。
+     *
+     * 采用**文件分享**而非剪贴板：一次完整称重的报文可达数百 KB，
+     * 直接放入剪贴板既容易触发系统大小限制，也不便于在电脑端做协议离线分析。
+     *
+     * 安全约束（与 file_paths.xml 严格对齐）：
+     * - 仅写入 `cacheDir/ble-protocol/`，该目录在 [file_paths.xml] 中才被 FileProvider 暴露；
+     * - 通过 `Intent.FLAG_GRANT_READ_URI_PERMISSION` 临时授权，接收方无法访问其它文件。
+     *
+     * @return 分享 Intent；未开启抓包、无数据或构建不支持时返回 null（调用方不应再启动 Activity）
+     */
+    suspend fun createBleCaptureShareIntent(context: Context): Intent? {
+        if (!isBleCaptureSupported) return null
+        val entries = BleProtocolRecorder.entries.value
+        if (entries.isEmpty()) {
+            _statusMessage.value = "暂无抓包数据，请先连接体脂秤并完成一次称重"
+            return null
+        }
+
+        val jsonl = BleProtocolRecorder.exportJsonLines()
+        val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+        val fileName = "scale-ble-capture-$stamp.jsonl"
+
+        return withContext(Dispatchers.IO) {
+            try {
+                val dir = File(context.cacheDir, BLE_CAPTURE_DIR_NAME)
+                if (!dir.exists() && !dir.mkdirs()) {
+                    AppLogger.e("ProfileVM", "创建抓包目录失败: ${dir.absolutePath}")
+                    _statusMessage.value = "导出失败：无法创建缓存目录"
+                    return@withContext null
+                }
+                // 清理历史抓包，避免 cache 目录无限膨胀
+                dir.listFiles()?.forEach { stale ->
+                    if (stale.isFile && stale.name.startsWith("scale-ble-capture-")) stale.delete()
+                }
+
+                val file = File(dir, fileName)
+                file.writeText(jsonl, Charsets.UTF_8)
+
+                val authority = context.packageName + BLE_CAPTURE_AUTHORITY_SUFFIX
+                val uri = FileProvider.getUriForFile(context, authority, file)
+
+                AppLogger.i("ProfileVM", "蓝牙协议抓包已导出: $fileName (${entries.size} 条, ${file.length()} 字节)")
+                _statusMessage.value = "已导出 ${entries.size} 条协议报文"
+
+                Intent(Intent.ACTION_SEND).apply {
+                    type = "application/octet-stream"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_SUBJECT, fileName)
+                    putExtra(Intent.EXTRA_TEXT, "智能体脂秤 蓝牙协议完整抓包（${entries.size} 条报文，JSON Lines 格式）")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    // 兼容部分接收方对 ClipData 授权的要求
+                    clipData = android.content.ClipData.newRawUri(fileName, uri)
+                }
+            } catch (e: Exception) {
+                AppLogger.e("ProfileVM", "导出蓝牙协议抓包失败: ${e.javaClass.simpleName}: ${e.message}")
+                _statusMessage.value = "导出失败：${e.localizedMessage}"
+                null
+            }
+        }
+    }
 }

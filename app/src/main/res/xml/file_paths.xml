@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FileProvider 可分享路径声明。
+
+  仅暴露 cacheDir 下的 ble-protocol 子目录：
+  该目录只存放 Debug 版本导出的蓝牙协议抓包文件（scale-ble-capture-*.jsonl），
+  不包含任何用户数据、数据库或凭据文件。
+  对应 Java 侧常量为 ProfileViewModel.BLE_CAPTURE_DIR_NAME，两者必须一致。
+-->
+<paths>
+    <cache-path
+        name="ble-protocol"
+        path="ble-protocol/" />
+</paths>

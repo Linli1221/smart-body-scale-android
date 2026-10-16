@@ -9,6 +9,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -31,11 +32,13 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.example.dianzicheng.data.ble.BleProtocolRecorder
 import com.example.dianzicheng.data.local.AppLogger
 import com.example.dianzicheng.domain.FamilyMember
 import com.example.dianzicheng.domain.ScaleModel
@@ -77,11 +80,24 @@ fun ProfileContent(
     logEntries: List<AppLogger.LogEntry> = emptyList(),
     onClearLogs: () -> Unit = {},
     onShareLogs: () -> Unit = {},
+    /** Debug 专用：当前构建是否开启蓝牙协议抓包导出（Release 恒为 false，入口整体隐藏） */
+    isBleCaptureSupported: Boolean = false,
+    /** Debug 专用：蓝牙协议抓包记录 */
+    bleCaptureEntries: List<BleProtocolRecorder.Entry> = emptyList(),
+    /** Debug 专用：清空抓包 */
+    onClearBleCapture: () -> Unit = {},
+    /** Debug 专用：导出抓包文件并返回可分享的 Intent（返回 null 表示无数据或失败） */
+    onShareBleCapture: suspend () -> Intent? = { null },
+    /** Debug 专用：抓包 JSON Lines 文本 */
+    onExportBleCaptureJson: () -> String = { "" },
+    /** Debug 专用：抓包人类可读文本 */
+    onExportBleCaptureText: () -> String = { "" },
     modifier: Modifier = Modifier
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
     var showWebdavDialog by remember { mutableStateOf(false) }
     var showLogDialog by remember { mutableStateOf(false) }
+    var showBleCaptureDialog by remember { mutableStateOf(false) }
     var showUnpairConfirmDialog by remember { mutableStateOf(false) }
     var showModelDialog by remember { mutableStateOf(false) }
     var memberToDelete by remember { mutableStateOf<FamilyMember?>(null) }
@@ -410,6 +426,24 @@ fun ProfileContent(
                         icon = Icons.AutoMirrored.Filled.Article,
                         onClick = { showLogDialog = true }
                     )
+                    // ── Debug 专用：蓝牙协议完整抓包入口 ──
+                    // isBleCaptureSupported 来自 BuildConfig，Release 构建恒为 false，此区块整体不渲染。
+                    if (isBleCaptureSupported) {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
+                        SettingsItem(
+                            title = "蓝牙协议抓包 (Debug)",
+                            subtitle = if (bleCaptureEntries.isEmpty()) {
+                                "暂无报文 · 连接体脂秤并称重后自动记录完整协议包"
+                            } else {
+                                "已捕获 ${bleCaptureEntries.size} 条报文 · 点击查看与导出"
+                            },
+                            icon = Icons.Default.BluetoothSearching,
+                            onClick = { showBleCaptureDialog = true }
+                        )
+                    }
                     HorizontalDivider(
                         modifier = Modifier.padding(horizontal = 16.dp),
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
@@ -435,6 +469,17 @@ fun ProfileContent(
             onDismiss = { showLogDialog = false },
             onClear = onClearLogs,
             onShare = onShareLogs
+        )
+    }
+
+    if (showBleCaptureDialog) {
+        BleProtocolCaptureDialog(
+            entries = bleCaptureEntries,
+            onDismiss = { showBleCaptureDialog = false },
+            onClear = onClearBleCapture,
+            onShareFile = onShareBleCapture,
+            onExportJson = onExportBleCaptureJson,
+            onExportText = onExportBleCaptureText
         )
     }
 
@@ -758,6 +803,272 @@ private fun LogEntryRow(
     }
 }
 
+/**
+ * 蓝牙协议完整抓包查看与导出弹窗（**Debug 专用**）。
+ *
+ * 三种导出方式覆盖不同排查场景：
+ * - **导出文件**：写入 cache 并通过 FileProvider 分享 `.jsonl`，适合把完整抓包（含每条报文原始字节）带到电脑上离线分析；
+ * - **复制 JSONL**：每行一个 JSON 对象，可直接粘进脚本处理；
+ * - **复制文本**：人类可读的对齐格式，含完整十六进制载荷与 ASCII 对照，适合直接贴进 Issue。
+ *
+ * 全部导出内容均来自 [BleProtocolRecorder]，与 AppLogger 的日志缓冲相互独立，不会被日志刷掉。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BleProtocolCaptureDialog(
+    entries: List<BleProtocolRecorder.Entry>,
+    onDismiss: () -> Unit,
+    onClear: () -> Unit,
+    onShareFile: suspend () -> Intent?,
+    onExportJson: () -> String,
+    onExportText: () -> String
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    @Suppress("DEPRECATION")
+    val clipboardManager = LocalClipboardManager.current
+    val listState = rememberLazyListState()
+    var isExporting by remember { mutableStateOf(false) }
+
+    // 新报文到达时自动滚动到最底部，等价于查看实时协议流
+    LaunchedEffect(entries.size) {
+        if (entries.isNotEmpty()) {
+            listState.animateScrollToItem(entries.size - 1)
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Scaffold(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = 32.dp),
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text("蓝牙协议抓包", fontWeight = FontWeight.Bold)
+                            Text(
+                                "${entries.size} 条报文 · Debug 专用",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, contentDescription = "关闭")
+                        }
+                    },
+                    actions = {
+                        // 1) 导出为文件并分享（推荐：完整、可离线分析）
+                        IconButton(
+                            enabled = entries.isNotEmpty() && !isExporting,
+                            onClick = {
+                                scope.launch {
+                                    isExporting = true
+                                    val intent = onShareFile()
+                                    isExporting = false
+                                    // 失败原因由 ViewModel 通过 statusMessage 统一提示，此处仅在成功时拉起分享面板
+                                    if (intent != null) {
+                                        context.startActivity(Intent.createChooser(intent, "分享蓝牙协议抓包"))
+                                    }
+                                }
+                            }
+                        ) {
+                            if (isExporting) {
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.Default.Share, contentDescription = "导出文件并分享")
+                            }
+                        }
+                        // 2) 复制 JSON Lines
+                        IconButton(
+                            enabled = entries.isNotEmpty(),
+                            onClick = {
+                                clipboardManager.setText(AnnotatedString(onExportJson()))
+                                Toast.makeText(context, "已复制抓包 (JSON Lines)", Toast.LENGTH_SHORT).show()
+                            }
+                        ) {
+                            Icon(Icons.Default.DataObject, contentDescription = "复制 JSONL")
+                        }
+                        // 3) 复制人类可读文本
+                        IconButton(
+                            enabled = entries.isNotEmpty(),
+                            onClick = {
+                                clipboardManager.setText(AnnotatedString(onExportText()))
+                                Toast.makeText(context, "已复制抓包 (文本)", Toast.LENGTH_SHORT).show()
+                            }
+                        ) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = "复制文本")
+                        }
+                        IconButton(
+                            enabled = entries.isNotEmpty(),
+                            onClick = onClear
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = "清空")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
+                )
+            }
+        ) { innerPadding ->
+            if (entries.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(horizontal = 32.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.BluetoothSearching,
+                            contentDescription = null,
+                            modifier = Modifier.size(48.dp),
+                            tint = MaterialTheme.colorScheme.outlineVariant
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            "暂无蓝牙协议报文",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            "返回「测量」页，点亮体脂秤并完成一次称重，这里会自动记录扫描广播、" +
+                                "GATT 连接、特征订阅、握手包与体重/阻抗通知的完整原始字节。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                        .background(MaterialTheme.colorScheme.surface),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    // 顶部固定说明当前抓包的方向图例与容量
+                    item(key = "capture_header") {
+                        Text(
+                            text = "SCAN=广播  IN=秤→手机  OUT=手机→秤  EVENT=连接/订阅状态机   " +
+                                "容量 ${BleProtocolRecorder.MAX_ENTRIES} 条" +
+                                if (BleProtocolRecorder.dropped() > 0) "（已滚出 ${BleProtocolRecorder.dropped()} 条）" else "",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+                        )
+                    }
+                    itemsIndexed(entries) { index, entry ->
+                        BleCaptureEntryRow(index = index, entry = entry)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 单条抓包记录行：方向着色 + 事件名 + 完整十六进制载荷。 */
+@Composable
+private fun BleCaptureEntryRow(index: Int, entry: BleProtocolRecorder.Entry) {
+    val dirColor = when (entry.direction) {
+        "IN" -> Color(0xFF2196F3)     // 秤 → 手机
+        "OUT" -> Color(0xFFFF9800)    // 手机 → 秤
+        "SCAN" -> Color(0xFF9C27B0)   // 广播
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(4.dp))
+            .background(
+                if (entry.direction == "IN" || entry.direction == "OUT") dirColor.copy(alpha = 0.06f)
+                else Color.Transparent
+            )
+            .padding(horizontal = 6.dp, vertical = 4.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = index.toString().padStart(4, '0'),
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.outline
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = entry.direction,
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                color = dirColor
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = entry.event,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = if (entry.payloadHex.isEmpty()) {
+                    "+${entry.offsetMs}ms"
+                } else {
+                    "${entry.payloadHex.split(' ').size}B +${entry.offsetMs}ms"
+                },
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.outline
+            )
+        }
+
+        if (entry.address.isNotEmpty()) {
+            Text(
+                text = buildString {
+                    append(entry.address)
+                    if (entry.name.isNotEmpty()) append("  ").append(entry.name)
+                },
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 26.dp)
+            )
+        }
+
+        if (entry.payloadHex.isNotEmpty()) {
+            Text(
+                text = entry.payloadHex,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(start = 26.dp)
+            )
+            Text(
+                text = BleProtocolRecorder.toAscii(BleProtocolRecorder.hexToBytes(entry.payloadHex)),
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.padding(start = 26.dp)
+            )
+        }
+    }
+}
+
 @Composable
 fun WebDavConfigDialog(
     initialUrl: String,
@@ -980,6 +1291,8 @@ fun ProfileScreen(
     val pairedMac by viewModel.pairedMac.collectAsState()
     val pairedDeviceName by viewModel.pairedDeviceName.collectAsState()
     val selectedScaleModel by viewModel.selectedScaleModel.collectAsState()
+    // Debug 专用：蓝牙协议抓包（Release 构建下 isBleCaptureSupported 恒为 false，入口不渲染）
+    val bleCaptureEntries by viewModel.bleCaptureEntries.collectAsState()
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = PermissionController.createRequestPermissionResultContract()
@@ -1061,6 +1374,12 @@ fun ProfileScreen(
             }
             context.startActivity(android.content.Intent.createChooser(intent, "分享日志"))
         },
+        isBleCaptureSupported = viewModel.isBleCaptureSupported,
+        bleCaptureEntries = bleCaptureEntries,
+        onClearBleCapture = { viewModel.clearBleCapture() },
+        onShareBleCapture = { viewModel.createBleCaptureShareIntent(context) },
+        onExportBleCaptureJson = { viewModel.exportBleCaptureJson() },
+        onExportBleCaptureText = { viewModel.exportBleCaptureText() },
         modifier = modifier
     )
 }
