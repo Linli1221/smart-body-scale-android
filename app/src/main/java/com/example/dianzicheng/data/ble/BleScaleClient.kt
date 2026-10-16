@@ -3,7 +3,6 @@ package com.example.dianzicheng.data.ble
 import android.annotation.SuppressLint
 import android.bluetooth.*
 import android.bluetooth.le.ScanCallback
-import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
@@ -19,7 +18,7 @@ private const val TAG = "BleScaleClient"
  * BLE 蓝牙体脂秤客户端，负责完整的蓝牙生命周期管理：
  * 扫描 → 发现设备 → GATT 连接 → 服务发现 → 订阅通知 → 握手 → 数据接收与解析。
  *
- * 内部通过 [AFUPacketParser] 对收到的特征值通知数据进行解析，
+ * 内部通过 [MultiScalePacketParser] 对收到的特征值通知数据进行解析（薄荷健康/沃莱与小米体脂秤 2 代），
  * 并以 [StateFlow] 的形式向上层（ViewModel / UI）暴露实时状态：
  * - [connectionState]：当前连接状态枚举
  * - [weight]：实时体重（kg）
@@ -43,17 +42,11 @@ class BleScaleClient(private val context: Context) {
     /** 当前活跃的 GATT 连接实例；未连接时为 null。 */
     private var bluetoothGatt: BluetoothGatt? = null
 
-    /** 支持的体脂秤/体重秤服务 UUID 集合，用于广播过滤与服务匹配 */
+    /** 支持的体脂秤服务 UUID 集合（仅薄荷健康/沃莱与小米体脂秤 2 代），用于广播过滤与服务匹配 */
     private val SUPPORTED_SERVICE_UUIDS = setOf(
-        MultiScalePacketParser.UUID_SERVICE_AFU,              // 0xFFB0 (AFU 私有协议)
-        MultiScalePacketParser.UUID_SERVICE_SIG_WSS,         // 0x181D (蓝牙 SIG 标准体重秤)
-        MultiScalePacketParser.UUID_SERVICE_SIG_BCS,         // 0x181B (蓝牙 SIG 标准体脂秤/小米)
-        MultiScalePacketParser.UUID_SERVICE_CHIPSEA_OKOK,    // 0xFFF0 (芯海科技 / OKOK 方案)
-        MultiScalePacketParser.UUID_SERVICE_GENERIC_FFE0,    // 0xFFE0 (通用透传秤)
-        MultiScalePacketParser.UUID_SERVICE_XIAOMI_WECHAT,   // 0xFEE7 (小米/微信运动秤)
-        UUID.fromString("0000FFA0-0000-1000-8000-00805F9B34FB"), // Yolanda / Fitdays / 沃莱扩展
-        UUID.fromString("0000FFE5-0000-1000-8000-00805F9B34FB"), // 芯海 / OKOK 扩展
-        UUID.fromString("0000FEE0-0000-1000-8000-00805F9B34FB")  // 微信硬件 / 小米扩展
+        MultiScalePacketParser.UUID_SERVICE_AFU,        // 0xFFB0 (薄荷健康/沃莱 AFU 私有协议)
+        MultiScalePacketParser.UUID_SERVICE_YOLANDA,    // 0xFFA0 (薄荷健康/沃莱 Yolanda 扩展)
+        MultiScalePacketParser.UUID_SERVICE_SIG_BCS     // 0x181B (小米体脂秤 2 代 Body Composition)
     )
 
     // -------------------------------------------------------------------------
@@ -105,7 +98,6 @@ class BleScaleClient(private val context: Context) {
         val address: String,
         val rssi: Int = 0,
         val isBroadcastScale: Boolean = false,
-        val isWifiScale: Boolean = false,
         val isConfirmedScale: Boolean = true,
         val matchedModel: ScaleModel = ScaleModel.AUTO,
         val protocolName: String = "",
@@ -167,47 +159,40 @@ class BleScaleClient(private val context: Context) {
 
     /**
      * 根据设备名称与广播包特征，推断其对应的体脂秤型号枚举。
+     *
+     * 仅区分薄荷健康/沃莱与小米体脂秤 2 代两类；无法判定时返回 [ScaleModel.AUTO]。
      */
     fun detectMatchedModel(deviceName: String?, scanRecord: android.bluetooth.le.ScanRecord?): ScaleModel {
         val name = deviceName ?: ""
-        // 优先检查 Service UUID 是否包含 AFU 专属服务 (0xFFB0)，或设备名明确包含 AFU/WL-TZ/TZ-A1
-        if (scanRecord?.serviceUuids?.any { it.uuid.toString().uppercase().contains("FFB0") } == true ||
-            name.contains("AFU", ignoreCase = true) ||
-            name.contains("WL-TZ", ignoreCase = true) ||
-            name.contains("TZ-A1", ignoreCase = true)) {
-            return ScaleModel.AFU_PROTOCOL
+
+        // 小米体脂秤 2 代：广播名常见为 MIBFS / MISCALE / MI_SCALE / 米家 / 小米，或声明 0x181B 服务
+        if (name.startsWith("MIBFS", ignoreCase = true) || name.startsWith("MISCALE", ignoreCase = true) ||
+            name.equals("MI_SCALE", ignoreCase = true) || name.contains("米家", ignoreCase = true) ||
+            name.contains("小米", ignoreCase = true) ||
+            scanRecord?.serviceUuids?.any { it.uuid.toString().uppercase().contains("181B") } == true) {
+            return ScaleModel.XIAOMI_SCALE_2
         }
 
-        val advData = MultiScalePacketParser.parseAdvertisement(scanRecord, preferredModel)
-        if (advData?.protocolName?.contains("Xiaomi", ignoreCase = true) == true) {
-            return if (advData.protocolName.contains("2")) ScaleModel.XIAOMI_SCALE_2 else ScaleModel.XIAOMI_SCALE_1
-        }
-        if (advData?.protocolName?.contains("Yolanda", ignoreCase = true) == true ||
-            advData?.protocolName?.contains("Boohee", ignoreCase = true) == true) {
-            return ScaleModel.BOOHEE_YOLANDA
-        }
-        if (name.contains("Yolanda", ignoreCase = true) || name.contains("Boohee", ignoreCase = true) ||
+        // 薄荷健康 / 沃莱：0xFFB0 专属服务，或设备名包含品牌关键词
+        if (scanRecord?.serviceUuids?.any { it.uuid.toString().uppercase().contains("FFB0") } == true ||
+            name.contains("Yolanda", ignoreCase = true) || name.contains("Boohee", ignoreCase = true) ||
             name.contains("薄荷", ignoreCase = true) || name.contains("轻牛", ignoreCase = true) ||
+            name.contains("沃莱", ignoreCase = true) || name.contains("ICOMON", ignoreCase = true) ||
             name.startsWith("BH_", ignoreCase = true) || name.startsWith("BH-", ignoreCase = true) ||
             name.contains("Fitdays", ignoreCase = true) || name.contains("合泰", ignoreCase = true)) {
             return ScaleModel.BOOHEE_YOLANDA
         }
-        if (name.startsWith("MIBFS", ignoreCase = true) || name.contains("米家", ignoreCase = true) ||
-            name.contains("小米", ignoreCase = true) || name.startsWith("MISCALE", ignoreCase = true) ||
-            name.equals("MI_SCALE", ignoreCase = true)) {
-            return ScaleModel.XIAOMI_SCALE_2
+
+        // 依据广播数据实际命中的协议反推型号
+        val advData = MultiScalePacketParser.parseAdvertisement(scanRecord, preferredModel)
+        if (advData != null) {
+            return if (advData.protocolName.contains("Xiaomi", ignoreCase = true)) {
+                ScaleModel.XIAOMI_SCALE_2
+            } else {
+                ScaleModel.BOOHEE_YOLANDA
+            }
         }
-        if (name.contains("OKOK", ignoreCase = true) || name.contains("Chipsea", ignoreCase = true) ||
-            name.contains("芯海", ignoreCase = true) || name.startsWith("CS-", ignoreCase = true)) {
-            return ScaleModel.OKOK_CHIPSEA
-        }
-        if (name.contains("Senssun", ignoreCase = true) || name.contains("香山", ignoreCase = true) ||
-            name.contains("CAMRY", ignoreCase = true)) {
-            return ScaleModel.SENSSUN
-        }
-        if (name.startsWith("S9", ignoreCase = true) || name.startsWith("zS7", ignoreCase = true)) {
-            return ScaleModel.PHICOMM_S9
-        }
+
         return ScaleModel.AUTO
     }
 
@@ -216,8 +201,8 @@ class BleScaleClient(private val context: Context) {
      *
      * 匹配优先级（由高到低）：
      * 1. 已配对 MAC 地址精确匹配（最高优先级，直接返回 true）。
-     * 2. 广播包中包含厂商私有服务 UUID（0000FFB0）。
-     * 3. 设备名称包含特定体脂秤关键词（AFU / WL-TZ / TZ-A1 / Scale / Weight / 体脂 / 电子秤）。
+     * 2. 广播包中包含目标体脂秤服务 UUID（薄荷健康/沃莱 0xFFB0、小米 0x181B）。
+     * 3. 设备名称包含特定体脂秤关键词（薄荷健康 / 沃莱 / 小米 / Scale / Weight / 体脂 / 电子秤）。
      * 4. 广播原始数据中厂商数据（0xFF）或服务数据（0x16）段的首字节为 0xAC 帧头。
      *
      * @param result BLE 扫描回调返回的单条扫描结果。
@@ -261,7 +246,7 @@ class BleScaleClient(private val context: Context) {
             }
         }
 
-        // 3. 支持的体脂秤/体重秤 Service UUID 匹配（含 AFU、SIG WSS/BCS、OKOK/芯海等）
+        // 3. 支持的目标体脂秤 Service UUID 匹配（薄荷健康/沃莱 0xFFB0、小米 0x181B）
         val hasService = serviceUuids?.any { it.uuid in SUPPORTED_SERVICE_UUIDS } == true
         if (hasService) return true
 
@@ -270,11 +255,8 @@ class BleScaleClient(private val context: Context) {
             return true
         }
 
-        // 5. 称重设备常见品牌与关键词精确匹配（覆盖主流与小众品牌）
+        // 5. 称重设备常见关键词匹配（仅薄荷健康/沃莱与小米体脂秤 2 代）
         val nameMatched = deviceName?.let { name ->
-            name.contains("AFU", ignoreCase = true) ||
-            name.contains("WL-TZ", ignoreCase = true) ||
-            name.contains("TZ-A1", ignoreCase = true) ||
             name.contains("Scale", ignoreCase = true) ||
             name.contains("Weight", ignoreCase = true) ||
             name.contains("体脂", ignoreCase = true) ||
@@ -287,58 +269,15 @@ class BleScaleClient(private val context: Context) {
             name.contains("小米", ignoreCase = true) ||
             name.contains("米家", ignoreCase = true) ||
             name.equals("MI_SCALE", ignoreCase = true) ||
-            name.contains("OKOK", ignoreCase = true) ||
             name.contains("Yolanda", ignoreCase = true) ||
-            name.contains("Senssun", ignoreCase = true) ||
             name.contains("ICOMON", ignoreCase = true) ||
             name.contains("沃莱", ignoreCase = true) ||
             name.contains("BOOHEE", ignoreCase = true) ||
             name.contains("薄荷", ignoreCase = true) ||
             name.startsWith("BH_", ignoreCase = true) ||
             name.startsWith("BH-", ignoreCase = true) ||
-            name.contains("香山", ignoreCase = true) ||
-            name.contains("CAMRY", ignoreCase = true) ||
-            name.contains("云麦", ignoreCase = true) ||
-            name.contains("YUNMAI", ignoreCase = true) ||
-            name.contains("Phicomm", ignoreCase = true) ||
-            name.contains("斐讯", ignoreCase = true) ||
-            name.startsWith("zS7", ignoreCase = true) ||
-            name.startsWith("S7_", ignoreCase = true) ||
-            name.startsWith("S9_", ignoreCase = true) ||
-            name.equals("S7", ignoreCase = true) ||
-            name.equals("S9", ignoreCase = true) ||
-            name.contains("Picooc", ignoreCase = true) ||
-            name.contains("有品", ignoreCase = true) ||
-            name.contains("Keep", ignoreCase = true) ||
             name.contains("Fitdays", ignoreCase = true) ||
-            name.contains("QNDoctor", ignoreCase = true) ||
-            name.contains("QN-", ignoreCase = true) ||
             name.contains("轻牛", ignoreCase = true) ||
-            name.contains("Sinocare", ignoreCase = true) ||
-            name.contains("三诺", ignoreCase = true) ||
-            name.contains("Omron", ignoreCase = true) ||
-            name.contains("欧姆龙", ignoreCase = true) ||
-            name.contains("Tanita", ignoreCase = true) ||
-            name.contains("百利达", ignoreCase = true) ||
-            name.contains("Lifesense", ignoreCase = true) ||
-            name.contains("乐心", ignoreCase = true) ||
-            name.contains("InBody", ignoreCase = true) ||
-            name.contains("CHIPSEA", ignoreCase = true) ||
-            name.contains("芯海", ignoreCase = true) ||
-            name.startsWith("CS-", ignoreCase = true) ||
-            name.contains("BT_SCALE", ignoreCase = true) ||
-            name.contains("BLE_SCALE", ignoreCase = true) ||
-            name.contains("SMART_SCALE", ignoreCase = true) ||
-            name.contains("SWAN", ignoreCase = true) ||
-            name.startsWith("SW-", ignoreCase = true) ||
-            name.contains("iChoice", ignoreCase = true) ||
-            name.startsWith("CF-", ignoreCase = true) ||
-            name.startsWith("CF", ignoreCase = true) ||
-            name.startsWith("WS-", ignoreCase = true) ||
-            name.startsWith("YG", ignoreCase = true) ||
-            name.startsWith("C08", ignoreCase = true) ||
-            name.startsWith("C09", ignoreCase = true) ||
-            name.startsWith("C10", ignoreCase = true) ||
             name.contains("合泰", ignoreCase = true)
         } == true
         if (nameMatched) return true
@@ -367,12 +306,12 @@ class BleScaleClient(private val context: Context) {
                 val type = rawBytes[i + 1].toInt() and 0xFF
                 if (type == 0xFF && len >= 3) {
                     val companyId = (rawBytes[i + 2].toInt() and 0xFF) or ((rawBytes[i + 3].toInt() and 0xFF) shl 8)
-                    // 0x01A7 (Yolanda / Fitdays), 0x0157 (Huami / Xiaomi), 0x0590 (Chipsea), 0x0209 (Yolanda 变体), 0x00D2 (Dialog), 0x01DA (Telink)
-                    if (companyId in listOf(0x01A7, 0x0157, 0x0590, 0x0209, 0x00D2, 0x01DA)) return true
+                    // 0x01A7 (Yolanda / Fitdays), 0x0209 (Yolanda 变体), 0x0157 (Huami / Xiaomi)
+                    if (companyId in listOf(0x01A7, 0x0157, 0x0209)) return true
                 }
                 if (type == 0x16 && len >= 2) {
                     val b0 = rawBytes[i + 2].toInt() and 0xFF
-                    // 服务数据首字节为 0xAC / 0xA2 / 0xA3 / 0xCA 时判定为 Yolanda/薄荷
+                    // 服务数据首字节为 0xAC / 0xA2 / 0xA3 / 0xCA 时判定为薄荷健康/沃莱
                     if (b0 == 0xAC || b0 == 0xA2 || b0 == 0xA3 || b0 == 0xCA) return true
                 }
                 i += len + 1
@@ -436,7 +375,7 @@ class BleScaleClient(private val context: Context) {
                     val advScaleData = if (isScale) MultiScalePacketParser.parseAdvertisement(result.scanRecord, preferredModel) else null
                     val liveWeight = if (isScale && advScaleData != null && advScaleData.weightKg in 3.0..350.0) advScaleData.weightKg else null
                     val matchedModel = detectMatchedModel(parsedName, result.scanRecord)
-                    val isXiaomi = matchedModel == ScaleModel.XIAOMI_SCALE_1 || matchedModel == ScaleModel.XIAOMI_SCALE_2 ||
+                    val isXiaomi = matchedModel == ScaleModel.XIAOMI_SCALE_2 ||
                                    parsedName?.startsWith("MIBFS", ignoreCase = true) == true ||
                                    parsedName?.startsWith("MISCALE", ignoreCase = true) == true ||
                                    parsedName?.contains("小米", ignoreCase = true) == true ||
@@ -463,7 +402,6 @@ class BleScaleClient(private val context: Context) {
                         address = device.address,
                         rssi = result.rssi,
                         isBroadcastScale = isBroadcast,
-                        isWifiScale = false,
                         isConfirmedScale = isScale,
                         matchedModel = matchedModel,
                         protocolName = advScaleData?.protocolName ?: matchedModel.protocolName,
@@ -485,7 +423,7 @@ class BleScaleClient(private val context: Context) {
                         }.thenByDescending {
                             preferredModel != ScaleModel.AUTO && it.matchedModel == preferredModel
                         }.thenByDescending {
-                            it.isConfirmedScale || it.isWifiScale
+                            it.isConfirmedScale
                         }.thenByDescending {
                             it.rssi
                         }
@@ -564,7 +502,7 @@ class BleScaleClient(private val context: Context) {
                     return
                 }
 
-                // 非广播秤（AFU / SIG / OKOK 等需 GATT 双向通信的设备）：建立 GATT 连接
+                // 非广播秤（薄荷健康/沃莱 AFU 等需 GATT 双向通信的设备）：建立 GATT 连接
                 // 【核心保护】：若当前已在连接中或已建立连接/测量中，绝不重复发起 GATT 连接，防止多广播包碰撞
                 if (_connectionState.value == ConnectionState.CONNECTING ||
                     _connectionState.value == ConnectionState.CONNECTED ||
@@ -985,18 +923,13 @@ class BleScaleClient(private val context: Context) {
     private fun sendHandshake(gatt: BluetoothGatt) {
         for (service in gatt.services) {
             val sUuid = service.uuid.toString().uppercase()
-            // 仅对 AFU 私有服务 (0xFFB0) 发送 AFU 私有协议握手包，
-            // 严禁向 OKOK、SIG 标准或其它未知厂商特征发送，以防远端 MCU 异常或断连
+            // 仅对薄荷健康/沃莱 AFU 私有服务 (0xFFB0) 发送握手包，
+            // 严禁向其它服务或未知厂商特征发送，以防远端 MCU 异常或断连
             val isAfuService = sUuid.contains("FFB0") || sUuid.contains("0000FFB0")
             if (!isAfuService) continue
 
-            // 仅当用户明确将偏好型号手动设置为“薄荷健康/沃莱(非AFU)”时才跳过；
-            // 只要设备包含 0xFFB0 服务（AFU 专属服务），哪怕设备名称带有 QN- 或 Yolanda，也必须发送握手包激活 MCU！
-            if (preferredModel == ScaleModel.BOOHEE_YOLANDA) {
-                AppLogger.d(TAG, "当前偏好型号指定为薄荷健康/沃莱非AFU协议，跳过 AFU 握手包")
-                continue
-            }
-
+            // 只要设备包含 0xFFB0 服务（AFU 专属服务），无论用户偏好型号为何，都必须发送握手包激活 MCU，
+            // 否则秤端不会开始推送 20 字节复合帧体重/阻抗数据。
             for (char in service.characteristics) {
                 val props = char.properties
                 val cUuid = char.uuid.toString().uppercase()
@@ -1129,9 +1062,9 @@ class BleScaleClient(private val context: Context) {
      * 处理流程：
      * 1. 打印原始十六进制数据日志，便于调试。
      * 2. 重置 2.5 秒无数据超时看门狗定时器。
-     * 3. 调用 [AFUPacketParser.parseWeight] 解析体重；
+     * 3. 调用 [MultiScalePacketParser.parseNotification] 解析薄荷健康/沃莱或小米体脂秤 2 代报文；
      *    若体重 >= 3.0kg 且协议标志为稳定，则锁定稳定状态并切换到 [ConnectionState.MEASURING]。
-     * 4. 调用 [AFUPacketParser.parseImpedance] 解析阻抗，有效时更新阻抗状态流。
+     * 4. 解析出的有效阻抗会实时更新阻抗状态流。
      *
      * @param data     特征通知携带的原始字节数据。
      * @param charUuid 发出通知的特征 UUID 字符串（用于日志标记来源）。

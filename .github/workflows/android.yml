@@ -1,0 +1,80 @@
+name: Android CI
+
+# 说明：本项目不在本地构建，APK 一律由 GitHub Actions 在云端完成编译、单元测试与打包。
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+# 同一分支的重复触发只保留最新一次，避免浪费 Actions 配额
+concurrency:
+  group: android-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build & Unit Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # AGP 9.x / Gradle 9.x 需要 JDK 21（与 gradle/gradle-daemon-jvm.properties 中的 toolchainVersion=21 一致）
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36'
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Show toolchain versions
+        run: |
+          java -version
+          ./gradlew --version
+
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest --stacktrace --no-daemon
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug --stacktrace --no-daemon
+
+      - name: Build release APK (unsigned)
+        run: ./gradlew assembleRelease --stacktrace --no-daemon
+
+      - name: Upload unit test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-report
+          path: app/build/reports/tests/
+          if-no-files-found: ignore
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-apk-unsigned
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: warn

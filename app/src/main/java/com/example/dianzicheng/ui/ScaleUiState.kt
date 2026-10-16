@@ -23,7 +23,7 @@ import com.example.dianzicheng.domain.ScaleModel
  * @param debugMessage       调试消息（暂未使用，预留扩展）
  * @param discoveredDeviceName 扫描发现的设备名称（用于配对引导页展示）
  * @param discoveredDeviceMac  扫描发现的设备 MAC 地址（用于后续直连）
- * @param selectedScaleModel 用户手动选择的体脂秤型号（默认 AUTO 全品牌自动识别）
+ * @param selectedScaleModel 用户手动选择的体脂秤型号（默认 AUTO，自动识别薄荷健康/小米）
  */
 data class ScaleUiState(
     val connection: BleScaleClient.ConnectionState = BleScaleClient.ConnectionState.IDLE,

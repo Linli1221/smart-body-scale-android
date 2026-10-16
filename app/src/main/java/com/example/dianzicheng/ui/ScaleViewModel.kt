@@ -7,7 +7,6 @@ import com.example.dianzicheng.data.local.AppLogger
 import com.example.dianzicheng.data.repository.ScaleRepository
 import com.example.dianzicheng.domain.BodyAlgorithm
 import com.example.dianzicheng.domain.BodyMeasurement
-import com.example.dianzicheng.domain.Sex
 import com.example.dianzicheng.domain.FamilyMember
 import com.example.dianzicheng.domain.ScaleModel
 import kotlinx.coroutines.Job
@@ -21,7 +20,6 @@ import kotlin.math.abs
 
 import com.example.dianzicheng.data.health.HealthConnectManager
 import com.example.dianzicheng.data.local.PreferenceManager
-import com.example.dianzicheng.data.phicomm.PhicommS7Manager
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 
@@ -31,17 +29,15 @@ private const val TAG = "ScaleVM"
 /**
  * 称重主界面的 ViewModel，负责：
  * 1. 订阅 BleScaleClient 的体重、稳定状态、阻抗三路 Flow
- * 2. 订阅 PhicommS7Manager 的局域网 Wi-Fi UDP 称重数据流
- * 3. 在合适时机（稳定锁定 / 阻抗到达）触发测量数据保存
- * 4. 维护当前称量的会话状态，防止同一次称量生成重复记录
- * 5. 支持手动选择/绑定家庭成员，重新计算体脂率并更新数据库
+ * 2. 在合适时机（稳定锁定 / 阻抗到达）触发测量数据保存
+ * 3. 维护当前称量的会话状态，防止同一次称量生成重复记录
+ * 4. 支持手动选择/绑定家庭成员，重新计算体脂率并更新数据库
  */
 class ScaleViewModel(
     private val bleClient: BleScaleClient,
     private val repository: ScaleRepository,
     private val preferenceManager: PreferenceManager? = null,
-    private val healthConnectManager: HealthConnectManager? = null,
-    private val phicommS7Manager: PhicommS7Manager? = null
+    private val healthConnectManager: HealthConnectManager? = null
 ) : ViewModel() {
 
     /** 对外暴露的 UI 状态，使用 StateFlow 保证只读性 */
@@ -109,11 +105,6 @@ class ScaleViewModel(
     /** 体重不稳定时的延迟清空会话 Job，重新稳定时取消该任务以防误清空 */
     private var clearSessionJob: Job? = null
 
-    /** 斐讯 S7 Wi-Fi 称重上一次接收的时间戳、体重和系统接收时刻，用于 UDP 广播去重 */
-    private var lastPhicommTimestampEpochMs = 0L
-    private var lastPhicommWeightKg = 0.0
-    private var lastPhicommReceiptTimeMs = 0L
-
     companion object {
         /** 归零后该时间窗口内重新锁定且体重接近，仍视为同一次称重（覆盖瞬时抖动） */
         private const val CONTINUATION_AFTER_ZERO_GRACE_MS = 2500L
@@ -128,7 +119,6 @@ class ScaleViewModel(
     init {
         checkBluetoothAndLocationState()
         observeBle()        // 开始监听 BLE 数据流
-        observePhicommS7()  // 开始监听斐讯 S7 Wi-Fi 局域网广播
         observeMembers()    // 开始监听家庭成员列表
         observePreferences()// 开始监听已配对设备偏好
     }
@@ -410,9 +400,7 @@ class ScaleViewModel(
         viewModelScope.launch {
             bleClient.discoveredScales.collect { list ->
                 _uiState.update { state ->
-                    val wifiScales = state.discoveredScales.filter { it.isWifiScale }
-                    val merged = (list + wifiScales).distinctBy { it.address }
-                    state.copy(discoveredScales = merged)
+                    state.copy(discoveredScales = list)
                 }
             }
         }
@@ -638,126 +626,6 @@ class ScaleViewModel(
         }
     }
 
-    /** 斐讯 S7 局域网称重完成后的复位任务 */
-    private var phicommInactivityJob: Job? = null
-
-    /**
-     * 监听斐讯 S7 / S7 PE Wi-Fi 局域网 UDP 广播称重数据。
-     *
-     * 当用户在局域网内的斐讯 S7 上完成称重并稳定后，设备会向全网广播 UDP 报文，
-     * 本监听器自动捕获、更新 UI 状态并入库保存。
-     */
-    private fun observePhicommS7() {
-        val s7 = phicommS7Manager ?: return
-
-        // 监听斐讯 S7 局域网设备探测发现
-        viewModelScope.launch {
-            s7.discoveredDevice.collect { device ->
-                if (device != null) {
-                    val s7Item = BleScaleClient.DiscoveredScaleDevice(
-                        name = device.first,
-                        address = device.second,
-                        rssi = 0,
-                        isBroadcastScale = false,
-                        isWifiScale = true
-                    )
-                    _uiState.update { state ->
-                        val updatedList = (state.discoveredScales.filter { it.address != device.second } + s7Item)
-                        state.copy(
-                            discoveredScales = updatedList,
-                            discoveredDeviceName = state.discoveredDeviceName ?: device.first,
-                            discoveredDeviceMac = state.discoveredDeviceMac ?: device.second
-                        )
-                    }
-                }
-            }
-        }
-
-        // 监听斐讯 S7 称重数据广播
-        viewModelScope.launch {
-            s7.weightFlow.collect { meas ->
-                AppLogger.i(TAG, "收到斐讯 S7 Wi-Fi 称重数据: ${meas.weightKg} kg, MAC: ${meas.mac}")
-                val w = meas.weightKg
-                if (w < 3.0) return@collect
-
-                // 若处于配对扫描模式，不将称重数据入库
-                if (bleClient.isPairingMode) return@collect
-
-                // 若已记住设备，严格校验 MAC 地址匹配，防止局域网内其他斐讯 S7 串台或覆盖其他品牌秤
-                val pairedMac = bleClient.lastPairedMac
-                val normalizedMeasMac = meas.mac.replace("-", ":").trim()
-                val normalizedPairedMac = pairedMac?.replace("-", ":")?.trim()
-                if (normalizedPairedMac.isNullOrEmpty() || !normalizedMeasMac.equals(normalizedPairedMac, ignoreCase = true)) {
-                    AppLogger.d(TAG, "收到非绑定设备或未绑定时的斐讯 S7 称重广播，忽略: ${meas.mac} (绑定: $pairedMac)")
-                    return@collect
-                }
-
-                val now = System.currentTimeMillis()
-                // 重复 UDP 广播报文过滤 (防抖：短时间内相同的体重与时间戳视为重传，避免重复存库)
-                val isExactDuplicate = (now - lastPhicommReceiptTimeMs < 5000L && meas.timestampEpochMs == lastPhicommTimestampEpochMs && kotlin.math.abs(w - lastPhicommWeightKg) < 0.05)
-                    || (now - lastPhicommReceiptTimeMs < 1500L && kotlin.math.abs(w - lastPhicommWeightKg) < 0.05)
-
-                if (isExactDuplicate && lastLockedSessionId != null) {
-                    AppLogger.d(TAG, "忽略斐讯 S7 重复 UDP 广播报文: ${w}kg")
-                    return@collect
-                }
-
-                val isContinuation = lastLockedSessionId != null
-                    && (now - lastPhicommReceiptTimeMs <= 5000L)
-                    && kotlin.math.abs(w - currentLockedWeightKg) <= WEIGHT_CONTINUATION_TOLERANCE_KG
-
-                val sessionId = if (isContinuation) {
-                    lastLockedSessionId!!
-                } else {
-                    java.util.UUID.randomUUID().toString()
-                }
-
-                lastPhicommTimestampEpochMs = meas.timestampEpochMs
-                lastPhicommWeightKg = w
-                lastPhicommReceiptTimeMs = now
-
-                activeSessionId = sessionId
-                lastLockedSessionId = sessionId
-                currentLockedWeightKg = w
-                if (!isContinuation) {
-                    activeSessionTimestamp = meas.timestampEpochMs
-                }
-
-                _uiState.update {
-                    it.copy(
-                        liveWeightKg = w,
-                        isStable = true,
-                        connection = BleScaleClient.ConnectionState.MEASURING,
-                        discoveredDeviceName = "斐讯 S7 (Wi-Fi)",
-                        discoveredDeviceMac = meas.mac
-                    )
-                }
-
-                // Wi-Fi 秤直接上报稳定数据，立即持久化入库（显式传入阻抗 0.0，避免读取残留的 BLE 阻抗）
-                processMeasurement(
-                    sessionId = sessionId,
-                    timestamp = activeSessionTimestamp,
-                    commitToDb = true,
-                    explicitImpedance = 0.0
-                )
-
-                // 2.5 秒后复位状态为 CONNECTED，等待下次称重
-                phicommInactivityJob?.cancel()
-                phicommInactivityJob = viewModelScope.launch {
-                    delay(2500)
-                    _uiState.update {
-                        it.copy(
-                            liveWeightKg = 0.0,
-                            isStable = false,
-                            impedanceOhm = 0.0,
-                            connection = BleScaleClient.ConnectionState.CONNECTED
-                        )
-                    }
-                }
-            }
-        }
-    }
-
     /**
      * 重置测量相关的会话状态与实时 UI。
      */
@@ -808,7 +676,6 @@ class ScaleViewModel(
         resetMeasurementUi()
         _uiState.update { it.copy(discoveredScales = emptyList()) }
         bleClient.startPairingScan()
-        phicommS7Manager?.startListening()
     }
 
     /**
@@ -829,17 +696,7 @@ class ScaleViewModel(
                 isDeviceRemembered = true
             )
         }
-        if (device.isWifiScale) {
-            // Wi-Fi 局域网设备不需要且无法建立 BLE GATT 连接
-            bleClient.lastPairedMac = device.address
-            _uiState.update {
-                it.copy(
-                    connection = BleScaleClient.ConnectionState.CONNECTED
-                )
-            }
-        } else {
-            bleClient.manualConnect(device)
-        }
+        bleClient.manualConnect(device)
     }
 
     /**
@@ -850,14 +707,11 @@ class ScaleViewModel(
         viewModelScope.launch {
             preferenceManager?.clearPairedMac()
         }
-        lastPhicommReceiptTimeMs = 0L
-        lastPhicommTimestampEpochMs = 0L
-        lastPhicommWeightKg = 0.0
         bleClient.disconnectAndReset()
     }
 
     /**
-     * 开始扫描 BLE 体脂秤设备并监听局域网斐讯 S7 Wi-Fi 设备。
+     * 开始扫描 BLE 体脂秤设备。
      * 注意：若尚未记住任何设备，绝不盲连，保持 IDLE 状态等待用户手动配对。
      */
     fun startScanning() {
@@ -881,7 +735,6 @@ class ScaleViewModel(
         bleClient.lastPairedMac = targetMac
 
         bleClient.startScan()
-        phicommS7Manager?.startListening()
     }
 
     /**
@@ -896,8 +749,6 @@ class ScaleViewModel(
     override fun onCleared() {
         super.onCleared()
         bleClient.stopScan()
-        phicommS7Manager?.stopListening()
         clearSessionJob?.cancel()
-        phicommInactivityJob?.cancel()
     }
 }

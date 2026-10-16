@@ -5,7 +5,6 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -20,7 +19,6 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -134,10 +132,10 @@ fun PairingScreen(
 
     // 过滤已知体脂秤与其它蓝牙杂项
     val confirmedScales = remember(uiState.discoveredScales) {
-        uiState.discoveredScales.filter { it.isConfirmedScale || it.isWifiScale }
+        uiState.discoveredScales.filter { it.isConfirmedScale }
     }
     val otherDevices = remember(uiState.discoveredScales) {
-        uiState.discoveredScales.filter { !it.isConfirmedScale && !it.isWifiScale }
+        uiState.discoveredScales.filter { !it.isConfirmedScale }
     }
     // 是否有设备正在被踩着称重中
     val liveWeighingScale = remember(confirmedScales) {
@@ -659,7 +657,7 @@ private fun ConfirmedScaleCard(
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
-                        imageVector = if (scale.isWifiScale) Icons.Default.Wifi else Icons.Default.Bluetooth,
+                        imageVector = Icons.Default.Bluetooth,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(22.dp)
@@ -689,7 +687,7 @@ private fun ConfirmedScaleCard(
                         color = MaterialTheme.colorScheme.secondaryContainer
                     ) {
                         Text(
-                            text = if (scale.isWifiScale) "Wi-Fi" else "体脂秤",
+                            text = "体脂秤",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSecondaryContainer,
                             modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
@@ -767,7 +765,7 @@ private fun SearchingGuidanceCard(
             Text(
                 text = "1. 大多数体脂秤熄屏时会自动休眠并关闭蓝牙，请双脚站上秤踩亮屏幕；\n" +
                        "2. 请保持手机与体脂秤在 3 米以内，且手机蓝牙与定位服务处于开启状态；\n" +
-                       "3. 若使用的是薄荷、小米、香山或斐讯等特定品牌，可尝试手动指定型号。",
+                       "3. 若使用的是薄荷健康/沃莱或小米体脂秤 2 代，可尝试手动指定型号。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 lineHeight = 20.sp
@@ -779,7 +777,7 @@ private fun SearchingGuidanceCard(
             ) {
                 Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("按品牌型号筛选 (如小米、薄荷、斐讯)")
+                Text("按品牌型号筛选 (薄荷健康 / 小米)")
             }
         }
     }

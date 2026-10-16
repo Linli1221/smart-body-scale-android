@@ -8,10 +8,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
-import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -34,7 +30,6 @@ import com.example.dianzicheng.ui.theme.电子秤Theme
 
 import com.example.dianzicheng.data.backup.WebDavManager
 import com.example.dianzicheng.data.health.HealthConnectManager
-import com.example.dianzicheng.data.phicomm.PhicommS7Manager
 
 class MainActivity : ComponentActivity() {
     private lateinit var database: AppDatabase
@@ -44,7 +39,6 @@ class MainActivity : ComponentActivity() {
     private lateinit var preferenceManager: PreferenceManager
     private lateinit var healthConnectManager: HealthConnectManager
     private lateinit var webDavManager: WebDavManager
-    private lateinit var phicommS7Manager: PhicommS7Manager
 
     private val bluetoothReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
@@ -90,7 +84,6 @@ class MainActivity : ComponentActivity() {
         preferenceManager = PreferenceManager(applicationContext)
         healthConnectManager = HealthConnectManager(applicationContext)
         webDavManager = WebDavManager(database.scaleDao())
-        phicommS7Manager = PhicommS7Manager(applicationContext)
 
         // 确保系统中存在默认用户（"自己"），保证首次称重时 BMI 与身体成分正常计算
         lifecycleScope.launch {
@@ -112,7 +105,6 @@ class MainActivity : ComponentActivity() {
                     bleClient.isPairingMode = false
                     if (bleClient.connectionState.value == BleScaleClient.ConnectionState.IDLE && bleClient.isBluetoothEnabled()) {
                         bleClient.startScan()
-                        phicommS7Manager.startListening()
                     }
                 }
             }
@@ -134,8 +126,7 @@ class MainActivity : ComponentActivity() {
                                 bleClient,
                                 scaleRepository,
                                 preferenceManager,
-                                healthConnectManager,
-                                phicommS7Manager
+                                healthConnectManager
                             ) as T
                         }
                     }
@@ -202,21 +193,19 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        // 回到前台：如果已记住设备且当前为空闲状态，自动恢复扫描以保持踏秤即连；同时恢复局域网监听
+        // 回到前台：如果已记住设备且当前为空闲状态，自动恢复扫描以保持踏秤即连
         if (!bleClient.lastPairedMac.isNullOrEmpty()) {
             bleClient.isPairingMode = false
             if (bleClient.connectionState.value == BleScaleClient.ConnectionState.IDLE) {
                 bleClient.startScan()
             }
-            phicommS7Manager.startListening()
         }
     }
 
     override fun onStop() {
         super.onStop()
-        // 进入后台：暂停 BLE 低延迟扫描与 Wi-Fi UDP 监听，节约电量并符合 Android 后台规范
+        // 进入后台：暂停 BLE 低延迟扫描，节约电量并符合 Android 后台规范
         bleClient.stopScan()
-        phicommS7Manager.stopListening()
     }
 
     override fun onDestroy() {
@@ -225,6 +214,5 @@ class MainActivity : ComponentActivity() {
             unregisterReceiver(bluetoothReceiver)
         } catch (e: Exception) {}
         bleClient.disconnectAndReset()
-        phicommS7Manager.stopListening()
     }
 }

@@ -6,33 +6,25 @@ import com.example.dianzicheng.domain.ScaleModel
 import java.util.UUID
 
 /**
- * 统一多品牌电子秤/体脂秤数据包解析引擎。
+ * 体脂秤数据包解析引擎（仅支持薄荷健康/沃莱与小米体脂秤 2 代）。
  *
  * 支持协议：
- * 1. [AFU]：原有 0xAC 协议帧（沃莱/私有体脂秤，UUID 0xFFB0）
- * 2. [SIG_STANDARD]：蓝牙 SIG 国际通用标准（Weight Scale Service 0x181D / Body Composition Service 0x181B）
- * 3. [XIAOMI]：小米/米家体脂秤与体重秤（广播 Service Data 0x181B / 0x181D 及 GATT 通知）
- * 4. [OKOK_CHIPSEA]：OKOK / 芯海科技 (Chipsea) / 香山等白牌体脂秤（UUID 0xFFF0 / 0xFFE0，0x10/0xCF/0xAA 帧）
+ * 1. [薄荷健康 / 沃莱 (Yolanda / Boohee)]：AFU 0xAC 20 字节复合帧（私有服务 0xFFB0）与
+ *    0xAC 8 字节流式帧、0xA2 / 0xA3 复合帧、0xCA 0x20 透传帧。
+ * 2. [小米体脂秤 2 代]：0x181B Body Composition 广播 Service Data（13 字节，即踩即读无需配对）。
+ *
+ * 其它品牌（蓝牙 SIG 通用秤、OKOK/芯海、香山、斐讯、小米体重秤 1 代等）的解析支持已移除。
  */
 object MultiScalePacketParser {
 
-    /** 蓝牙 SIG 标准 Weight Scale Service UUID (0x181D) */
-    val UUID_SERVICE_SIG_WSS: UUID = UUID.fromString("0000181D-0000-1000-8000-00805F9B34FB")
-
-    /** 蓝牙 SIG 标准 Body Composition Service UUID (0x181B) */
+    /** 蓝牙 SIG 标准 Body Composition Service UUID (0x181B)，小米体脂秤 2 代广播服务 */
     val UUID_SERVICE_SIG_BCS: UUID = UUID.fromString("0000181B-0000-1000-8000-00805F9B34FB")
 
-    /** 芯海科技/OKOK 常用体脂秤服务 UUID (0xFFF0) */
-    val UUID_SERVICE_CHIPSEA_OKOK: UUID = UUID.fromString("0000FFF0-0000-1000-8000-00805F9B34FB")
-
-    /** 芯海/通用透传服务 UUID (0xFFE0) */
-    val UUID_SERVICE_GENERIC_FFE0: UUID = UUID.fromString("0000FFE0-0000-1000-8000-00805F9B34FB")
-
-    /** AFU 私有服务 UUID (0xFFB0) */
+    /** 薄荷健康 / 沃莱 AFU 私有服务 UUID (0xFFB0) */
     val UUID_SERVICE_AFU: UUID = UUID.fromString("0000FFB0-0000-1000-8000-00805F9B34FB")
 
-    /** 微信运动/小米辅助服务 UUID (0xFEE7) */
-    val UUID_SERVICE_XIAOMI_WECHAT: UUID = UUID.fromString("0000FEE7-0000-1000-8000-00805F9B34FB")
+    /** 薄荷健康 / 沃莱 Yolanda 扩展服务 UUID (0xFFA0) */
+    val UUID_SERVICE_YOLANDA: UUID = UUID.fromString("0000FFA0-0000-1000-8000-00805F9B34FB")
 
     /**
      * 解析完成的秤面数据。
@@ -51,10 +43,11 @@ object MultiScalePacketParser {
 
     /**
      * 明确已知的非体脂秤厂商 Company ID 集合（手机、电脑、芯片原厂、通用外设等）。
-     * 当广播包来自这些厂商时，严禁盲目将其载荷作为体脂秤协议（如 OKOK / Yolanda）解析，杜绝苹果 Continuity、三星、华为等设备伪报假体重。
+     * 当广播包来自这些厂商时，严禁盲目将其载荷作为体脂秤协议解析，
+     * 杜绝苹果 Continuity、三星、华为等设备伪报假体重。
      */
     val NON_SCALE_COMPANY_IDS = setOf(
-        0x004C, // Apple Inc. (Nearby Action, Continuity, AirDrop 等广播常含 0x10，易误判为 OKOK 202.53kg)
+        0x004C, // Apple Inc.
         0x0006, // Microsoft
         0x00E0, // Google LLC
         0x0075, // Samsung Electronics
@@ -92,10 +85,11 @@ object MultiScalePacketParser {
     /**
      * 解析特征值通知或指示（GATT Notification / Indication）数据包。
      *
-     * 自动在所有支持的协议中依次尝试匹配。支持传入用户手动选择的型号 [preferredModel] 优先匹配。
+     * 依次尝试薄荷健康/沃莱协议与小米体脂秤 2 代协议，支持传入用户手动选择的型号
+     * [preferredModel] 优先匹配。
      *
      * @param data           接收到的原始字节数组
-     * @param charUuid       发出通知的特征 UUID（小写或大写字符串，用于辅助区分 SIG 标准特征）
+     * @param charUuid       发出通知的特征 UUID（用于辅助区分各厂商私有特征）
      * @param preferredModel 用户手动偏好的型号（默认 AUTO，指定时优先尝试该协议）
      * @return 成功解析出有效数据时返回 [ParsedScaleData]，否则返回 null
      */
@@ -110,60 +104,43 @@ object MultiScalePacketParser {
 
         // 优先分支 1：用户明确指定了偏好型号，优先执行该型号的专属解析
         when (preferredModel) {
-            ScaleModel.AFU_PROTOCOL -> parseAfu(data)?.let { return it }
-            ScaleModel.BOOHEE_YOLANDA -> parseYolandaIcomon(data)?.let { return it }
-            ScaleModel.XIAOMI_SCALE_1, ScaleModel.XIAOMI_SCALE_2 -> parseXiaomiPayload(data)?.let { return it }
-            ScaleModel.OKOK_CHIPSEA, ScaleModel.SENSSUN -> parseOkokChipsea(data)?.let { return it }
-            ScaleModel.SIG_STANDARD -> {
-                parseBluetoothSigWss(data)?.let { return it }
-                parseBluetoothSigBcs(data)?.let { return it }
+            ScaleModel.BOOHEE_YOLANDA -> {
+                parseAfu(data)?.let { return it }
+                parseYolandaIcomon(data)?.let { return it }
             }
+            ScaleModel.XIAOMI_SCALE_2 -> parseXiaomiPayload(data)?.let { return it }
             else -> {}
         }
 
         // 优先分支 2：特征 UUID 明确匹配
-        // AFU 私有特征 (0xFFB2 通知 / 0xFFB0 服务)
+        // 薄荷健康 / 沃莱 AFU 私有特征 (0xFFB0 服务 / 0xFFB2 通知)
         if (uuidStr.contains("FFB2") || uuidStr.contains("FFB0")) {
             parseAfu(data)?.let { return it }
         }
-        // Bluetooth SIG 国际标准特征 (0x2A9C Body Composition / 0x2A9D Weight Measurement)
-        if (uuidStr.contains("2A9C")) {
-            parseBluetoothSigBcs(data)?.let { return it }
-        }
-        if (uuidStr.contains("2A9D")) {
-            parseBluetoothSigWss(data)?.let { return it }
-        }
-        // 沃莱 / 薄荷健康特征 (0xFFA1 / 0xFFE1)
+        // 薄荷健康 / 沃莱 Yolanda 特征 (0xFFA1 / 0xFFE1)
         if (uuidStr.contains("FFA1") || uuidStr.contains("FFE1")) {
             parseYolandaIcomon(data)?.let { return it }
         }
+        // 小米体脂秤 2 代 (0x181B Body Composition)
+        if (uuidStr.contains("181B")) {
+            parseXiaomiPayload(data)?.let { return it }
+        }
 
-        // 默认/兜底全协议级联匹配
-        // 1. 尝试 AFU 私有协议（含 0xAC 帧头，严格校验 w3 基准偏移量 0x68 与 status <= 0x05，防串扰）
+        // 默认/兜底级联匹配
+        // 1. 薄荷健康 / 沃莱 AFU 20 字节复合帧（含 0xAC 帧头，严格校验 w3 基准偏移 0x68，防串扰）
         parseAfu(data)?.let { return it }
 
-        // 2. 尝试沃莱 (Yolanda) / 薄荷健康 (Boohee) / 轻牛 / 合泰协议 (8 字节流 0xCE/0xCA/0xCB 或 20 字节复合帧)
+        // 2. 薄荷健康 / 沃莱 8 字节流与 0xA2 / 0xA3 / 0xCA20 复合帧
         parseYolandaIcomon(data)?.let { return it }
 
-        // 3. 尝试小米/米家格式（内部严格校验年月日时间合法性，杜绝未知特征误判）
+        // 3. 小米体脂秤 2 代格式（内部严格校验年月日时间合法性，杜绝未知特征误判）
         parseXiaomiPayload(data)?.let { return it }
-
-        // 4. 尝试 OKOK / 芯海科技 / 香山等通用格式
-        parseOkokChipsea(data)?.let { return it }
-
-        // 5. 仅在 UUID 明确包含 181D 或 181B 时尝试 SIG 标准解析，避免对未知特征盲目误判
-        if (uuidStr.contains("181D")) {
-            parseBluetoothSigWss(data)?.let { return it }
-        }
-        if (uuidStr.contains("181B")) {
-            parseBluetoothSigBcs(data)?.let { return it }
-        }
 
         return null
     }
 
     /**
-     * 解析 BLE 广播数据包（针对小米等无需连接直接广播体重的免配对/广播秤）。
+     * 解析 BLE 广播数据包（针对小米体脂秤 2 代等无需连接直接广播体重的免配对广播秤）。
      *
      * @param scanRecord 扫描返回的 [ScanRecord] 对象
      * @param preferredModel 用户手动偏好的型号（默认 AUTO）
@@ -178,17 +155,12 @@ object MultiScalePacketParser {
         val bcsParcel = ParcelUuid(UUID_SERVICE_SIG_BCS)
         val bcsData = scanRecord.getServiceData(bcsParcel)
 
-        val wssParcel = ParcelUuid(UUID_SERVICE_SIG_WSS)
-        val wssData = scanRecord.getServiceData(wssParcel)
-
         val serviceUuidStrings = scanRecord.serviceUuids?.map { it.uuid.toString() } ?: emptyList()
 
         return parseAdvertisementBytes(
             rawBytes = scanRecord.bytes,
-            deviceName = scanRecord.deviceName,
             serviceUuidStrings = serviceUuidStrings,
             bcsServiceData = bcsData,
-            wssServiceData = wssData,
             preferredModel = preferredModel
         )
     }
@@ -198,62 +170,25 @@ object MultiScalePacketParser {
      */
     fun parseAdvertisementBytes(
         rawBytes: ByteArray?,
-        deviceName: String? = null,
         serviceUuidStrings: List<String> = emptyList(),
         bcsServiceData: ByteArray? = null,
-        wssServiceData: ByteArray? = null,
         preferredModel: ScaleModel = ScaleModel.AUTO
     ): ParsedScaleData? {
-        if (rawBytes == null && bcsServiceData == null && wssServiceData == null) return null
+        if (rawBytes == null && bcsServiceData == null) return null
 
-        // 若广播中明确声明包含 AFU 服务 UUID (FFB0)，则必为双向 GATT 交互秤（需 FFB1 握手与 FFB2 订阅），绝不可作为广播秤处理
+        // 若广播中明确声明包含 AFU 服务 UUID (FFB0)，则必为双向 GATT 交互秤（需 FFB1 握手与 FFB2 订阅），
+        // 绝不可作为广播秤处理，必须留给 GATT 连接流程
         if (serviceUuidStrings.any { it.uppercase().contains("FFB0") }) {
             return null
         }
 
-        // AFU 私有协议秤为双向 GATT 交互设备（需 FFB1 握手与 FFB2 订阅），绝非免配对广播秤，严禁在广播中截断连接
-        if (preferredModel == ScaleModel.AFU_PROTOCOL) {
-            return null
-        }
-
-        // 1. 尝试从小服务数据 Service Data 中解析小米体脂秤 2 (0x181B)
-        if (bcsServiceData != null && bcsServiceData.size >= 10) {
+        // 1. 从小米体脂秤 2 代广播 Service Data (0x181B) 中解析（用户明确偏好薄荷健康时跳过，避免误判）
+        if (preferredModel != ScaleModel.BOOHEE_YOLANDA && bcsServiceData != null && bcsServiceData.size >= 12) {
             parseXiaomiBodyCompositionServiceData(bcsServiceData)?.let { return it }
         }
 
-        // 2. 尝试从小服务数据 Service Data 中解析小米体重秤 1 (0x181D)
-        if (wssServiceData != null && wssServiceData.size >= 3) {
-            parseXiaomiWeightScaleServiceData(wssServiceData)?.let { return it }
-        }
-
-        // 3. 尝试从厂商自定义数据 Manufacturer Data 中解析广播秤（如 Yolanda 免连接广播款、OKOK 广播款）
-        if (rawBytes != null && rawBytes.size >= 6) {
-            val recordName = deviceName ?: parseNameFromBytes(rawBytes)
-            val hasScaleKeyword = recordName?.let { name ->
-                name.contains("Scale", ignoreCase = true) ||
-                name.contains("Weight", ignoreCase = true) ||
-                name.contains("体脂", ignoreCase = true) ||
-                name.contains("电子秤", ignoreCase = true) ||
-                name.contains("体重", ignoreCase = true) ||
-                name.contains("OKOK", ignoreCase = true) ||
-                name.contains("Chipsea", ignoreCase = true) ||
-                name.contains("芯海", ignoreCase = true) ||
-                name.startsWith("CS-", ignoreCase = true) ||
-                name.contains("Yolanda", ignoreCase = true) ||
-                name.contains("Boohee", ignoreCase = true) ||
-                name.contains("薄荷", ignoreCase = true) ||
-                name.contains("Fitdays", ignoreCase = true) ||
-                name.contains("Senssun", ignoreCase = true) ||
-                name.contains("香山", ignoreCase = true)
-            } == true
-
-            val hasScaleService = serviceUuidStrings.any { u ->
-                val up = u.uppercase()
-                up.contains("FFF0") || up.contains("FFE0") || up.contains("FFE5") ||
-                up.contains("181D") || up.contains("181B") || up.contains("FFA0")
-            }
-
-            // 严格按 AD 结构遍历，检查厂商数据（0xFF）或服务数据（0x16）
+        // 2. 从厂商自定义数据 (0xFF) 或服务数据 (0x16) 中解析薄荷健康 / 沃莱广播款（用户明确偏好小米时跳过）
+        if (preferredModel != ScaleModel.XIAOMI_SCALE_2 && rawBytes != null && rawBytes.size >= 6) {
             var i = 0
             while (i < rawBytes.size - 2) {
                 val len = rawBytes[i].toInt() and 0xFF
@@ -262,8 +197,8 @@ object MultiScalePacketParser {
 
                 if (type == 0xFF && len >= 3) {
                     val companyId = (rawBytes[i + 2].toInt() and 0xFF) or ((rawBytes[i + 3].toInt() and 0xFF) shl 8)
-                    // 若属于苹果、谷歌、微软、三星、华为等非秤厂商，且没有明确的体脂秤服务与名称，绝对跳过！
-                    if (companyId in NON_SCALE_COMPANY_IDS && !hasScaleKeyword && !hasScaleService) {
+                    // 苹果、谷歌、微软、三星、华为等非秤厂商的厂商数据一律跳过，避免伪报体重
+                    if (companyId in NON_SCALE_COMPANY_IDS) {
                         i += len + 1
                         continue
                     }
@@ -275,39 +210,17 @@ object MultiScalePacketParser {
                         (rawBytes[i + 2].toInt() and 0xFF) or ((rawBytes[i + 3].toInt() and 0xFF) shl 8)
                     } else -1
 
-                    // 仅当非 AFU 协议报文（非 0xAC 或第 3 字节非 0x68..0x6E）时尝试 Yolanda 广播包
-                    val isAfuHeader = (mfgPayload[0].toInt() and 0xFF) == 0xAC &&
-                                     mfgPayload.size >= 4 &&
-                                     ((mfgPayload[3].toInt() and 0xFF) in 0x68..0x6E)
-                    if (!isAfuHeader && companyId !in NON_SCALE_COMPANY_IDS) {
+                    // AFU 20 字节复合帧属于双向 GATT 秤，绝不可在广播阶段被截断解析
+                    if (!isAfuFrame(mfgPayload) && companyId !in NON_SCALE_COMPANY_IDS) {
                         parseYolandaIcomon(mfgPayload)?.let { return it }
                     }
 
-                    // 针对标准 0xFF 厂商数据（前 2 字节为蓝牙联盟 Company ID），跳过 2 字节后尝试解析
+                    // 标准 0xFF 厂商数据前 2 字节为蓝牙联盟 Company ID，跳过 2 字节后再尝试
                     if (len >= 6 && type == 0xFF) {
                         val payloadWithoutCompany = rawBytes.copyOfRange(i + 4, i + 1 + len)
-                        val isAfuCompany = (payloadWithoutCompany[0].toInt() and 0xFF) == 0xAC &&
-                                          payloadWithoutCompany.size >= 4 &&
-                                          ((payloadWithoutCompany[3].toInt() and 0xFF) in 0x68..0x6E)
-                        if (!isAfuCompany && companyId !in NON_SCALE_COMPANY_IDS) {
+                        if (!isAfuFrame(payloadWithoutCompany) && companyId !in NON_SCALE_COMPANY_IDS) {
                             parseYolandaIcomon(payloadWithoutCompany)?.let { return it }
                         }
-
-                        // OKOK / 芯海透传格式：仅当具备明确的芯海 Company ID、或用户指定了 OKOK 型号、或设备名/服务具有秤特征时才解析！
-                        val isOkokChipseaCandidate = companyId == 0x0590 || // Chipsea 芯海官方 SIG ID
-                                                     companyId in listOf(0x01DA, 0x00D2) || // Telink / Dialog 常用秤芯片
-                                                     preferredModel == ScaleModel.OKOK_CHIPSEA ||
-                                                     hasScaleKeyword ||
-                                                     hasScaleService
-                        if (isOkokChipseaCandidate && companyId !in NON_SCALE_COMPANY_IDS) {
-                            parseOkokChipsea(payloadWithoutCompany)?.let { return it }
-                        }
-                    }
-
-                    // 尝试无 Company ID 的 OKOK / 芯海透传格式（同理严格限制候选条件）
-                    val isOkokCandidateNoCompany = preferredModel == ScaleModel.OKOK_CHIPSEA || hasScaleKeyword || hasScaleService
-                    if (isOkokCandidateNoCompany && companyId !in NON_SCALE_COMPANY_IDS) {
-                        parseOkokChipsea(mfgPayload)?.let { return it }
                     }
                 }
                 i += len + 1
@@ -317,12 +230,20 @@ object MultiScalePacketParser {
         return null
     }
 
+    /**
+     * 判断字节序列是否为 AFU 20 字节复合帧（0xAC 帧头，且 w3 落在体重基准偏移 0x68..0x6E 内）。
+     */
+    private fun isAfuFrame(bytes: ByteArray): Boolean =
+        bytes.size >= 4 &&
+            (bytes[0].toInt() and 0xFF) == 0xAC &&
+            ((bytes[3].toInt() and 0xFF) in 0x68..0x6E)
+
     // -------------------------------------------------------------------------
-    // 协议 0：沃莱 (Yolanda) / 薄荷健康 (Boohee) / 深圳轻牛 / Fitdays / 合泰协议
+    // 协议 1：薄荷健康 / 沃莱 (Yolanda / Boohee) / 深圳轻牛 / Fitdays / 合泰
     // -------------------------------------------------------------------------
 
     /**
-     * 解析沃莱 (Yolanda) / 深圳轻牛 / 薄荷健康 (Boohee) / Fitdays / 合泰 常见体脂秤协议帧。
+     * 解析薄荷健康 (Boohee) / 沃莱 (Yolanda) / 深圳轻牛 / Fitdays / 合泰 常见体脂秤协议帧。
      *
      * 涵盖主流形态：
      * 1. 8 字节实时/锁定/阻抗流帧 (0xAC 0x02 / 0x03)：
@@ -343,7 +264,7 @@ object MultiScalePacketParser {
         // ── 格式 1: 8 字节流式帧 (0xAC 开头) ──────────────────────────────────
         if (b0 == 0xAC && data.size >= 8) {
             val b1 = data[1].toInt() and 0xFF
-            // 沃莱/薄荷健康 8 字节流通常以 0x02, 0x03, 0x05, 0x0A 为命令字
+            // 薄荷健康/沃莱 8 字节流通常以 0x02, 0x03, 0x05, 0x0A 为命令字
             if (b1 in listOf(0x02, 0x03, 0x05, 0x0A)) {
                 val statusByte = data[6].toInt() and 0xFF
 
@@ -407,7 +328,7 @@ object MultiScalePacketParser {
                     val rawWeight = (b2 shl 8) or b3
                     val weightKg = rawWeight / 100.0
                     if (weightKg in 0.0..350.0) {
-                        // 注意：沃莱/薄荷健康 8 字节流式帧仅上报体重，Byte 4~5 常为环境温度、电池电压或 ADC 基准，绝非阻抗；
+                        // 注意：薄荷健康/沃莱 8 字节流式帧仅上报体重，Byte 4~5 常为环境温度、电池电压或 ADC 基准，绝非阻抗；
                         // 真实阻抗始终通过 1.1 专属的 0xCB / FD 01 报文送达。若在此处提取 Byte 4~5，会导致穿袜或未踩电极时误产生假阻抗！
                         return ParsedScaleData(
                             weightKg = weightKg,
@@ -489,7 +410,7 @@ object MultiScalePacketParser {
     }
 
     // -------------------------------------------------------------------------
-    // 协议 1：AFU 协议解析
+    // 协议 2：薄荷健康 / 沃莱 AFU 20 字节复合帧
     // -------------------------------------------------------------------------
 
     private fun parseAfu(data: ByteArray): ParsedScaleData? {
@@ -506,154 +427,7 @@ object MultiScalePacketParser {
     }
 
     // -------------------------------------------------------------------------
-    // 协议 2：Bluetooth SIG 国际通用标准（0x2A9D Weight / 0x2A9C Body Composition）
-    // -------------------------------------------------------------------------
-
-    /**
-     * 解析蓝牙 SIG 标准 Weight Measurement (0x2A9D) 特征数据。
-     *
-     * 0x2A9D Weight Measurement 帧格式：
-     * - Byte 0: Flags (8-bit)
-     *   - Bit 0: 单位（0 = SI / kg，1 = Imperial / lbs）
-     *   - Bit 1: 是否包含时间戳（7 字节）
-     *   - Bit 2: 是否包含 User ID（1 字节）
-     *   - Bit 3: 是否包含 BMI 和 Height（4 字节）
-     * - Byte 1~2: 体重 Raw UInt16（小端序，Little-Endian）
-     *   - SI 单位下分辨率标准为 0.005 kg
-     *   - Imperial 单位下分辨率为 0.01 lb
-     */
-    fun parseBluetoothSigWss(data: ByteArray): ParsedScaleData? {
-        if (data.size < 3) return null
-
-        val flags = data[0].toInt() and 0xFF
-        val isImperial = (flags and 0x01) != 0
-
-        val rawWeight = (data[1].toInt() and 0xFF) or ((data[2].toInt() and 0xFF) shl 8)
-        if (rawWeight == 0) {
-            return ParsedScaleData(
-                weightKg = 0.0,
-                isStable = false,
-                impedanceOhm = null,
-                protocolName = "Bluetooth SIG WSS"
-            )
-        }
-        if (rawWeight < 0) return null
-
-        val weightKg: Double = if (isImperial) {
-            // 磅转换为千克：1 lb ≈ 0.45359237 kg，分辨率 0.01 lb
-            val lbs = rawWeight * 0.01
-            lbs * 0.45359237
-        } else {
-            // 蓝牙 SIG 标准规范 (GATT Weight Measurement 0x2A9D): SI 单位标准分辨率为 0.005 kg
-            rawWeight * 0.005
-        }
-
-        if (weightKg < 1.0 || weightKg > 350.0) return null
-
-        // SIG 标准中 Weight Measurement 是 Indication，通常在读数稳定时上报
-        return ParsedScaleData(
-            weightKg = weightKg,
-            isStable = true,
-            impedanceOhm = null,
-            protocolName = "Bluetooth SIG WSS"
-        )
-    }
-
-    /**
-     * 解析蓝牙 SIG 标准 Body Composition Measurement (0x2A9C) 特征数据。
-     *
-     * 0x2A9C 帧结构：
-     * - Byte 0~1: Flags (16位 UInt16 小端序)
-     *   - Bit 0: 单位 (0 = SI / kg, 1 = Imperial / lbs)
-     *   - Bit 1: 是否包含时间戳 (7 字节)
-     *   - Bit 2: 是否包含 User ID (1 字节)
-     *   - Bit 3: 是否包含基础代谢率 (2 字节, 1 kJ)
-     *   - Bit 4: 是否包含肌肉百分比 (2 字节, 0.1%)
-     *   - Bit 5: 是否包含肌肉质量 (2 字节)
-     *   - Bit 6: 是否包含去脂体重 (2 字节)
-     *   - Bit 7: 是否包含软瘦体重 (2 字节)
-     *   - Bit 8: 是否包含身体水分 (2 字节)
-     *   - Bit 9: 是否包含阻抗 (2 字节, 0.1 Ω)
-     *   - Bit 10: 是否包含体重 (2 字节)
-     *   - Bit 11: 是否包含身高 (2 字节)
-     * - Byte 2~3: 体脂率 (UInt16 小端序，分辨率 0.1%)，必选字段
-     */
-    fun parseBluetoothSigBcs(data: ByteArray): ParsedScaleData? {
-        if (data.size < 4) return null
-
-        val flags = (data[0].toInt() and 0xFF) or ((data[1].toInt() and 0xFF) shl 8)
-        val isImperial = (flags and 0x01) != 0
-
-        // 必选字段：体脂率 (分辨率 0.1%)
-        val rawFat = (data[2].toInt() and 0xFF) or ((data[3].toInt() and 0xFF) shl 8)
-        val bodyFatPct = rawFat * 0.1
-
-        var offset = 4
-        // Bit 1: Timestamp (7 字节)
-        if ((flags and (1 shl 1)) != 0) offset += 7
-        // Bit 2: User ID (1 字节)
-        if ((flags and (1 shl 2)) != 0) offset += 1
-        // Bit 3: Basal Metabolism (2 字节)
-        if ((flags and (1 shl 3)) != 0) offset += 2
-        // Bit 4: Muscle Percentage (2 字节)
-        if ((flags and (1 shl 4)) != 0) offset += 2
-        // Bit 5: Muscle Mass (2 字节)
-        if ((flags and (1 shl 5)) != 0) offset += 2
-        // Bit 6: Fat Free Mass (2 字节)
-        if ((flags and (1 shl 6)) != 0) offset += 2
-        // Bit 7: Soft Lean Mass (2 字节)
-        if ((flags and (1 shl 7)) != 0) offset += 2
-        // Bit 8: Body Water Mass (2 字节)
-        if ((flags and (1 shl 8)) != 0) offset += 2
-
-        // Bit 9: Impedance (2 字节，SIG 标准分辨率 0.1 Ω)
-        var impedance: Double? = null
-        if ((flags and (1 shl 9)) != 0 && offset + 2 <= data.size) {
-            val rawImp = (data[offset].toInt() and 0xFF) or ((data[offset + 1].toInt() and 0xFF) shl 8)
-            val impOhm = rawImp * 0.1
-            if (impOhm in 50.0..2000.0) {
-                impedance = impOhm
-            }
-            offset += 2
-        }
-
-        // Bit 10: Weight (2 字节)
-        var weightKg = 0.0
-        if ((flags and (1 shl 10)) != 0 && offset + 2 <= data.size) {
-            val rawWeight = (data[offset].toInt() and 0xFF) or ((data[offset + 1].toInt() and 0xFF) shl 8)
-            val w = if (isImperial) (rawWeight * 0.01) * 0.45359237 else rawWeight * 0.005
-            if (w in 2.0..350.0) {
-                weightKg = w
-            }
-            offset += 2
-        }
-
-        if (weightKg == 0.0 && rawFat == 0) {
-            return ParsedScaleData(
-                weightKg = 0.0,
-                isStable = false,
-                impedanceOhm = null,
-                protocolName = "Bluetooth SIG BCS"
-            )
-        }
-
-        if (weightKg < 3.0 && bodyFatPct <= 0.0) {
-            return null
-        }
-
-        // 仅当已有有效体重（>= 3.0kg）时，阻抗才具备生理意义
-        val effectiveImpedance = if (weightKg >= 3.0) impedance else null
-
-        return ParsedScaleData(
-            weightKg = weightKg,
-            isStable = weightKg >= 3.0,
-            impedanceOhm = effectiveImpedance,
-            protocolName = "Bluetooth SIG BCS"
-        )
-    }
-
-    // -------------------------------------------------------------------------
-    // 协议 3：小米 / 米家系列体脂秤（Xiaomi Mi Scale 1 & 2）
+    // 协议 3：小米体脂秤 2 代
     // -------------------------------------------------------------------------
 
     /**
@@ -694,7 +468,6 @@ object MultiScalePacketParser {
                 protocolName = "Xiaomi Mi Scale 2"
             )
         }
-        if (rawWeight < 0) return null
 
         val weightKg = when {
             isCatty -> (rawWeight / 100.0) * 0.5   // 1 斤 = 0.5 kg
@@ -713,148 +486,17 @@ object MultiScalePacketParser {
     }
 
     /**
-     * 解析小米体重秤 1 (Mi Scale 1, 0x181D) 广播 Service Data。
-     * 10 字节结构：
-     * - Byte 0: Flags (Bit 0: lbs, Bit 4: catty/斤, Bit 5: stable)
-     * - Byte 1~2: 体重 (UINT16 小端序)
+     * 小米体脂秤 2 代 13 字节 GATT 通知帧：内部携带年月日时间戳，严格校验时间合法性后再解析，
+     * 杜绝任意 13 字节未知特征被误判为小米秤。
      */
-    private fun parseXiaomiWeightScaleServiceData(data: ByteArray): ParsedScaleData? {
-        if (data.size < 3) return null
-
-        val flags = data[0].toInt() and 0xFF
-        val isLbs = (flags and 0x01) != 0
-        val isCatty = (flags and 0x10) != 0
-        val isStable = (flags and 0x20) != 0
-
-        val rawWeight = (data[1].toInt() and 0xFF) or ((data[2].toInt() and 0xFF) shl 8)
-        if (rawWeight == 0) {
-            return ParsedScaleData(
-                weightKg = 0.0,
-                isStable = false,
-                impedanceOhm = null,
-                protocolName = "Xiaomi Mi Scale 1"
-            )
-        }
-        if (rawWeight < 0) return null
-
-        val weightKg = when {
-            isCatty -> (rawWeight / 100.0) * 0.5
-            isLbs   -> (rawWeight / 100.0) * 0.45359237
-            else    -> rawWeight / 200.0
-        }
-
-        if (weightKg < 2.0 || weightKg > 350.0) return null
-
-        return ParsedScaleData(
-            weightKg = weightKg,
-            isStable = isStable && weightKg >= 3.0,
-            impedanceOhm = null,
-            protocolName = "Xiaomi Mi Scale 1"
-        )
-    }
-
     private fun parseXiaomiPayload(data: ByteArray): ParsedScaleData? {
-        if (data.size == 13) {
-            val year = (data[2].toInt() and 0xFF) or ((data[3].toInt() and 0xFF) shl 8)
-            val month = data[4].toInt() and 0xFF
-            val day = data[5].toInt() and 0xFF
-            if ((year in 2015..2035 && month in 1..12 && day in 1..31) || (year == 0 && month == 0 && day == 0)) {
-                return parseXiaomiBodyCompositionServiceData(data)
-            }
+        if (data.size != 13) return null
+        val year = (data[2].toInt() and 0xFF) or ((data[3].toInt() and 0xFF) shl 8)
+        val month = data[4].toInt() and 0xFF
+        val day = data[5].toInt() and 0xFF
+        if ((year in 2015..2035 && month in 1..12 && day in 1..31) || (year == 0 && month == 0 && day == 0)) {
+            return parseXiaomiBodyCompositionServiceData(data)
         }
-        if (data.size == 10) {
-            val year = (data[3].toInt() and 0xFF) or ((data[4].toInt() and 0xFF) shl 8)
-            val month = data[5].toInt() and 0xFF
-            val day = data[6].toInt() and 0xFF
-            if ((year in 2015..2035 && month in 1..12 && day in 1..31) || (year == 0 && month == 0 && day == 0)) {
-                return parseXiaomiWeightScaleServiceData(data)
-            }
-        }
-        return null
-    }
-
-    // -------------------------------------------------------------------------
-    // 协议 4：OKOK / 芯海科技 (Chipsea) / 香山 (Senssun) 通用格式
-    // -------------------------------------------------------------------------
-
-    /**
-     * 解析 OKOK / 芯海科技方案及香山电子秤数据帧。
-     *
-     * 常见格式 A（0x10 开头）：
-     * - Byte 0: 0x10
-     * - Byte 1: 长度 / 命令
-     * - Byte 2~3: 体重 UInt16 大端序或小端序
-     * - Byte 4: 状态（Bit 0: 锁定）
-     * - Byte 5~6: 阻抗 UInt16 (100~1500)
-     *
-     * 常见格式 B（0xCF 开头）：
-     * - Byte 0: 0xCF
-     * - Byte 1~2: 体重
-     * - Byte 3: 锁定状态位
-     *
-     * 常见格式 C（香山 0xAA / 0x55）：
-     * - Byte 0: 0xAA 或 0x55
-     */
-    private fun parseOkokChipsea(data: ByteArray): ParsedScaleData? {
-        if (data.size < 6) return null
-
-        val header = data[0].toInt() and 0xFF
-
-        // 格式 A：0x10
-        if (header == 0x10 && data.size >= 7) {
-            // 大端序尝试
-            val rawWeightBe = ((data[2].toInt() and 0xFF) shl 8) or (data[3].toInt() and 0xFF)
-            // 小端序尝试
-            val rawWeightLe = (data[2].toInt() and 0xFF) or ((data[3].toInt() and 0xFF) shl 8)
-            val wBe = rawWeightBe / 100.0
-            val wLe = rawWeightLe / 100.0
-
-            val weightKg = if (wBe in 3.0..300.0) wBe else if (wLe in 3.0..300.0) wLe else if (rawWeightBe == 0 || rawWeightLe == 0) 0.0 else null
-            if (weightKg != null) {
-                val isStable = (data[4].toInt() and 0x01) != 0 || (data[4].toInt() and 0x02) != 0
-                val rawImp = ((data[5].toInt() and 0xFF) shl 8) or (data[6].toInt() and 0xFF)
-                val imp = if (isStable && weightKg >= 3.0 && rawImp in 100..1500) rawImp.toDouble() else null
-                return ParsedScaleData(
-                    weightKg = weightKg,
-                    isStable = isStable && weightKg >= 3.0,
-                    impedanceOhm = imp,
-                    protocolName = "OKOK/Chipsea (0x10)"
-                )
-            }
-        }
-
-        // 格式 B：0xCF
-        if (header == 0xCF && data.size >= 6) {
-            val rawWeight = ((data[1].toInt() and 0xFF) shl 8) or (data[2].toInt() and 0xFF)
-            val weightKg = rawWeight / 100.0
-            if (weightKg in 3.0..300.0 || rawWeight == 0) {
-                val isStable = (data[3].toInt() and 0x01) != 0
-                val rawImp = if (data.size >= 6) ((data[4].toInt() and 0xFF) shl 8) or (data[5].toInt() and 0xFF) else 0
-                val imp = if (isStable && weightKg >= 3.0 && rawImp in 100..1500) rawImp.toDouble() else null
-                return ParsedScaleData(
-                    weightKg = weightKg,
-                    isStable = isStable && weightKg >= 3.0,
-                    impedanceOhm = imp,
-                    protocolName = "OKOK (0xCF)"
-                )
-            }
-        }
-
-        // 格式 C：香山 Senssun (0xAA / 0x55)
-        if ((header == 0xAA || header == 0x55) && data.size >= 6) {
-            val rawWeight = ((data[2].toInt() and 0xFF) shl 8) or (data[3].toInt() and 0xFF)
-            val weightKg = rawWeight / 10.0 // 香山常以 0.1kg 为单位
-            if (weightKg in 3.0..300.0) {
-                val isStable = (data[4].toInt() and 0x01) != 0 || (data[4].toInt() and 0x80) != 0
-                return ParsedScaleData(
-                    weightKg = weightKg,
-                    isStable = isStable && weightKg >= 3.0,
-                    impedanceOhm = null,
-                    protocolName = "Senssun"
-                )
-            }
-        }
-
         return null
     }
 }
