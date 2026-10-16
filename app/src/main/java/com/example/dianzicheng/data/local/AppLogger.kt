@@ -60,6 +60,15 @@ object AppLogger {
     /** 对外只读日志流，供 UI 组件通过 collectAsState() 订阅 */
     val entries: StateFlow<List<LogEntry>> = _entries.asStateFlow()
 
+    /**
+     * 当前订阅者数量。
+     *
+     * 注意：`subscriptionCount` 只声明在 [kotlinx.coroutines.flow.MutableSharedFlow] 上
+     * （只读的 StateFlow/SharedFlow 没有该属性），因此必须在这里把内部可变流上的计数转发出来，
+     * 供上层在「首次订阅」时调用 [publishSnapshot] 补齐快照。
+     */
+    val subscriptionCount: StateFlow<Int> get() = _entries.subscriptionCount
+
     /** 环形缓冲区，使用 ArrayDeque 支持高效头尾操作 */
     private val buffer = ArrayDeque<LogEntry>(MAX_ENTRIES + 1)
 

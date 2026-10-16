@@ -100,6 +100,15 @@ object BleProtocolRecorder {
     private val _entries = MutableStateFlow<List<Entry>>(emptyList())
     val entries: StateFlow<List<Entry>> = _entries.asStateFlow()
 
+    /**
+     * 当前订阅者数量。
+     *
+     * `subscriptionCount` 只声明在 [kotlinx.coroutines.flow.MutableSharedFlow] 上，
+     * 只读的 StateFlow 没有该属性，因此在这里转发内部可变流上的计数，
+     * 供上层在「首次订阅」时调用 [publishSnapshot] 补齐快照。
+     */
+    val subscriptionCount: StateFlow<Int> get() = _entries.subscriptionCount
+
     // -------------------------------------------------------------------------
     // 抓包控制
     // -------------------------------------------------------------------------

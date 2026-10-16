@@ -233,13 +233,15 @@ class ProfileViewModel(
      * 这里监听订阅数，一旦从 0 变为有订阅者，立即补发一次当前缓冲区的完整快照。
      */
     init {
+        // 注意：subscriptionCount 只存在于 MutableSharedFlow 上，
+        // 因此这里订阅的是单例转发的计数流，而不是只读的 entries。
         viewModelScope.launch {
-            AppLogger.entries.subscriptionCount.collect { count ->
+            AppLogger.subscriptionCount.collect { count ->
                 if (count > 0) AppLogger.publishSnapshot()
             }
         }
         viewModelScope.launch {
-            BleProtocolRecorder.entries.subscriptionCount.collect { count ->
+            BleProtocolRecorder.subscriptionCount.collect { count ->
                 if (count > 0) BleProtocolRecorder.publishSnapshot()
             }
         }
