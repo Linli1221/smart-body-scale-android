@@ -8,6 +8,8 @@ import android.bluetooth.le.ScanSettings
 import android.content.Context
 import com.example.dianzicheng.data.local.AppLogger
 import com.example.dianzicheng.domain.ScaleModel
+import com.example.dianzicheng.domain.normalizeMacAddress
+import com.example.dianzicheng.domain.sameMacAddress
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.util.*
@@ -139,8 +141,79 @@ class BleScaleClient(private val context: Context) {
     /** 用户手动指定的体脂秤型号偏好（默认为 AUTO 智能自动识别） */
     var preferredModel: ScaleModel = ScaleModel.AUTO
 
-    /** 上次成功配对并记住的设备 MAC 地址。只有该值非空时，才允许自动连接。 */
+    /**
+     * 当前使用中的体脂秤 MAC 地址（大写归一化）。
+     *
+     * 多设备场景下它表示「用户当前选中的那台」，仅用于界面展示与直连偏好；
+     * 是否允许自动连接由 [rememberedMacs] 决定（任意一台已记住的秤踩上都能连）。
+     *
+     * 注意：该字段会被 GATT 回调线程（binder 线程）读取，因此必须是 @Volatile。
+     */
+    @Volatile
     var lastPairedMac: String? = null
+
+    /**
+     * 已记住的全部体脂秤 MAC 地址集合（大写归一化）。
+     *
+     * 由上层从 DataStore 同步写入。集合非空即允许自动连接：
+     * 用户踩上其中**任意一台**都会自动建立连接并回传数据，无需手动切换。
+     * 非空时扫描器只对集合内的设备发起连接，杜绝误连周围无关设备。
+     *
+     * 注意：该字段由主线程写入（DataStore 订阅）、被 BLE 扫描回调与 GATT 回调线程读取，
+     * 因此必须是 @Volatile，避免陈旧读导致「已移除的秤仍被当作目标设备」。
+     */
+    @Volatile
+    var rememberedMacs: Set<String> = emptySet()
+
+    /**
+     * 是否已记住至少一台体脂秤。
+     *
+     * 兼容旧字段 [lastPairedMac]：即使上层尚未把集合同步进来，只要仍有当前使用设备就视为已记住。
+     */
+    val hasRememberedDevice: Boolean
+        get() = rememberedMacs.isNotEmpty() || !lastPairedMac.isNullOrEmpty()
+
+    /**
+     * 判断给定 MAC 是否属于已记住的体脂秤（忽略大小写）。
+     *
+     * 同时兼容 [lastPairedMac]，确保集合尚未同步时不会丢失当前使用设备。
+     */
+    fun isRememberedMac(mac: String?): Boolean {
+        if (mac.isNullOrEmpty()) return false
+        if (sameMacAddress(mac, lastPairedMac)) return true
+        return rememberedMacs.any { sameMacAddress(it, mac) }
+    }
+
+    /**
+     * 当前已建立（或正在建立）GATT 连接的设备 MAC 地址；未连接时为 null。
+     *
+     * 供上层在「已记住列表」变化后判断当前连接是否已失效，例如用户移除了正在连接的那台秤。
+     */
+    val connectedMac: String?
+        get() = bluetoothGatt?.device?.address
+
+    /**
+     * 把一台设备补充进运行时记忆集合（仅改内存，持久化由上层负责）。
+     *
+     * 用于手动配对成功后的立即生效，避免等待 DataStore 异步回读造成「刚绑好却仍不自动连接」。
+     */
+    fun rememberMac(mac: String) {
+        val normalized = normalizeMacAddress(mac)
+        if (normalized.isEmpty()) return
+        if (rememberedMacs.any { sameMacAddress(it, normalized) }) return
+        rememberedMacs = rememberedMacs + normalized
+    }
+
+    /**
+     * 当前正在上报数据的广播秤 MAC（多设备会话锁）。
+     *
+     * 多设备场景下，同屋另一台已记住的广播秤（如小米秤）若同时活动，其广播包会把正在进行的
+     * 读数清零或互相覆盖。此字段记录「当前占用示数」的设备，会话期间其它已记住设备一律忽略。
+     * 会话在下秤包（0kg）或 2.5s 无数据看门狗触发时释放，因此不会被永久卡死。
+     *
+     * 仅在主线程（BLE 扫描回调）读写，无需 @Volatile。
+     */
+    private var broadcastSessionMac: String? = null
 
     /**
      * 是否处于显式手动配对模式。
@@ -275,9 +348,8 @@ class BleScaleClient(private val context: Context) {
         // 尝试从多个来源获取设备名称（优先系统缓存，其次广播字段，最后手动解析）
         val deviceName = device.name ?: scanRecord?.deviceName ?: MultiScalePacketParser.parseNameFromBytes(rawBytes)
 
-        // 1. 已配对过的 MAC 地址精确匹配
-        val isMatchedMac = !lastPairedMac.isNullOrEmpty() && device.address.equals(lastPairedMac, ignoreCase = true)
-        if (isMatchedMac) return true
+        // 1. 已记住的 MAC 地址精确匹配（多设备：任意一台已记住的秤都视为目标设备）
+        if (isRememberedMac(device.address)) return true
 
         // 2. 检查黑名单厂商（Apple、Google、Microsoft、Samsung、Huawei 等设备绝对不是体脂秤）
         if (rawBytes != null && rawBytes.size >= 4) {
@@ -402,7 +474,7 @@ class BleScaleClient(private val context: Context) {
             BleProtocolRecorder.recordScanResult(result)
 
             // 模式 1：处于手动配对模式，或尚未记住任何设备
-            if (isPairingMode || lastPairedMac.isNullOrEmpty()) {
+            if (isPairingMode || !hasRememberedDevice) {
                 val isScale = isScaleAdvertisement(result)
                 val rawBytes = result.scanRecord?.bytes
                 val parsedName = device.name ?: result.scanRecord?.deviceName ?: MultiScalePacketParser.parseNameFromBytes(rawBytes)
@@ -509,10 +581,11 @@ class BleScaleClient(private val context: Context) {
                 return
             }
 
-            // 模式 2：已记住设备，严格执行自动连接（仅连接该设备，杜绝误连周围无关设备）
-            val targetMac = lastPairedMac ?: return
-            if (!device.address.equals(targetMac, ignoreCase = true)) {
-                // 非已绑定的设备，严格忽略
+            // 模式 2：已记住设备，严格执行自动连接
+            // 多设备场景下，已记住的**任意一台**体脂秤踩上都能直接连接称重（无需手动切换），
+            // 因此这里按「已记住 MAC 集合」匹配；集合之外的设备一律严格忽略，杜绝误连周围无关设备
+            if (!isRememberedMac(device.address)) {
+                // 非已记住的设备，严格忽略
                 return
             }
 
@@ -528,10 +601,20 @@ class BleScaleClient(private val context: Context) {
                     raw = result.scanRecord?.bytes
                 )
                 if (advScaleData != null) {
+                    // 【多设备会话锁】同一时刻只允许一台已记住的秤占用示数：
+                    // 若会话由另一台设备持有，则忽略本包（含其 0kg 下秤包），
+                    // 避免同屋另一台已记住的广播秤把正在进行的读数清零或互相覆盖。
+                    val sessionMac = broadcastSessionMac
+                    if (!sessionMac.isNullOrEmpty() && !sessionMac.equals(device.address, ignoreCase = true)) {
+                        AppLogger.d(TAG, "忽略其它已记住设备的广播（会话中）: ${device.address}, 当前会话: $sessionMac")
+                        return
+                    }
                     // Bug #25 修复：只要 parseAdvertisement 返回非 null，就判定为广播秤，统一在此处理。
                     // 原条件 "advScaleData.weightKg > 0.0" 会导致离秤 0kg 包 fall-through 到下方 GATT 连接逻辑，
                     // 从而错误地对广播秤发起 GATT 连接。
                     if (advScaleData.weightKg > 0.0) {
+                        // 有有效示数：该设备取得（或保持）本次会话的所有权
+                        broadcastSessionMac = device.address
                         _weight.value = advScaleData.weightKg
                         val validStable = advScaleData.isStable && (advScaleData.weightKg >= 3.0)
                         _isStable.value = validStable
@@ -550,7 +633,9 @@ class BleScaleClient(private val context: Context) {
                         }
                     } else {
                         // 广播秤下秤包（weightKg == 0.0）：立即归零体重与稳定状态，切回已连接状态
-                        AppLogger.d(TAG, "广播秤下秤包 (0.0kg)：归零测量状态")
+                        // 同时释放会话锁，允许其它已记住的秤立刻接管
+                        broadcastSessionMac = null
+                        AppLogger.d(TAG, "广播秤下秤包 (0.0kg)：归零测量状态并释放会话锁")
                         _weight.value = 0.0
                         _isStable.value = false
                         _impedance.value = 0.0
@@ -565,6 +650,7 @@ class BleScaleClient(private val context: Context) {
                     inactivityRunnable?.let { handler.removeCallbacks(it) }
                     val watchdog = Runnable {
                         AppLogger.d(TAG, "无广播数据超时 (2.5s): 用户已下秤，重置测量状态")
+                        broadcastSessionMac = null
                         _weight.value = 0.0
                         _isStable.value = false
                         _impedance.value = 0.0
@@ -704,6 +790,7 @@ class BleScaleClient(private val context: Context) {
      */
     fun startScan() {
         // 重置所有测量数据，确保下一次称重得到干净的初始状态
+        broadcastSessionMac = null
         _weight.value = 0.0
         _isStable.value = false
         _impedance.value = 0.0
@@ -720,7 +807,7 @@ class BleScaleClient(private val context: Context) {
         pendingConnectRunnable = null
 
         // 【关键保护】：非配对模式下，如果没有记住任何设备，绝不执行盲目扫描和自动连接
-        if (!isPairingMode && lastPairedMac.isNullOrEmpty()) {
+        if (!isPairingMode && !hasRememberedDevice) {
             AppLogger.i(TAG, "尚未记住任何体脂秤设备，跳过自动连接扫描（请先进行手动配对）")
             _connectionState.value = ConnectionState.IDLE
             isScanning = false
@@ -753,10 +840,10 @@ class BleScaleClient(private val context: Context) {
         } catch (e: Exception) {}
         bluetoothGatt = null
 
-        AppLogger.i(TAG, "启动 BLE 扫描 (isPairingMode: $isPairingMode, pairedMac: $lastPairedMac)...")
+        AppLogger.i(TAG, "启动 BLE 扫描 (isPairingMode: $isPairingMode, activeMac: $lastPairedMac, 已记住 ${rememberedMacs.size} 台)...")
         BleProtocolRecorder.recordScanLifecycle(
             "SCAN_START",
-            "isPairingMode=$isPairingMode, pairedMac=${lastPairedMac ?: ""}, mode=LOW_LATENCY, reportDelay=0"
+            "isPairingMode=$isPairingMode, activeMac=${lastPairedMac ?: ""}, remembered=${rememberedMacs.size}, mode=LOW_LATENCY, reportDelay=0"
         )
         _connectionState.value = ConnectionState.SCANNING
 
@@ -820,7 +907,9 @@ class BleScaleClient(private val context: Context) {
         AppLogger.i(TAG, "用户手动连接设备: ${device.name} [${device.address}], 广播秤: ${device.isBroadcastScale}")
         BleProtocolRecorder.recordManualConnect(device.address, device.name, device.isBroadcastScale)
         _discoveredDevice.value = Pair(device.name, device.address)
-        lastPairedMac = device.address
+        lastPairedMac = normalizeMacAddress(device.address)
+        // 立即纳入运行时记忆集合：多设备场景下新绑定的秤无需等待 DataStore 回读即可自动连接
+        rememberMac(device.address)
         onMacDiscovered?.invoke(device.address)
 
         if (device.isBroadcastScale) {
@@ -871,7 +960,8 @@ class BleScaleClient(private val context: Context) {
      * - 待执行连接任务（pendingConnectRunnable）
      * - 描述符超时看门狗（descriptorTimeoutRunnable）
      * - GATT 连接实例
-     * - 已配对 MAC 记录（lastPairedMac）
+     * - 当前使用设备 MAC（lastPairedMac）。注意 [rememberedMacs] 由上层依据持久化列表同步，
+     *   不在此处清空，避免断开动作误删用户已记住的设备
      * - 已发现设备信息（discoveredDevice）
      * - 所有测量数据（体重、稳定标志、阻抗）
      */
@@ -894,6 +984,8 @@ class BleScaleClient(private val context: Context) {
         descriptorTimeoutRunnable = null
         // 清空薄荷健康 B1 会话状态与未执行的提交流程
         resetAfuB1Session()
+        // 释放广播秤会话锁，避免断开后仍拒绝其它已记住设备的广播
+        broadcastSessionMac = null
 
         stopScan()
         try {
@@ -901,7 +993,7 @@ class BleScaleClient(private val context: Context) {
             bluetoothGatt?.close()
         } catch (e: Exception) {}
         bluetoothGatt = null
-        // 清除已配对设备记忆，下次需要重新扫描配对
+        // 清除「当前使用设备」指针；已记住设备集合 rememberedMacs 由上层（PreferenceManager 订阅）负责同步
         lastPairedMac = null
         _discoveredDevice.value = null
         // 重置所有测量数据为初始值
@@ -1657,9 +1749,9 @@ class BleScaleClient(private val context: Context) {
                     // 此为体脂秤标准节能行为，绝对不是连接故障！立即重置重试计数，并恢复扫描等待下次上秤
                     gattRetryCount = 0
                     AppLogger.i(TAG, "体脂秤已正常休眠/断开 (status=$status)，重置测量状态，延时恢复扫描等待下次上秤...")
-                    if (!isPairingMode && !lastPairedMac.isNullOrEmpty()) {
+                    if (!isPairingMode && hasRememberedDevice) {
                         handler.postDelayed({
-                            if (!isPairingMode && !lastPairedMac.isNullOrEmpty() && _connectionState.value == ConnectionState.IDLE) {
+                            if (!isPairingMode && hasRememberedDevice && _connectionState.value == ConnectionState.IDLE) {
                                 AppLogger.i(TAG, "秤休眠后延时恢复扫描成功，就绪等待下次上秤")
                                 startScan()
                             }
@@ -1668,7 +1760,7 @@ class BleScaleClient(private val context: Context) {
                 } else {
                     // 场景 2：在 CONNECTING 阶段连接失败（如 Status 133、超时或秤刚唤醒就断开）
                     AppLogger.w(TAG, "GATT 连接建立失败 (status=$status)，当前重试次数: $gattRetryCount / $MAX_GATT_RETRY")
-                    if (!isPairingMode && !lastPairedMac.isNullOrEmpty()) {
+                    if (!isPairingMode && hasRememberedDevice) {
                         if (gattRetryCount < MAX_GATT_RETRY) {
                             val delayMs = (1000L * (1 shl gattRetryCount)).coerceAtMost(8000L)
                             gattRetryCount++
@@ -1679,7 +1771,7 @@ class BleScaleClient(private val context: Context) {
                             )
                             AppLogger.w(TAG, "将在 ${delayMs}ms 后恢复扫描以重连目标秤（第 $gattRetryCount 次）")
                             handler.postDelayed({
-                                if (!isPairingMode && !lastPairedMac.isNullOrEmpty() && _connectionState.value == ConnectionState.IDLE) {
+                                if (!isPairingMode && hasRememberedDevice && _connectionState.value == ConnectionState.IDLE) {
                                     startScan()
                                 }
                             }, delayMs)
@@ -1688,7 +1780,7 @@ class BleScaleClient(private val context: Context) {
                             gattRetryCount = 0
                             AppLogger.w(TAG, "GATT 连接连续失败已达 $MAX_GATT_RETRY 次，冷却 5s 后重置并恢复扫描...")
                             handler.postDelayed({
-                                if (!isPairingMode && !lastPairedMac.isNullOrEmpty() && _connectionState.value == ConnectionState.IDLE) {
+                                if (!isPairingMode && hasRememberedDevice && _connectionState.value == ConnectionState.IDLE) {
                                     startScan()
                                 }
                             }, 5000L)
@@ -1705,9 +1797,9 @@ class BleScaleClient(private val context: Context) {
                     bluetoothGatt = null
                 }
                 _connectionState.value = ConnectionState.IDLE
-                if (!isPairingMode && !lastPairedMac.isNullOrEmpty()) {
+                if (!isPairingMode && hasRememberedDevice) {
                     handler.postDelayed({
-                        if (!isPairingMode && !lastPairedMac.isNullOrEmpty() && _connectionState.value == ConnectionState.IDLE) {
+                        if (!isPairingMode && hasRememberedDevice && _connectionState.value == ConnectionState.IDLE) {
                             startScan()
                         }
                     }, 1000L)

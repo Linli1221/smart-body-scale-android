@@ -41,8 +41,10 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.dianzicheng.data.ble.BleProtocolRecorder
 import com.example.dianzicheng.data.local.AppLogger
 import com.example.dianzicheng.domain.FamilyMember
+import com.example.dianzicheng.domain.RememberedScale
 import com.example.dianzicheng.domain.ScaleModel
 import com.example.dianzicheng.domain.Sex
+import com.example.dianzicheng.domain.sameMacAddress
 import com.example.dianzicheng.ui.theme.电子秤Theme
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -55,10 +57,15 @@ fun ProfileContent(
     members: List<FamilyMember>,
     onAddMember: (String, Sex, Double, Long, Double) -> Unit,
     onDeleteMember: (FamilyMember) -> Unit,
-    onResetPairing: () -> Unit,
-    onNavigateToPairing: () -> Unit = onResetPairing,
+    onNavigateToPairing: () -> Unit = {},
     pairedMac: String? = null,
     pairedDeviceName: String? = null,
+    /** 全部已记住的体脂秤（最近使用优先）；支持同时记住多台并切换当前使用设备 */
+    rememberedScales: List<RememberedScale> = emptyList(),
+    /** 点击列表中的某台设备：把它切换为当前使用设备 */
+    onSelectScale: (String) -> Unit = {},
+    /** 点击某台设备右侧的删除按钮：把它从已记住列表中移除 */
+    onRemoveScale: (String) -> Unit = {},
     selectedScaleModel: ScaleModel = ScaleModel.AUTO,
     onSelectScaleModel: (ScaleModel) -> Unit = {},
     healthConnectEnabled: Boolean,
@@ -101,7 +108,7 @@ fun ProfileContent(
     var showWebdavDialog by remember { mutableStateOf(false) }
     var showLogDialog by remember { mutableStateOf(false) }
     var showBleCaptureDialog by remember { mutableStateOf(false) }
-    var showUnpairConfirmDialog by remember { mutableStateOf(false) }
+    var scalePendingRemoval by remember { mutableStateOf<RememberedScale?>(null) }
     var showModelDialog by remember { mutableStateOf(false) }
     var memberToDelete by remember { mutableStateOf<FamilyMember?>(null) }
 
@@ -397,17 +404,55 @@ fun ProfileContent(
                         .clip(RoundedCornerShape(8.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
                 ) {
-                    SettingsItem(
-                        title = if (pairedMac.isNullOrEmpty()) "绑定体脂秤" else "已记住体脂秤",
-                        subtitle = if (pairedMac.isNullOrEmpty()) "暂未绑定，点击手动搜索并连接" else "${pairedDeviceName ?: "体脂秤"} ($pairedMac) · 点击解除绑定",
-                        icon = Icons.Default.Bluetooth,
-                        onClick = {
-                            if (pairedMac.isNullOrEmpty()) {
-                                onNavigateToPairing()
-                            } else {
-                                showUnpairConfirmDialog = true
-                            }
+                    // ── 已记住的体脂秤列表（支持同时记住多台：点击切换当前使用设备，右侧按钮移除） ──
+                    if (rememberedScales.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "已记住的体脂秤 (${rememberedScales.size})",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = "踩任意一台即可自动连接",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
                         }
+                        rememberedScales.forEach { scale ->
+                            HorizontalDivider(
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                            )
+                            RememberedScaleItem(
+                                scale = scale,
+                                isActive = sameMacAddress(scale.mac, pairedMac),
+                                onActivate = { onSelectScale(scale.mac) },
+                                onRemove = { scalePendingRemoval = scale }
+                            )
+                        }
+                        // 分隔「已记住列表」与下方「添加新的体脂秤」入口；
+                        // 必须放在分支内，否则列表为空时卡片顶部会出现一条多余的孤立分隔线
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
+                    }
+                    SettingsItem(
+                        title = if (rememberedScales.isEmpty()) "绑定体脂秤" else "添加新的体脂秤",
+                        subtitle = if (rememberedScales.isEmpty()) {
+                            "暂未绑定，点击手动搜索并连接"
+                        } else {
+                            "支持同时记住多台体脂秤（当前 ${rememberedScales.size} 台），随时切换当前使用设备"
+                        },
+                        icon = Icons.Default.Bluetooth,
+                        onClick = onNavigateToPairing
                     )
                     HorizontalDivider(
                         modifier = Modifier.padding(horizontal = 16.dp),
@@ -531,28 +576,34 @@ fun ProfileContent(
         )
     }
 
-    if (showUnpairConfirmDialog) {
+    val scalePendingRemovalTarget = scalePendingRemoval
+    if (scalePendingRemovalTarget != null) {
         AlertDialog(
-            onDismissRequest = { showUnpairConfirmDialog = false },
-            title = { Text("解除设备绑定？", fontWeight = FontWeight.Bold) },
+            onDismissRequest = { scalePendingRemoval = null },
+            title = { Text("移除这台体脂秤？", fontWeight = FontWeight.Bold) },
             text = {
-                Text("确定要解除与体脂秤「${pairedDeviceName ?: pairedMac}」的绑定吗？\n\n解除后 App 将暂停自动连接，直到您重新手动搜索并绑定设备。")
+                Text(
+                    "确定要从已记住的列表中移除「${scalePendingRemovalTarget.name}」吗？\n\n" +
+                        "当前共记住 ${rememberedScales.size} 台体脂秤，移除后其余设备仍可自动连接；" +
+                        "若全部移除，App 将暂停自动连接，直到您重新手动搜索并绑定设备。"
+                )
             },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        showUnpairConfirmDialog = false
-                        onResetPairing()
+                        val mac = scalePendingRemovalTarget.mac
+                        scalePendingRemoval = null
+                        onRemoveScale(mac)
                     },
                     colors = ButtonDefaults.textButtonColors(
                         contentColor = MaterialTheme.colorScheme.error
                     )
                 ) {
-                    Text("解除绑定", fontWeight = FontWeight.Bold)
+                    Text("移除", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showUnpairConfirmDialog = false }) {
+                TextButton(onClick = { scalePendingRemoval = null }) {
                     Text("取消")
                 }
             }
@@ -582,6 +633,97 @@ fun ProfileContent(
             onModelSelected = onSelectScaleModel,
             onDismiss = { showModelDialog = false }
         )
+    }
+}
+
+/**
+ * 「已记住的体脂秤」列表项。
+ *
+ * 整行可点击 → 切换为当前使用设备；右侧删除按钮 → 从已记住列表中移除该台。
+ * 当前使用中的设备以实心图标 + 「使用中」标签高亮。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RememberedScaleItem(
+    scale: RememberedScale,
+    isActive: Boolean,
+    onActivate: () -> Unit,
+    onRemove: () -> Unit
+) {
+    Surface(
+        onClick = onActivate,
+        modifier = Modifier.fillMaxWidth(),
+        color = Color.Transparent
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 20.dp, end = 8.dp, top = 14.dp, bottom = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (isActive) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.primaryContainer
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.Bluetooth,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = if (isActive) {
+                        MaterialTheme.colorScheme.onPrimary
+                    } else {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    }
+                )
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = scale.name,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (isActive) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Text(
+                                text = "使用中",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
+                }
+                Text(
+                    text = listOfNotNull(
+                        scale.detail.takeIf { it.isNotBlank() },
+                        scale.mac
+                    ).joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            IconButton(onClick = onRemove) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "移除 ${scale.name}",
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.outline
+                )
+            }
+        }
     }
 }
 
@@ -1299,6 +1441,7 @@ fun ProfileScreen(
     val logEntries by viewModel.logEntries.collectAsState()
     val pairedMac by viewModel.pairedMac.collectAsState()
     val pairedDeviceName by viewModel.pairedDeviceName.collectAsState()
+    val rememberedScales by viewModel.rememberedScales.collectAsState()
     val selectedScaleModel by viewModel.selectedScaleModel.collectAsState()
     // Debug 专用：蓝牙协议抓包（Release 构建下 isBleCaptureSupported 恒为 false，入口不渲染）
     val bleCaptureEntries by viewModel.bleCaptureEntries.collectAsState()
@@ -1324,10 +1467,12 @@ fun ProfileScreen(
         members = members,
         onAddMember = { name, sex, height, birth, weight -> viewModel.addMember(name, sex, height, birth, weight) },
         onDeleteMember = { viewModel.deleteMember(it) },
-        onResetPairing = { viewModel.resetPairing() },
         onNavigateToPairing = onNavigateToPairing,
         pairedMac = pairedMac,
         pairedDeviceName = pairedDeviceName,
+        rememberedScales = rememberedScales,
+        onSelectScale = { viewModel.setActiveScale(it) },
+        onRemoveScale = { viewModel.removeScale(it) },
         selectedScaleModel = selectedScaleModel,
         onSelectScaleModel = { viewModel.selectScaleModel(it) },
         healthConnectEnabled = healthConnectEnabled,

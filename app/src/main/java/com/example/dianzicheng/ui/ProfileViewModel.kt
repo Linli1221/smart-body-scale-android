@@ -14,6 +14,7 @@ import com.example.dianzicheng.data.local.PreferenceManager
 import com.example.dianzicheng.data.repository.ProfileRepository
 import com.example.dianzicheng.data.repository.ScaleRepository
 import com.example.dianzicheng.domain.FamilyMember
+import com.example.dianzicheng.domain.RememberedScale
 import com.example.dianzicheng.domain.ScaleModel
 import com.example.dianzicheng.domain.Sex
 import kotlinx.coroutines.Dispatchers
@@ -76,11 +77,19 @@ class ProfileViewModel(
 
     // ── 设备配对设置 ─────────────────────────────────────────────────────────
 
-    /** 当前已配对记住的设备 MAC 地址 */
+    /**
+     * 全部已记住的体脂秤（最近使用优先）。
+     *
+     * 支持同时记住多台（如家中、父母家各一台），界面据此渲染设备列表并允许切换/移除。
+     */
+    val rememberedScales: StateFlow<List<RememberedScale>> = preferenceManager.rememberedScales
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    /** 当前使用中的体脂秤 MAC 地址（多台已记住设备中选中的那台） */
     val pairedMac: StateFlow<String?> = preferenceManager.pairedMac
         .stateIn(viewModelScope, SharingStarted.Lazily, null)
 
-    /** 当前已配对记住的设备名称 */
+    /** 当前使用中的体脂秤名称 */
     val pairedDeviceName: StateFlow<String?> = preferenceManager.pairedDeviceName
         .stateIn(viewModelScope, SharingStarted.Lazily, null)
 
@@ -178,9 +187,19 @@ class ProfileViewModel(
         viewModelScope.launch { repository.deleteMember(member) }
     }
 
-    /** 清除已配对的蓝牙设备 MAC 地址，触发重新配对流程 */
-    fun resetPairing() {
-        viewModelScope.launch { preferenceManager.clearPairedMac() }
+    /**
+     * 移除一台已记住的体脂秤。
+     *
+     * 移除最后一台时会把配对状态重置为 false，界面回到配对引导页；
+     * 仍有其它设备时仅从列表中删除该台，不影响自动连接。
+     */
+    fun removeScale(mac: String) {
+        viewModelScope.launch { preferenceManager.removeRememberedScale(mac) }
+    }
+
+    /** 把指定设备切换为当前使用中的体脂秤 */
+    fun setActiveScale(mac: String) {
+        viewModelScope.launch { preferenceManager.setActiveScale(mac) }
     }
 
     // ── Health Connect ─────────────────────────────────────────────────────

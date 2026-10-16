@@ -36,7 +36,9 @@ import android.bluetooth.BluetoothAdapter
 import android.content.Intent
 import android.provider.Settings
 import com.example.dianzicheng.data.ble.BleScaleClient
+import com.example.dianzicheng.domain.RememberedScale
 import com.example.dianzicheng.domain.ScaleModel
+import com.example.dianzicheng.domain.sameMacAddress
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -147,7 +149,7 @@ fun PairingScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "绑定体脂秤",
+                        text = if (uiState.rememberedScales.isEmpty()) "绑定体脂秤" else "体脂秤管理",
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleLarge
                     )
@@ -288,6 +290,34 @@ fun PairingScreen(
                     .fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                // 0. 已记住的体脂秤（支持同时记住多台，此处可查看并切换当前使用设备）
+                if (uiState.rememberedScales.isNotEmpty()) {
+                    item(key = "remembered_header") {
+                        Text(
+                            text = "已记住的体脂秤 (${uiState.rememberedScales.size})：",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+                        )
+                    }
+                    items(uiState.rememberedScales, key = { "remembered_${it.mac}" }) { remembered ->
+                        RememberedScaleCard(
+                            scale = remembered,
+                            isActive = sameMacAddress(remembered.mac, uiState.activeScaleMac),
+                            onActivate = { viewModel.switchActiveScale(remembered.mac) }
+                        )
+                    }
+                    item(key = "remembered_hint") {
+                        Text(
+                            text = "提示：踩上已记住的任意一台体脂秤都会自动连接并称重，无需在此手动切换；" +
+                                "下方继续绑定即可追加新的体脂秤。",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                }
+
                 // 1. 如果有秤正在称重中，置顶高亮该秤！
                 liveWeighingScale?.let { activeScale ->
                     item(key = "active_scale_${activeScale.address}") {
@@ -507,6 +537,109 @@ private fun RadarScanningHero(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
             )
+        }
+    }
+}
+
+/**
+ * 「已记住的体脂秤」列表卡片（配对页复用）。
+ *
+ * 整行可点击 → 切换为当前使用设备；已在使用的设备显示对勾与高亮底色。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RememberedScaleCard(
+    scale: RememberedScale,
+    isActive: Boolean,
+    onActivate: () -> Unit
+) {
+    Card(
+        onClick = onActivate,
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isActive) {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+            }
+        ),
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = if (isActive) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.primaryContainer
+                },
+                modifier = Modifier.size(36.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.Bluetooth,
+                        contentDescription = null,
+                        tint = if (isActive) {
+                            MaterialTheme.colorScheme.onPrimary
+                        } else {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        },
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = scale.name,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (isActive) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Surface(
+                            shape = MaterialTheme.shapes.extraSmall,
+                            color = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Text(
+                                text = "使用中",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "${scale.detail.ifBlank { scale.model.displayName }} · ${scale.mac}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (isActive) {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            } else {
+                Text(
+                    text = "设为当前",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
         }
     }
 }

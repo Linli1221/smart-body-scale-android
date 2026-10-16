@@ -130,7 +130,9 @@ fun DashboardContent(
             // Connection Status Chip
             ConnectionStatusChip(
                 state = uiState.connection,
-                deviceName = uiState.pairedDeviceName ?: uiState.discoveredDeviceName,
+                // 多设备自动连接下，「当前使用设备」与「正在连接的设备」可能不是同一台，
+                // 优先展示实际连接的那台，避免状态栏显示错误的设备名
+                deviceName = uiState.discoveredDeviceName ?: uiState.pairedDeviceName,
                 isDeviceRemembered = uiState.isDeviceRemembered,
                 isBluetoothEnabled = uiState.isBluetoothEnabled
             )
@@ -186,7 +188,7 @@ fun DashboardContent(
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            "手动连接并记住体脂秤后，App 将仅针对该设备开启自动连接，防止误连周围其他设备。",
+                            "手动连接并记住体脂秤后，App 将仅针对已记住的设备开启自动连接，防止误连周围其他设备；可同时记住多台，踩上任意一台都能自动连接。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center
@@ -268,12 +270,18 @@ fun DashboardContent(
                                 .clip(CircleShape)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
+                        val rememberedCount = uiState.rememberedScales.size
+                        val scanningDeviceLabel = if (rememberedCount > 1) {
+                            "$rememberedCount 台已记住设备"
+                        } else {
+                            uiState.pairedDeviceName ?: uiState.pairedDeviceMac ?: "体脂秤"
+                        }
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
                             Text(
-                                "正在寻找已绑定的设备 (${uiState.pairedDeviceName ?: uiState.pairedDeviceMac ?: "体脂秤"})...",
+                                "正在寻找已记住的体脂秤 ($scanningDeviceLabel)...",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

@@ -24,8 +24,7 @@ fun MainScreen(
     historyViewModel: HistoryViewModel,
     profileViewModel: ProfileViewModel,
     isPairingComplete: Boolean?,
-    onPairingComplete: () -> Unit,
-    onResetPairing: () -> Unit = { profileViewModel.resetPairing() }
+    onPairingComplete: () -> Unit
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()

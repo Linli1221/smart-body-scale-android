@@ -21,7 +21,10 @@ import kotlin.math.abs
 
 import com.example.dianzicheng.data.health.HealthConnectManager
 import com.example.dianzicheng.data.local.PreferenceManager
-import kotlinx.coroutines.flow.combine
+import com.example.dianzicheng.domain.RememberedScale
+import com.example.dianzicheng.domain.ScaleMemoryLogic
+import com.example.dianzicheng.domain.normalizeMacAddress
+import com.example.dianzicheng.domain.sameMacAddress
 import kotlinx.coroutines.flow.first
 
 /** 日志标签，用于在 AppLogger 和 Logcat 中标识来源 */
@@ -431,20 +434,52 @@ class ScaleViewModel(
     }
 
     /**
-     * 监听已配对设备 MAC 与名称的变化，更新 UI 状态。
+     * 监听「已记住的多台体脂秤」与当前使用设备的变化，更新 UI 状态与 BLE 客户端。
+     *
+     * 两路订阅各自独立：
+     * 1. rememberedScales —— 全量设备列表，用于界面展示，并同步给 BLE 客户端作为自动连接白名单；
+     * 2. activeScale —— 当前使用设备，决定界面展示的设备名，并在设备可用时自动开始扫描。
      */
     private fun observePreferences() {
         val pref = preferenceManager ?: return
         viewModelScope.launch {
-            combine(pref.pairedMac, pref.pairedDeviceName) { mac, name ->
-                Pair(mac, name)
-            }.collect { (mac, name) ->
+            pref.rememberedScales.collect { scales ->
+                // 同步自动连接白名单：已记住的任意一台体脂秤踩上都能直接连接并称重
+                val macs = scales.map { normalizeMacAddress(it.mac) }.toSet()
+                bleClient.rememberedMacs = macs
+                // 维持不变式：当前使用设备必须仍在已记住集合内。
+                // 用户移除设备后，activeScale 的更正可能晚一拍到达，若此处保留旧指针，
+                // 已移除的秤仍会被 isRememberedMac 误判为目标设备。
+                val staleActive = bleClient.lastPairedMac
+                if (!staleActive.isNullOrEmpty() && !macs.contains(normalizeMacAddress(staleActive))) {
+                    bleClient.lastPairedMac = null
+                }
+                _uiState.update {
+                    it.copy(
+                        rememberedScales = scales,
+                        isDeviceRemembered = scales.isNotEmpty()
+                    )
+                }
+                // 当前正连接着的那台秤被移除时：主动断开并恢复扫描，避免继续接收已移除设备的数据
+                val connectedMac = bleClient.connectedMac
+                if (scales.isEmpty()) {
+                    bleClient.disconnectAndReset()
+                } else if (!connectedMac.isNullOrEmpty() && !bleClient.isRememberedMac(connectedMac)) {
+                    AppLogger.i(TAG, "当前连接的体脂秤已被移除，主动断开并恢复扫描: $connectedMac")
+                    bleClient.disconnectAndReset()
+                    startScanning()
+                }
+            }
+        }
+        viewModelScope.launch {
+            pref.activeScale.collect { active ->
+                val mac = active?.mac
                 bleClient.lastPairedMac = mac
                 _uiState.update {
                     it.copy(
+                        activeScaleMac = mac,
                         pairedDeviceMac = mac,
-                        pairedDeviceName = name,
-                        isDeviceRemembered = !mac.isNullOrEmpty()
+                        pairedDeviceName = active?.name
                     )
                 }
                 if (mac.isNullOrEmpty()) {
@@ -705,33 +740,63 @@ class ScaleViewModel(
     /**
      * 用户手动选择设备，连接并记住该设备。
      *
+     * 多设备支持：新设备会被写入「已记住的体脂秤」列表（同 MAC 则原地更新），
+     * 并自动切换为当前使用设备；列表中已有的其它体脂秤**不会**被清除。
+     *
      * @param device 用户在发现列表中点击选中的秤
      */
     fun pairAndConnectDevice(device: BleScaleClient.DiscoveredScaleDevice) {
         AppLogger.i(TAG, "用户确认连接并记住设备: ${device.name} [${device.address}]")
+        val mac = normalizeMacAddress(device.address)
+        val remembered = RememberedScale(
+            mac = mac,
+            name = device.name,
+            modelId = device.matchedModel.id,
+            protocolName = device.protocolName,
+            lastUsedAtMs = System.currentTimeMillis()
+        )
         viewModelScope.launch {
-            preferenceManager?.savePairedDevice(device.address, device.name)
+            preferenceManager?.rememberScale(remembered)
         }
         // 界面立即同步更新已绑定设备信息，消除 DataStore 异步落库延迟引起的界面闪烁
-        _uiState.update {
-            it.copy(
-                pairedDeviceMac = device.address,
+        _uiState.update { state ->
+            state.copy(
+                rememberedScales = ScaleMemoryLogic.upsert(state.rememberedScales, remembered),
+                activeScaleMac = mac,
+                pairedDeviceMac = mac,
                 pairedDeviceName = device.name,
                 isDeviceRemembered = true
             )
         }
+        bleClient.lastPairedMac = mac
+        bleClient.rememberMac(mac)
         bleClient.manualConnect(device)
     }
 
     /**
-     * 解除当前已记住的设备并断开连接。
+     * 切换当前使用中的体脂秤。
+     *
+     * 仅改变「当前使用设备」的记录与界面展示；由于自动连接接受任意一台已记住的秤，
+     * 切换不会中断正在进行中的称重。
+     *
+     * @param mac 目标设备 MAC（必须已在已记住列表中）
      */
-    fun forgetDevice() {
-        AppLogger.i(TAG, "用户解除当前绑定的设备")
-        viewModelScope.launch {
-            preferenceManager?.clearPairedMac()
+    fun switchActiveScale(mac: String) {
+        val target = normalizeMacAddress(mac)
+        if (target.isEmpty()) return
+        AppLogger.i(TAG, "切换当前使用的体脂秤: $target")
+        _uiState.update { state ->
+            state.copy(
+                activeScaleMac = target,
+                pairedDeviceMac = target,
+                pairedDeviceName = state.rememberedScales
+                    .firstOrNull { sameMacAddress(it.mac, target) }?.name ?: state.pairedDeviceName
+            )
         }
-        bleClient.disconnectAndReset()
+        bleClient.lastPairedMac = target
+        viewModelScope.launch {
+            preferenceManager?.setActiveScale(target)
+        }
     }
 
     /**
@@ -750,13 +815,19 @@ class ScaleViewModel(
         // 确保退出配对扫描模式，切入常规称量监听流程
         bleClient.isPairingMode = false
 
-        // 优先使用 bleClient.lastPairedMac，若空则尝试从 UI 状态恢复
-        val targetMac = bleClient.lastPairedMac ?: _uiState.value.pairedDeviceMac
-        if (targetMac.isNullOrEmpty()) {
+        // 多设备场景下：只要已记住集合非空即可开始扫描（踩上其中任意一台都会自动连接）。
+        // UI 状态兜底值可能晚一拍更新（例如刚移除设备），因此只在它仍属于已记住集合时才采用，
+        // 否则会把已移除的 MAC 写回 lastPairedMac，让该秤重新被当作目标设备
+        val stateMac = _uiState.value.activeScaleMac ?: _uiState.value.pairedDeviceMac
+        val fallbackMac = stateMac?.takeIf { bleClient.rememberedMacs.contains(normalizeMacAddress(it)) }
+        val targetMac = bleClient.lastPairedMac ?: fallbackMac
+        if (targetMac.isNullOrEmpty() && bleClient.rememberedMacs.isEmpty()) {
             AppLogger.i(TAG, "尚未记住任何设备，不执行自动连接扫描，等待手动配对")
             return
         }
-        bleClient.lastPairedMac = targetMac
+        if (!targetMac.isNullOrEmpty()) {
+            bleClient.lastPairedMac = targetMac
+        }
 
         bleClient.startScan()
     }

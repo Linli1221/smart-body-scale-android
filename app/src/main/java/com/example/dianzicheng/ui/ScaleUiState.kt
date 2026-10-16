@@ -3,6 +3,7 @@ package com.example.dianzicheng.ui
 import com.example.dianzicheng.data.ble.BleScaleClient
 import com.example.dianzicheng.domain.BodyMeasurement
 import com.example.dianzicheng.domain.FamilyMember
+import com.example.dianzicheng.domain.RememberedScale
 import com.example.dianzicheng.domain.ScaleModel
 
 /**
@@ -23,6 +24,11 @@ import com.example.dianzicheng.domain.ScaleModel
  * @param debugMessage       调试消息（暂未使用，预留扩展）
  * @param discoveredDeviceName 扫描发现的设备名称（用于配对引导页展示）
  * @param discoveredDeviceMac  扫描发现的设备 MAC 地址（用于后续直连）
+ * @param rememberedScales   全部已记住的体脂秤（最近使用优先，可同时记住多台）
+ * @param activeScaleMac     当前使用中的体脂秤 MAC 地址（无则 null）
+ * @param pairedDeviceMac    当前使用中的体脂秤 MAC 地址（无则 null，与 activeScaleMac 同值）
+ * @param pairedDeviceName   当前使用中的体脂秤名称（无则 null）
+ * @param isDeviceRemembered 是否已记住至少一台体脂秤（决定是否开启自动连接）
  * @param selectedScaleModel 用户手动选择的体脂秤型号（默认 AUTO，自动识别薄荷健康/小米）
  */
 data class ScaleUiState(
@@ -37,6 +43,8 @@ data class ScaleUiState(
     val error: String? = null,
     val discoveredDeviceName: String? = null,
     val discoveredDeviceMac: String? = null,
+    val rememberedScales: List<RememberedScale> = emptyList(),
+    val activeScaleMac: String? = null,
     val pairedDeviceMac: String? = null,
     val pairedDeviceName: String? = null,
     val isDeviceRemembered: Boolean = false,

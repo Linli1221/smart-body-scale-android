@@ -22,6 +22,7 @@ import com.example.dianzicheng.data.local.AppDatabase
 import com.example.dianzicheng.data.local.PreferenceManager
 import com.example.dianzicheng.data.repository.ProfileRepository
 import com.example.dianzicheng.data.repository.ScaleRepository
+import com.example.dianzicheng.domain.normalizeMacAddress
 import com.example.dianzicheng.ui.HistoryViewModel
 import com.example.dianzicheng.ui.MainScreen
 import com.example.dianzicheng.ui.ProfileViewModel
@@ -45,8 +46,8 @@ class MainActivity : ComponentActivity() {
             if (intent?.action == android.bluetooth.BluetoothAdapter.ACTION_STATE_CHANGED) {
                 val state = intent.getIntExtra(android.bluetooth.BluetoothAdapter.EXTRA_STATE, android.bluetooth.BluetoothAdapter.ERROR)
                 if (state == android.bluetooth.BluetoothAdapter.STATE_ON) {
-                    // 蓝牙打开后，若已记住设备且当前处于 IDLE，自动恢复扫描
-                    if (!bleClient.lastPairedMac.isNullOrEmpty() && bleClient.connectionState.value == BleScaleClient.ConnectionState.IDLE) {
+                    // 蓝牙打开后，若已记住任意一台设备且当前处于 IDLE，自动恢复扫描
+                    if (bleClient.hasRememberedDevice && bleClient.connectionState.value == BleScaleClient.ConnectionState.IDLE) {
                         bleClient.startScan()
                     }
                 }
@@ -90,9 +91,22 @@ class MainActivity : ComponentActivity() {
             profileRepository.ensureDefaultMemberExists()
         }
 
+        // 旧版单设备配置一次性迁移为多设备列表：保证老用户升级后原有体脂秤不丢失
+        lifecycleScope.launch {
+            preferenceManager.migrateLegacyDeviceIfNeeded()
+        }
+
         bleClient.onMacDiscovered = { mac ->
             lifecycleScope.launch {
-                preferenceManager.savePairedMac(mac)
+                // 幂等补登记：仅携带 MAC 的回调不会覆盖绑定时保存的设备名称/型号
+                preferenceManager.ensureRememberedMac(mac)
+            }
+        }
+
+        // 把「已记住的全部体脂秤」同步给 BLE 客户端，作为自动连接白名单（踩上任意一台都能自动连接）
+        lifecycleScope.launch {
+            preferenceManager.rememberedScales.collect { scales ->
+                bleClient.rememberedMacs = scales.map { normalizeMacAddress(it.mac) }.toSet()
             }
         }
 
@@ -193,8 +207,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        // 回到前台：如果已记住设备且当前为空闲状态，自动恢复扫描以保持踏秤即连
-        if (!bleClient.lastPairedMac.isNullOrEmpty()) {
+        // 回到前台：如果已记住任意一台设备且当前为空闲状态，自动恢复扫描以保持踏秤即连
+        if (bleClient.hasRememberedDevice) {
             bleClient.isPairingMode = false
             if (bleClient.connectionState.value == BleScaleClient.ConnectionState.IDLE) {
                 bleClient.startScan()
