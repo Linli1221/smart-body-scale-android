@@ -350,10 +350,11 @@ data class HistoryRecalcResult(
  * 又不会把不同模型的真实差异误判为"未变化"。
  */
 private fun BodyMeasurement.isBiaEquivalentTo(other: BodyMeasurement): Boolean {
-    const val EPS = 1e-6
-    return abs(bodyFatPct - other.bodyFatPct) < EPS &&
-        abs(muscleKg - other.muscleKg) < EPS &&
-        abs(waterPct - other.waterPct) < EPS &&
-        abs(proteinPct - other.proteinPct) < EPS &&
-        abs(boneMassKg - other.boneMassKg) < EPS
+    // 局部变量不能用 const：Kotlin 仅允许 const 修饰顶层 / object / companion object 中的编译期常量
+    val eps = 1e-6
+    return abs(bodyFatPct - other.bodyFatPct) < eps &&
+        abs(muscleKg - other.muscleKg) < eps &&
+        abs(waterPct - other.waterPct) < eps &&
+        abs(proteinPct - other.proteinPct) < eps &&
+        abs(boneMassKg - other.boneMassKg) < eps
 }
