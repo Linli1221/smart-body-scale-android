@@ -689,7 +689,7 @@ class MultiScalePacketParserTest {
 
         // 薄荷健康 B1 (AFU-BH-TZ-B1) 实时体重帧：12.400 kg，bit31 已锁定
         val live = MultiScalePacketParser.parseNotification(
-            "AF457030088002800188384B0000000000005107".hexToBytes(), b1Char
+            b1Frame("AF 45 70 30 08 80 02 80 01 88 38 4B 00 00 00 00 00 00 51 07"), b1Char
         )
         assertNotNull("B1 实时体重帧必须被识别", live)
         assertEquals("AFU-BH-TZ-B1 (0x51)", live!!.protocolName)
@@ -699,17 +699,17 @@ class MultiScalePacketParserTest {
 
         // 未锁定的上升帧必须判为动态称重
         val ramp = MultiScalePacketParser.parseNotification(
-            "AF458A02080002800188384B0000000000005113".hexToBytes(), b1Char
+            b1Frame("AF 45 8A 02 08 00 02 80 01 88 38 4B 00 00 00 00 00 00 51 13"), b1Char
         )
-        assertNotNull(ramp)
+        assertNotNull("B1 上升帧必须被识别", ramp)
         assertEquals(0.65, ramp!!.weightKg, 0.001)
         assertFalse("未锁定帧严禁判定为稳定", ramp.isStable)
 
         // 存储记录帧：体重与锁定帧一致，未测出阻抗时为 null
         val record = MultiScalePacketParser.parseNotification(
-            "AF4500DB64D26A7030088000010000000000005418".hexToBytes(), b1Char
+            b1Frame("AF 45 00 DB 64 D2 6A 70 30 08 80 00 01 00 00 00 00 00 54 18"), b1Char
         )
-        assertNotNull(record)
+        assertNotNull("B1 存储记录帧必须被识别", record)
         assertEquals("AFU-BH-TZ-B1 (0x54)", record!!.protocolName)
         assertEquals(12.4, record.weightKg, 0.001)
         assertTrue(record.isStable)
@@ -718,9 +718,16 @@ class MultiScalePacketParserTest {
         // 控制帧不产生测量数据
         assertNull(
             MultiScalePacketParser.parseNotification(
-                "AF45190100050100010300010002000000AA5F10".hexToBytes(), b1Char
+                b1Frame("AF 45 19 01 00 05 01 00 01 03 00 01 00 02 00 00 00 AA 5F 10"), b1Char
             )
         )
+    }
+
+    /** 把 B1 的 20 字节报文写成空格分隔的十六进制，并强制校验长度，避免手写漏字节。 */
+    private fun b1Frame(hex: String): ByteArray {
+        val bytes = hex.trim().split(Regex("\\s+")).map { it.toInt(16).toByte() }.toByteArray()
+        require(bytes.size == 20) { "B1 帧必须为 20 字节，实际 ${bytes.size} 字节: $hex" }
+        return bytes
     }
 
     /** 把实机抓包中的十六进制报文直接写成测试用例。 */

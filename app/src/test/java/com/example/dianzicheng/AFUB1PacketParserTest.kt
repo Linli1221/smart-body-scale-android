@@ -13,8 +13,21 @@ import org.junit.Test
  */
 class AFUB1PacketParserTest {
 
-    private fun hex(s: String): ByteArray =
-        s.trim().split(Regex("\\s+")).map { it.toInt(16).toByte() }.toByteArray()
+    /**
+     * 把空格分隔的十六进制报文转成字节数组。
+     *
+     * [expectedSize] 传 20 时强制校验帧长：手写报文漏/多一个字节时，
+     * 立刻报出「长度不符」，而不是让解析结果莫名其妙变成 null。
+     */
+    private fun hex(s: String, expectedSize: Int = -1): ByteArray {
+        val bytes = s.trim().split(Regex("\\s+")).map { it.toInt(16).toByte() }.toByteArray()
+        if (expectedSize > 0) {
+            require(bytes.size == expectedSize) {
+                "报文长度必须为 $expectedSize 字节，实际 ${bytes.size} 字节: $s"
+            }
+        }
+        return bytes
+    }
 
     /** 真机抓包中去重后的全部互异帧（含实时体重、存储记录与控制帧）。 */
     private val capturedFrames = listOf(
@@ -76,7 +89,7 @@ class AFUB1PacketParserTest {
     fun testLiveWeightLockedFrame() {
         // 称重结束时唯一带锁定标志的实时体重帧：12.400 kg
         val frame = AFUB1PacketParser.parse(
-            hex("AF 45 70 30 08 80 02 80 01 88 38 4B 00 00 00 00 00 00 51 07")
+            hex("AF 45 70 30 08 80 02 80 01 88 38 4B 00 00 00 00 00 00 51 07", AFUB1PacketParser.FRAME_SIZE)
         )
         assertTrue(frame is Frame.LiveWeight)
         val live = frame as Frame.LiveWeight
@@ -114,7 +127,7 @@ class AFUB1PacketParserTest {
     fun testStoredRecordDecode() {
         // 称重结束后秤端自动回推的本次记录：与锁定体重一致的 12.400 kg，时间戳 = 抓包时刻
         val frame = AFUB1PacketParser.parse(
-            hex("AF 45 00 DB 64 D2 6A 70 30 08 80 00 01 00 00 00 00 00 54 18")
+            hex("AF 45 00 DB 64 D2 6A 70 30 08 80 00 01 00 00 00 00 00 54 18", AFUB1PacketParser.FRAME_SIZE)
         )
         assertTrue(frame is Frame.StoredRecord)
         val record = frame as Frame.StoredRecord
@@ -174,7 +187,7 @@ class AFUB1PacketParserTest {
     fun testControlFrameDecode() {
         // 抓包中唯一的秤端控制帧（子命令 0x19）
         val frame = AFUB1PacketParser.parse(
-            hex("AF 45 19 01 00 05 01 00 01 03 00 01 00 02 00 00 00 AA 5F 10")
+            hex("AF 45 19 01 00 05 01 00 01 03 00 01 00 02 00 00 00 AA 5F 10", AFUB1PacketParser.FRAME_SIZE)
         )
         assertTrue(frame is Frame.Control)
         assertEquals(0x19, (frame as Frame.Control).cmd)
@@ -223,16 +236,16 @@ class AFUB1PacketParserTest {
         assertFalse(AFUB1PacketParser.isAfuB1Frame(ByteArray(19)))
         assertNull(AFUB1PacketParser.parse(ByteArray(0)))
         // 旧款 0xAC 协议帧绝不能落入 B1 解析器
-        val legacyAfu = hex("AC 29 00 69 40 82 02 00 05 40 00 00 00 00 00 00 00 00 00 00")
+        val legacyAfu = hex("AC 29 00 69 40 82 02 00 05 40 00 00 00 00 00 00 00 00 00 00", AFUB1PacketParser.FRAME_SIZE)
         assertFalse(AFUB1PacketParser.isAfuB1Frame(legacyAfu))
         assertNull(AFUB1PacketParser.parse(legacyAfu))
-        // 薄荷健康 8 字节流式帧同样不应被 B1 解析器接受
+        // 薄荷健康 8 字节流式帧同样不应被 B1 解析器接受（长度不合法，无需 20 字节校验）
         assertNull(AFUB1PacketParser.parse(hex("AC 02 1A C2 00 00 CA 4A")))
     }
 
     @Test
     fun testRejectCorruptedChecksumAndPayload() {
-        val good = hex("AF 45 70 30 08 80 02 80 01 88 38 4B 00 00 00 00 00 00 51 07")
+        val good = hex("AF 45 70 30 08 80 02 80 01 88 38 4B 00 00 00 00 00 00 51 07", AFUB1PacketParser.FRAME_SIZE)
         assertNotNull(AFUB1PacketParser.parse(good))
 
         val badCrc = good.copyOf()
@@ -273,7 +286,7 @@ class AFUB1PacketParserTest {
         assertEquals(0x20, frame[7].toInt() and 0xFF)
         // 抓包中同一条记录的时间戳字段与对时帧的时间槽位编码完全一致
         val record = AFUB1PacketParser.parse(
-            hex("AF 45 00 DB 64 D2 6A 70 30 08 80 00 01 00 00 00 00 00 54 18")
+            hex("AF 45 00 DB 64 D2 6A 70 30 08 80 00 01 00 00 00 00 00 54 18", AFUB1PacketParser.FRAME_SIZE)
         ) as Frame.StoredRecord
         assertEquals(1792173275L, record.timestampEpochSeconds)
     }
