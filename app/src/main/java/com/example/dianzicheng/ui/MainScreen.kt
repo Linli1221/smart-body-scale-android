@@ -50,9 +50,8 @@ fun MainScreen(
         return
     }
 
-    // 配对页 / 测量详情页 / 历史数据页均为二级页面：隐藏底部导航栏，由页面内返回键退出
+    // 配对页 / 历史数据页均为二级页面：隐藏底部导航栏，由页面内返回键退出
     val isSubScreen = currentRoute == "pairing" ||
-        currentRoute?.startsWith("detail/") == true ||
         currentRoute == "history_data"
 
     Scaffold(

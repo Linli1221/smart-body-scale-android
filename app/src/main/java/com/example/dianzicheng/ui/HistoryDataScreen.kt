@@ -1,5 +1,6 @@
 package com.example.dianzicheng.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -319,6 +321,60 @@ fun MetricStatCell(label: String, value: String, modifier: Modifier = Modifier) 
         )
     }
 }
+/**
+ * 逐条记录卡片中的单个指标小卡片。
+ *
+ * 每个指标独立成卡（浅色容器 + 圆角）：上方是指标名、下方是数值，
+ * 有健康区间结论时再补一枚状态标签（如 BMI「标准」、体脂率「偏高」）。
+ * 数据缺失（未赤脚称重、无阻抗）时数值显示为 --，且不展示状态标签。
+ */
+@Composable
+fun HistoryMetricCard(
+    label: String,
+    value: String,
+    status: String? = null,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+            .padding(vertical = 10.dp, horizontal = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline,
+            maxLines = 1
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Bold,
+            color = if (value == "--") MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface,
+            maxLines = 1
+        )
+        if (status != null) {
+            val statusColor = if (status == "标准") Color(0xFF4CAF50) else MaterialTheme.colorScheme.error
+            Surface(
+                color = statusColor.copy(alpha = 0.1f),
+                shape = CircleShape,
+                modifier = Modifier.padding(top = 4.dp)
+            ) {
+                Text(
+                    text = status,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 10.sp,
+                    color = statusColor
+                )
+            }
+        }
+    }
+}
+
 @Composable
 fun ModernMeasurementCard(
     measurement: BodyMeasurement,
