@@ -1,5 +1,6 @@
 package com.example.dianzicheng.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -11,7 +12,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -26,12 +33,14 @@ import java.util.Locale
 /**
  * 历史数据页：汇总展示所有测量记录中的身体成分指标。
  *
- * 页面自上而下分为三块：
+ * 页面自上而下分为四块：
  * 1. **概览卡片**：总记录数、测量天数跨度、平均体重；
- * 2. **趋势汇总**：首末两次测量的体重 / BMI / 体脂率 / 肌肉量 / 蛋白质 / 骨量变化量；
- * 3. **完整历史记录**：按时间倒序列出每一次测量（每行一条，含全部指标）。
+ * 2. **指标趋势**：BMI / 体脂率 / 肌肉量 / 蛋白质 / 骨量 各一张趋势卡片，
+ *    含最新值、相较首次的变化量与迷你走势线；
+ * 3. **全部记录**：按时间倒序列出每一次测量（每行一条，含全部指标）。
  *
- * 无 BIA 数据（未赤脚称重）的记录中，体脂率等指标显示为 --，不参与均值与变化量统计。
+ * 无 BIA 数据（未赤脚称重）的记录中，体脂率等指标值为 0，构建趋势序列时直接过滤，
+ * 不参与统计，对应卡片显示「暂无有效数据」。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,10 +50,19 @@ fun HistoryDataScreen(
 ) {
     // 时间正序：首条为最早一次，末条为最新一次
     val sorted = remember(history) { history.sortedBy { it.measuredAtEpochMs } }
-    val latest = sorted.lastOrNull()
-    val earliest = sorted.firstOrNull()
 
     val dateFormat = remember { SimpleDateFormat("yyyy年MM月dd日 HH:mm", Locale.getDefault()) }
+
+    // 五项身体成分的趋势序列（0 值 = 未测出，已过滤）
+    val trends = remember(sorted) {
+        listOf(
+            MetricTrend("BMI", "", 1, sorted.map { it.bmi }.filter { it > 0.0 }),
+            MetricTrend("体脂率", "%", 1, sorted.map { it.bodyFatPct }.filter { it > 0.0 }),
+            MetricTrend("肌肉量", "kg", 1, sorted.map { it.muscleKg }.filter { it > 0.0 }),
+            MetricTrend("蛋白质", "%", 1, sorted.map { it.proteinPct }.filter { it > 0.0 }),
+            MetricTrend("骨量", "kg", 1, sorted.map { it.boneMassKg }.filter { it > 0.0 }),
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -78,9 +96,8 @@ fun HistoryDataScreen(
         ) {
             // ── 1. 概览：总记录数 / 天数跨度 / 平均体重 ──
             item(key = "overview") {
-                val daySpan = if (earliest != null && latest != null) {
-                    ((latest.measuredAtEpochMs - earliest.measuredAtEpochMs) / 86_400_000L).toInt()
-                } else 0
+                val daySpan =
+                    ((sorted.last().measuredAtEpochMs - sorted.first().measuredAtEpochMs) / 86_400_000L).toInt()
                 val avgWeight = sorted.map { it.weightKg }.average()
 
                 HistorySummaryCard(
@@ -92,14 +109,22 @@ fun HistoryDataScreen(
                 )
             }
 
-            // ── 2. 趋势汇总：首末对比 ──
-            if (sorted.size >= 2) {
-                item(key = "trend_summary") {
-                    HistoryTrendCard(earliest = earliest!!, latest = latest!!)
-                }
+            // ── 2. 指标趋势：五项身体成分各一张卡片 ──
+            item(key = "trend_header") {
+                Text(
+                    text = "指标趋势",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
             }
 
-            // ── 3. 完整历史记录（时间倒序，最新在最上） ──
+            itemsIndexed(trends, key = { _, trend -> trend.label }) { _, trend ->
+                MetricTrendCard(trend = trend)
+            }
+
+            // ── 3. 全部记录（时间倒序，最新在最上） ──
             item(key = "list_header") {
                 Text(
                     text = "全部记录（${sorted.size} 次）",
@@ -163,11 +188,38 @@ fun HistorySummaryCard(items: List<HistorySummaryItem>, modifier: Modifier = Mod
 }
 
 /**
- * 趋势汇总卡片：对比最早一次与最新一次的体重及各项身体成分，
- * 变化量以「↑/↓ + 差值」呈现，持平显示 0。
+ * 单个指标趋势卡片的数据源。
+ *
+ * @param label    指标名（如「BMI」「体脂率」）
+ * @param unit     单位后缀，无单位传空串
+ * @param decimals 数值小数位数
+ * @param values   按时间正序的有效测量值序列（0 值已在调用侧过滤）
+ */
+data class MetricTrend(
+    val label: String,
+    val unit: String,
+    val decimals: Int,
+    val values: List<Double>
+)
+
+/**
+ * 单指标趋势卡片。
+ *
+ * 自上而下三行信息：
+ * 1. 指标名 + 最新值（大号数字，无数据时显示 --）；
+ * 2. 相较首次的变化量标签（↑/↓ + 差值，数据不足时给出原因说明）；
+ * 3. 迷你走势线（取最近 20 个有效值绘制折线 + 渐变面积 + 末点高亮）。
+ *
+ * 变化量只标注方向、不着色：BMI 涨了不好、肌肉量涨了却是好事，
+ * 用红绿臆断好坏会误导用户，因此统一用中性色呈现。
  */
 @Composable
-fun HistoryTrendCard(earliest: BodyMeasurement, latest: BodyMeasurement, modifier: Modifier = Modifier) {
+fun MetricTrendCard(trend: MetricTrend, modifier: Modifier = Modifier) {
+    val fmt = "%.${trend.decimals}f"
+    val latest = trend.values.lastOrNull()
+    val first = trend.values.firstOrNull()
+    val delta = if (trend.values.size >= 2 && latest != null && first != null) latest - first else null
+
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -175,105 +227,123 @@ fun HistoryTrendCard(earliest: BodyMeasurement, latest: BodyMeasurement, modifie
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = "趋势汇总",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = "首次 → 最新 的变化量",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline
-            )
-            Spacer(modifier = Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = trend.label,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = if (latest != null) String.format(fmt, latest) + trend.unit else "--",
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Black,
+                    color = if (latest != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                )
+            }
 
-            TrendRow("体重", earliest.weightKg, latest.weightKg, unit = "kg", decimals = 2)
-            TrendRow("BMI", earliest.bmi, latest.bmi, unit = "", decimals = 1)
-            TrendRow("体脂率", earliest.bodyFatPct, latest.bodyFatPct, unit = "%", decimals = 1)
-            TrendRow("肌肉量", earliest.muscleKg, latest.muscleKg, unit = "kg", decimals = 1)
-            TrendRow("蛋白质", earliest.proteinPct, latest.proteinPct, unit = "%", decimals = 1)
-            TrendRow("骨量", earliest.boneMassKg, latest.boneMassKg, unit = "kg", decimals = 1)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (delta != null) {
+                val arrow = when {
+                    delta > 0.0001 -> "↑"
+                    delta < -0.0001 -> "↓"
+                    else -> "·"
+                }
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(4.dp)
+                ) {
+                    Text(
+                        text = "较首次 $arrow ${String.format(fmt, kotlin.math.abs(delta))}${trend.unit} · 共 ${trend.values.size} 次",
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            } else {
+                Text(
+                    text = if (trend.values.isEmpty()) "暂无有效数据（需赤脚称重）" else "仅一次测量，暂无趋势",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+
+            if (trend.values.size >= 2) {
+                Spacer(modifier = Modifier.height(10.dp))
+                MetricSparkline(
+                    values = trend.values.takeLast(20),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                )
+            }
         }
     }
 }
 
 /**
- * 趋势汇总中的单行：指标名 + 首末值 + 变化量。
+ * 迷你走势线：折线 + 渐变面积填充 + 末点高亮圆点。
  *
- * 0 值视为未测出（未赤脚称重），整行以 -- 呈现、不计算变化量。
+ * 纵向按序列自身的最小/最大值归一化，因此图形反映的是变化趋势而非绝对区间；
+ * 序列只有 1 个点时直接不绘制。
  */
 @Composable
-fun TrendRow(
-    label: String,
-    from: Double,
-    to: Double,
-    unit: String,
-    decimals: Int,
-    modifier: Modifier = Modifier
+fun MetricSparkline(
+    values: List<Double>,
+    modifier: Modifier = Modifier,
+    lineColor: Color = MaterialTheme.colorScheme.primary
 ) {
-    val valid = from > 0.0 && to > 0.0
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.width(64.dp)
-        )
-        if (valid) {
-            val fmt = "%.${decimals}f"
-            Text(
-                text = String.format(fmt, from) + unit,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.outline,
-                modifier = Modifier.width(72.dp)
-            )
-            Text(
-                text = "→",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.outline,
-                modifier = Modifier.width(24.dp)
-            )
-            Text(
-                text = String.format(fmt, to) + unit,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.width(72.dp)
-            )
-            val delta = to - from
-            val arrow = when {
-                delta > 0.0001 -> "↑"
-                delta < -0.0001 -> "↓"
-                else -> "·"
-            }
-            val deltaColor = when (arrow) {
-                "↑" -> MaterialTheme.colorScheme.error
-                "↓" -> Color(0xFF4CAF50)
-                else -> MaterialTheme.colorScheme.outline
-            }
-            Text(
-                text = "$arrow ${String.format(fmt, kotlin.math.abs(delta))}$unit",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold,
-                color = deltaColor,
-                modifier = Modifier.weight(1f)
-            )
-        } else {
-            Text(
-                text = "--",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.outline
-            )
+    if (values.size < 2) return
+
+    Canvas(modifier = modifier) {
+        val minVal = values.min()
+        val maxVal = values.max()
+        val range = if (maxVal > minVal) maxVal - minVal else 1.0
+        val w = size.width
+        val h = size.height
+        val step = w / (values.size - 1).toFloat()
+
+        fun yOf(v: Double) = (h * (1.0 - (v - minVal) / range)).toFloat()
+
+        // 渐变面积：让趋势方向一眼可读
+        val fillPath = Path()
+        fillPath.moveTo(0f, yOf(values.first()))
+        for (i in 1 until values.size) {
+            fillPath.lineTo(i * step, yOf(values[i]))
         }
+        fillPath.lineTo(w, h)
+        fillPath.lineTo(0f, h)
+        fillPath.close()
+        drawPath(
+            path = fillPath,
+            brush = Brush.verticalGradient(
+                colors = listOf(lineColor.copy(alpha = 0.22f), lineColor.copy(alpha = 0f)),
+                startY = 0f,
+                endY = h
+            )
+        )
+
+        val linePath = Path()
+        linePath.moveTo(0f, yOf(values.first()))
+        for (i in 1 until values.size) {
+            linePath.lineTo(i * step, yOf(values[i]))
+        }
+        drawPath(
+            path = linePath,
+            color = lineColor,
+            style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+        )
+
+        // 末点高亮：标示当前所处位置
+        drawCircle(lineColor, radius = 3.5.dp.toPx(), center = Offset(w, yOf(values.last())))
     }
 }
 
 /**
- * 完整历史记录中的单行数据：序号 + 时间 + 体重 + 五项身体成分。
+ * 全部记录中的单行数据：序号 + 时间 + 体重 + 五项身体成分。
  *
  * 每项指标一格等宽排列，缺失（未赤脚称重）时显示 --。
  */
