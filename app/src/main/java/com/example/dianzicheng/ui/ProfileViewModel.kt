@@ -224,6 +224,27 @@ class ProfileViewModel(
     private val _recalcProgress = MutableStateFlow<String?>(null)
     val recalcProgress: StateFlow<String?> = _recalcProgress.asStateFlow()
 
+    /**
+     * 日志 / 抓包的「订阅即补发」钩子。
+     *
+     * [AppLogger.entries] 与 [BleProtocolRecorder.entries] 为降低高频写入开销，
+     * 只在确有订阅者时才更新快照（无观察者时跳过 O(N) 拷贝）。副作用是：
+     * 后台称重期间 StateFlow 可能停留在旧值，打开查看器时若不补发就会看到过期列表。
+     * 这里监听订阅数，一旦从 0 变为有订阅者，立即补发一次当前缓冲区的完整快照。
+     */
+    init {
+        viewModelScope.launch {
+            AppLogger.entries.subscriptionCount.collect { count ->
+                if (count > 0) AppLogger.publishSnapshot()
+            }
+        }
+        viewModelScope.launch {
+            BleProtocolRecorder.entries.subscriptionCount.collect { count ->
+                if (count > 0) BleProtocolRecorder.publishSnapshot()
+            }
+        }
+    }
+
     // ── 家庭成员管理 ─────────────────────────────────────────────────────────
 
     /**
@@ -503,7 +524,9 @@ class ProfileViewModel(
      */
     suspend fun createBleCaptureShareIntent(context: Context): Intent? {
         if (!isBleCaptureSupported) return null
-        val entries = BleProtocolRecorder.entries.value
+        // 直接读缓冲区快照：entries StateFlow 只在有订阅者时才推送，
+        // 用它判断"是否有数据"会在后台称重后误报"暂无抓包数据"
+        val entries = BleProtocolRecorder.snapshot()
         if (entries.isEmpty()) {
             _statusMessage.value = "暂无抓包数据，请先连接体脂秤并完成一次称重"
             return null

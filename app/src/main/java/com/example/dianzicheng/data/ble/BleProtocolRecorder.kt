@@ -122,6 +122,29 @@ object BleProtocolRecorder {
     /** 被环形缓冲丢弃的历史条数。 */
     fun dropped(): Int = if (!isEnabled) 0 else synchronized(this) { droppedCount }
 
+    /**
+     * 直接读取缓冲区的最新快照，与 [entries] StateFlow 的推送时机无关。
+     *
+     * 由于 [entries] 只在有订阅者时才会更新（无观察者时跳过 O(N) 拷贝），
+     * 需要"当前真实内容"的场景（例如导出前的非空校验）应改用本方法。
+     */
+    fun snapshot(): List<Entry> = if (!isEnabled) emptyList() else synchronized(this) { buffer.toList() }
+
+    /**
+     * 重新发布一次当前缓冲区快照（仅在确有订阅者时）。
+     *
+     * 用于 UI 打开抓包查看器／日志查看器的瞬间补齐数据：
+     * 避免"后台称重期间无订阅者 → StateFlow 未更新 → 打开查看器看到旧快照"。
+     */
+    fun publishSnapshot() {
+        if (!isEnabled) return
+        synchronized(this) {
+            if (_entries.subscriptionCount.value > 0) {
+                _entries.value = buffer.toList()
+            }
+        }
+    }
+
     // -------------------------------------------------------------------------
     // 底层记录入口
     // -------------------------------------------------------------------------

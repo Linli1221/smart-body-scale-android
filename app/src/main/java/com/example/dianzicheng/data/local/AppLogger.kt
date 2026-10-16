@@ -108,6 +108,20 @@ object AppLogger {
     fun e(tag: String, msg: String) = append(LogEntry(level = Level.ERROR, tag = tag, message = msg))
 
     /**
+     * 重新发布一次当前缓冲区快照（仅在确有订阅者时）。
+     *
+     * 与 [BleProtocolRecorder] 同理：[entries] 只在有订阅者时更新，
+     * 打开日志查看器的瞬间调用本方法可立即补齐最新日志，而不是等下一次写入。
+     */
+    fun publishSnapshot() {
+        synchronized(this) {
+            if (_entries.subscriptionCount.value > 0) {
+                _entries.value = buffer.toList()
+            }
+        }
+    }
+
+    /**
      * 清空所有日志记录（包括缓冲区和 StateFlow）。
      * 线程安全。
      */
