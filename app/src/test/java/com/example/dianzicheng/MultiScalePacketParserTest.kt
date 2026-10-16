@@ -388,7 +388,7 @@ class MultiScalePacketParserTest {
         // 0204 EA07 0A10 102C01 0000 1E2D → 踩秤爬升中的 57.75kg
         val result = MultiScalePacketParser.parseNotification("0204EA070A10102C0100001E2D".hexToBytes(), null)
         assertNotNull(result)
-        assertEquals(57.75, result.weightKg, 0.001)
+        assertEquals(57.75, result!!.weightKg, 0.001)
         assertFalse("stabilized(bit5) 未置位时严禁锁定", result.isStable)
         assertNull("has_impedance(bit1) 未置位时不得产生阻抗", result.impedanceOhm)
     }
@@ -414,7 +414,7 @@ class MultiScalePacketParserTest {
         // weight removed(bit7)=1，虽带阻抗 648Ω，但绝非本次测量，严禁锁定入库
         val result = MultiScalePacketParser.parseNotification("02A6EA070A10100B2188025230".hexToBytes(), null)
         assertNotNull(result)
-        assertEquals(61.850, result.weightKg, 0.001)
+        assertEquals(61.850, result!!.weightKg, 0.001)
         assertFalse("weight removed(bit7) 置位的旧读数严禁判定为稳定测量", result.isStable)
     }
 
