@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -160,8 +159,12 @@ fun LogSheet(
                     state = listState,
                     contentPadding = PaddingValues(vertical = 8.dp)
                 ) {
-                    items(entries, key = { it.timestamp.toString() + it.tag + it.message }) { entry ->
-                        LogEntryRow(entry = entry, timeFmt = timeFmt)
+                    // key 带下标，避免同毫秒同文案日志重复 key 导致崩溃
+                    items(
+                        count = entries.size,
+                        key = { "log_${entries[it].timestamp}_${it}" }
+                    ) { index ->
+                        LogEntryRow(entry = entries[index], timeFmt = timeFmt)
                     }
                 }
             }

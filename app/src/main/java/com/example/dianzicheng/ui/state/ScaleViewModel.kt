@@ -472,9 +472,8 @@ class ScaleViewModel(
                 biaModel = selectedBiaModel
             )
         } else {
-            // 无成员可绑：仅存体重；BMI 用兜底身高（clamp 50..250cm），其余体成分全 0
-            val fallbackHeight = selected?.heightCm
-                ?: _uiState.value.availableMembers.firstOrNull()?.heightCm
+            // 无成员可绑（selected 恒为 null）：仅存体重；BMI 按兜底身高（首个成员 > 170cm）计算，体脂相关全 0
+            val fallbackHeight = _uiState.value.availableMembers.firstOrNull()?.heightCm
                 ?: FALLBACK_HEIGHT_CM
             val height = fallbackHeight.coerceIn(MIN_HEIGHT_CM, MAX_HEIGHT_CM)
             val bmi = (weight / ((height / 100.0) * (height / 100.0))).coerceIn(MIN_BMI, MAX_BMI)

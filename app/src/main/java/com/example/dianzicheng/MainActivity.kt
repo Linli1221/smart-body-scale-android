@@ -136,7 +136,8 @@ class MainActivity : ComponentActivity() {
         }
 
         val filter = android.content.IntentFilter(android.bluetooth.BluetoothAdapter.ACTION_STATE_CHANGED)
-        registerReceiver(bluetoothReceiver, filter)
+        // 仅接收受保护的系统广播，显式声明非导出（targetSdk 36 推荐做法）
+        ContextCompat.registerReceiver(this, bluetoothReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
 
         enableEdgeToEdge()
         setContent {
