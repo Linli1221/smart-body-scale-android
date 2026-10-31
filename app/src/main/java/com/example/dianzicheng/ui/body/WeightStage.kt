@@ -152,8 +152,8 @@ fun WeightDial(
                 .fillMaxSize()
                 .background(
                     Brush.radialGradient(
-                        0f to palette.primary.copy(alpha = 0.16f),
-                        0.62f to palette.primary.copy(alpha = 0.05f),
+                        0f to palette.metricAccents.weight.copy(alpha = 0.18f),
+                        0.52f to palette.metricAccents.muscle.copy(alpha = 0.07f),
                         1f to Color.Transparent,
                     )
                 )
@@ -187,8 +187,9 @@ fun WeightDial(
                             brush = Brush.sweepGradient(
                                 colors = listOf(
                                     Color.Transparent,
-                                    palette.primary.copy(alpha = 0.15f),
-                                    palette.primary,
+                                    palette.metricAccents.weight.copy(alpha = 0.18f),
+                                    palette.metricAccents.muscle,
+                                    palette.metricAccents.bmi.copy(alpha = 0.7f),
                                     Color.Transparent,
                                 ),
                                 center = center,
@@ -205,7 +206,16 @@ fun WeightDial(
 
                 StagePhase.COMPLETE -> {
                     drawArc(
-                        color = palette.good,
+                        brush = Brush.sweepGradient(
+                            colors = listOf(
+                                palette.metricAccents.weight,
+                                palette.metricAccents.muscle,
+                                palette.good,
+                                palette.metricAccents.bmi,
+                                palette.metricAccents.weight,
+                            ),
+                            center = center,
+                        ),
                         startAngle = -90f,
                         sweepAngle = 360f,
                         useCenter = false,
@@ -222,7 +232,14 @@ fun WeightDial(
 
                 StagePhase.LOCKED -> {
                     drawArc(
-                        color = palette.primary,
+                        brush = Brush.sweepGradient(
+                            colors = listOf(
+                                palette.metricAccents.weight,
+                                palette.metricAccents.bmi,
+                                palette.metricAccents.muscle,
+                            ),
+                            center = center,
+                        ),
                         startAngle = -90f,
                         sweepAngle = 300f,
                         useCenter = false,
@@ -234,7 +251,13 @@ fun WeightDial(
 
                 StagePhase.LIVE -> {
                     drawArc(
-                        color = palette.primary.copy(alpha = 0.85f),
+                        brush = Brush.sweepGradient(
+                            colors = listOf(
+                                palette.metricAccents.water.copy(alpha = 0.85f),
+                                palette.metricAccents.weight.copy(alpha = 0.85f),
+                            ),
+                            center = center,
+                        ),
                         startAngle = -90f,
                         sweepAngle = 210f,
                         useCenter = false,

@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.nativeCanvas
@@ -69,6 +70,7 @@ fun BodyTrendChart(
     modifier: Modifier = Modifier,
 ) {
     val palette = bodyPalette()
+    val accent = palette.metricAccents.forMetric(metric)
     val style = remember(metric) { trendStyleOf(metric) }
     val points = remember(metric, snapshots, member) {
         snapshots.asReversed().mapNotNull { snapshot ->
@@ -92,10 +94,10 @@ fun BodyTrendChart(
             textSize = with(density) { 10.sp.toPx() }
         }
     }
-    val valuePaint = remember(palette.primary, density) {
+    val valuePaint = remember(accent, density) {
         Paint().apply {
             isAntiAlias = true
-            color = palette.primary.toArgb()
+            color = accent.toArgb()
             textSize = with(density) { 13.sp.toPx() }
             textAlign = Paint.Align.CENTER
         }
@@ -103,7 +105,7 @@ fun BodyTrendChart(
 
     Surface(
         shape = RoundedCornerShape(BodyDimens.CardRadius),
-        color = palette.card,
+        color = accent.copy(alpha = 0.06f).compositeOver(palette.card),
         modifier = modifier
             .fillMaxWidth()
             .height(TrendChartHeight),
@@ -203,8 +205,8 @@ fun BodyTrendChart(
                         drawCircle(
                             brush = Brush.radialGradient(
                                 colors = listOf(
-                                    palette.primary.copy(alpha = 0.35f * progress),
-                                    palette.primary.copy(alpha = 0f),
+                                    accent.copy(alpha = 0.35f * progress),
+                                    accent.copy(alpha = 0f),
                                 ),
                                 center = center,
                                 radius = glowRadius,
@@ -218,7 +220,7 @@ fun BodyTrendChart(
                             center = center,
                         )
                         drawCircle(
-                            color = palette.primary.copy(alpha = progress),
+                            color = accent.copy(alpha = progress),
                             radius = 5.dp.toPx(),
                             center = center,
                         )
@@ -280,8 +282,8 @@ fun BodyTrendChart(
                             path = fillPath,
                             brush = Brush.verticalGradient(
                                 colors = listOf(
-                                    palette.primary.copy(alpha = 0.22f),
-                                    palette.primary.copy(alpha = 0f),
+                                    accent.copy(alpha = 0.22f),
+                                    accent.copy(alpha = 0f),
                                 ),
                                 startY = padTop,
                                 endY = padTop + chartHeight,
@@ -289,7 +291,7 @@ fun BodyTrendChart(
                         )
                         drawPath(
                             path = linePath,
-                            color = palette.primary,
+                            color = accent,
                             style = Stroke(
                                 width = 2.dp.toPx(),
                                 cap = StrokeCap.Round,
@@ -302,10 +304,10 @@ fun BodyTrendChart(
                             if (index == points.lastIndex) {
                                 // 最新一次：实心锚点 + 底色描边
                                 drawCircle(color = palette.sheet, radius = 5.dp.toPx(), center = Offset(x, y))
-                                drawCircle(color = palette.primary, radius = 4.dp.toPx(), center = Offset(x, y))
+                                drawCircle(color = accent, radius = 4.dp.toPx(), center = Offset(x, y))
                             } else {
                                 drawCircle(
-                                    color = palette.primary.copy(alpha = 0.55f),
+                                    color = accent.copy(alpha = 0.55f),
                                     radius = 2.5.dp.toPx(),
                                     center = Offset(x, y),
                                 )

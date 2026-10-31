@@ -26,7 +26,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -66,6 +68,7 @@ fun BodyMetricGrid(
                 selected = selectedMetric == MetricKind.WEIGHT,
                 reveal = reveal,
                 order = 0,
+                accent = palette.metricAccents.forMetric(MetricKind.WEIGHT),
                 onClick = { onMetricClick(MetricKind.WEIGHT) },
                 modifier = Modifier.weight(1f),
             )
@@ -74,6 +77,7 @@ fun BodyMetricGrid(
                 selected = selectedMetric == MetricKind.BMI,
                 reveal = reveal,
                 order = 0,
+                accent = palette.metricAccents.forMetric(MetricKind.BMI),
                 onClick = { onMetricClick(MetricKind.BMI) },
                 modifier = Modifier.weight(1f),
             )
@@ -165,6 +169,7 @@ private fun WeightSummaryCard(
     selected: Boolean,
     reveal: Boolean,
     order: Int,
+    accent: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -175,6 +180,7 @@ private fun WeightSummaryCard(
         height = BodyDimens.SummaryCardHeight,
         order = order,
         reveal = reveal,
+        accent = accent,
         onClick = onClick,
         modifier = modifier,
     ) {
@@ -198,7 +204,7 @@ private fun WeightSummaryCard(
                     play = reveal,
                     delayMillis = order * 50,
                     style = bodyNumberStyle(28.sp, FontWeight.Bold),
-                    color = palette.textPrimary,
+                    color = accent,
                     secondaryColor = palette.textSecondary,
                 )
                 Spacer(modifier = Modifier.width(2.dp))
@@ -248,6 +254,7 @@ private fun BmiSummaryCard(
     selected: Boolean,
     reveal: Boolean,
     order: Int,
+    accent: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -258,6 +265,7 @@ private fun BmiSummaryCard(
         height = BodyDimens.SummaryCardHeight,
         order = order,
         reveal = reveal,
+        accent = accent,
         onClick = onClick,
         modifier = modifier,
     ) {
@@ -281,7 +289,7 @@ private fun BmiSummaryCard(
                     play = reveal,
                     delayMillis = order * 50,
                     style = bodyNumberStyle(28.sp, FontWeight.Bold),
-                    color = palette.textPrimary,
+                    color = accent,
                     secondaryColor = palette.textSecondary,
                 )
             }
@@ -301,11 +309,13 @@ private fun RangeMetricCard(
     modifier: Modifier = Modifier,
 ) {
     val palette = bodyPalette()
+    val accent = palette.metricAccents.forMetric(reading.kind)
     MetricCardFrame(
         selected = selected,
         height = BodyDimens.ShapeCardHeight,
         order = order,
         reveal = reveal,
+        accent = accent,
         onClick = onClick,
         modifier = modifier,
     ) {
@@ -335,7 +345,7 @@ private fun RangeMetricCard(
                     play = reveal,
                     delayMillis = order * 50,
                     style = bodyNumberStyle(24.sp),
-                    color = palette.textPrimary,
+                    color = accent,
                     secondaryColor = palette.textSecondary,
                 )
                 if (reading.unit.isNotEmpty()) {
@@ -353,6 +363,7 @@ private fun RangeMetricCard(
             RangeBar(
                 spec = reading.range,
                 palette = palette,
+                accent = accent,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(10.dp),
@@ -365,6 +376,7 @@ private fun RangeMetricCard(
 private fun RangeBar(
     spec: RangeBarSpec?,
     palette: BodyPalette,
+    accent: Color,
     modifier: Modifier = Modifier,
 ) {
     Canvas(modifier = modifier) {
@@ -413,7 +425,7 @@ private fun RangeBar(
             center = Offset(cursorX, cursorY),
         )
         drawCircle(
-            color = palette.primary,
+            color = accent,
             radius = 3.2.dp.toPx(),
             center = Offset(cursorX, cursorY),
         )
@@ -440,11 +452,13 @@ private fun RiskMetricCard(
     modifier: Modifier = Modifier,
 ) {
     val palette = bodyPalette()
+    val accent = palette.metricAccents.forMetric(reading.kind)
     MetricCardFrame(
         selected = selected,
         height = BodyDimens.MetabolicCardHeight,
         order = order,
         reveal = reveal,
+        accent = accent,
         onClick = onClick,
         modifier = modifier,
     ) {
@@ -481,7 +495,7 @@ private fun RiskMetricCard(
                         play = reveal,
                         delayMillis = order * 50,
                         style = bodyNumberStyle(22.sp),
-                        color = palette.textPrimary,
+                        color = accent,
                         secondaryColor = palette.textSecondary,
                     )
                     if (reading.unit.isNotEmpty()) {
@@ -496,7 +510,7 @@ private fun RiskMetricCard(
                 }
                 RiskGlyph(
                     icon = icon,
-                    color = reading.status?.let { palette.toneColor(it.tone) } ?: palette.primary,
+                    color = reading.status?.let { palette.toneColor(it.tone) } ?: accent,
                     modifier = Modifier.size(28.dp),
                 )
             }
@@ -577,11 +591,13 @@ private fun CompactMetricCard(
     modifier: Modifier = Modifier,
 ) {
     val palette = bodyPalette()
+    val accent = palette.metricAccents.forMetric(reading.kind)
     MetricCardFrame(
         selected = selected,
         height = BodyDimens.CompactCardHeight,
         order = order,
         reveal = reveal,
+        accent = accent,
         onClick = onClick,
         modifier = modifier,
     ) {
@@ -604,7 +620,7 @@ private fun CompactMetricCard(
                         play = reveal,
                         delayMillis = order * 50,
                         style = bodyNumberStyle(20.sp),
-                        color = palette.textPrimary,
+                        color = accent,
                         secondaryColor = palette.textSecondary,
                     )
                     if (reading.unit.isNotEmpty()) {
@@ -685,6 +701,7 @@ private fun MetricCardFrame(
     height: Dp,
     order: Int,
     reveal: Boolean,
+    accent: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit,
@@ -699,6 +716,8 @@ private fun MetricCardFrame(
         ),
         label = "metric-card-$order",
     )
+    val tint = accent.copy(alpha = if (selected) 0.14f else 0.07f)
+        .compositeOver(if (selected) palette.cardSelected else palette.card)
     Surface(
         onClick = onClick,
         modifier = modifier
@@ -708,12 +727,18 @@ private fun MetricCardFrame(
                 translationY = (1f - progress) * 12.dp.toPx()
             },
         shape = RoundedCornerShape(BodyDimens.CardRadius),
-        color = if (selected) palette.cardSelected else palette.card,
-        border = if (selected) BorderStroke(1.5.dp, palette.primary) else null,
+        color = tint,
+        border = if (selected) BorderStroke(1.5.dp, accent) else null,
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to accent.copy(alpha = 0.08f),
+                        1f to Color.Transparent,
+                    )
+                )
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             content = content,
         )

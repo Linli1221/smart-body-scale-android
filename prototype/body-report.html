@@ -146,6 +146,14 @@ body.is-mobile .phone::after { display: none; }
   --danger-rgb: 239, 68, 68;
   --accent-cyan: #06B6D4;
   --accent-violet: #8B5CF6;
+  --metric-weight: #2563EB;
+  --metric-bmi: #8B5CF6;
+  --metric-bodyFat: #F97316;
+  --metric-muscle: #06B6D4;
+  --metric-water: #0EA5E9;
+  --metric-visceral: #F43F5E;
+  --metric-protein: #6366F1;
+  --metric-bone: #14B8A6;
   --divider: #E2E8F0;
   --track: #E2E8F0;
   --track-soft: #F1F5F9;
@@ -178,7 +186,24 @@ body.is-mobile .phone::after { display: none; }
   --danger-rgb: 248, 113, 113;
   --accent-cyan: #22D3EE;
   --accent-violet: #A78BFA;
+  --metric-weight: #60A5FA;
+  --metric-bmi: #A78BFA;
+  --metric-bodyFat: #FB923C;
+  --metric-muscle: #22D3EE;
+  --metric-water: #38BDF8;
+  --metric-visceral: #FB7185;
+  --metric-protein: #818CF8;
+  --metric-bone: #2DD4BF;
   --divider: #334155;
+}
+.app[data-theme="dark"] .metric-card[data-metric="weight"] { --metric-accent-rgb: 96, 165, 250; }
+.app[data-theme="dark"] .metric-card[data-metric="bmi"] { --metric-accent-rgb: 167, 139, 250; }
+.app[data-theme="dark"] .metric-card[data-metric="bodyFat"] { --metric-accent-rgb: 251, 146, 60; }
+.app[data-theme="dark"] .metric-card[data-metric="muscle"] { --metric-accent-rgb: 34, 211, 238; }
+.app[data-theme="dark"] .metric-card[data-metric="water"] { --metric-accent-rgb: 56, 189, 248; }
+.app[data-theme="dark"] .metric-card[data-metric="visceral"] { --metric-accent-rgb: 251, 113, 133; }
+.app[data-theme="dark"] .metric-card[data-metric="protein"] { --metric-accent-rgb: 129, 140, 248; }
+.app[data-theme="dark"] .metric-card[data-metric="bone"] { --metric-accent-rgb: 45, 212, 191; }
   --track: #334155;
   --track-soft: #172033;
   --handle: #475569;
@@ -1122,6 +1147,14 @@ body.is-mobile .phone::after { display: none; }
 .metric-grid.instant .metric-card { opacity: 1; transform: none; transition: none; }
 /* 严格高度：76 / 96 / 84 / 68，含 1px 边框与 10/16px 内边距 */
 .metric-card.h76 { height: 76px; padding: 8px 12px; }
+.metric-card[data-metric="weight"] { --metric-accent: var(--metric-weight); --metric-accent-rgb: 37, 99, 235; }
+.metric-card[data-metric="bmi"] { --metric-accent: var(--metric-bmi); --metric-accent-rgb: 139, 92, 246; }
+.metric-card[data-metric="bodyFat"] { --metric-accent: var(--metric-bodyFat); --metric-accent-rgb: 249, 115, 22; }
+.metric-card[data-metric="muscle"] { --metric-accent: var(--metric-muscle); --metric-accent-rgb: 6, 182, 212; }
+.metric-card[data-metric="water"] { --metric-accent: var(--metric-water); --metric-accent-rgb: 14, 165, 233; }
+.metric-card[data-metric="visceral"] { --metric-accent: var(--metric-visceral); --metric-accent-rgb: 244, 63, 94; }
+.metric-card[data-metric="protein"] { --metric-accent: var(--metric-protein); --metric-accent-rgb: 99, 102, 241; }
+.metric-card[data-metric="bone"] { --metric-accent: var(--metric-bone); --metric-accent-rgb: 20, 184, 166; }
 .metric-card.h96 { height: 96px; padding: 10px 13px; }
 .metric-card.h84 { height: 84px; padding: 10px 12px; }
 .metric-card.h68 { height: 68px; padding: 8px 11px; }
@@ -1131,8 +1164,10 @@ body.is-mobile .phone::after { display: none; }
   position: absolute;
   inset: 0;
   pointer-events: none;
-  opacity: 0;
-  background: radial-gradient(120% 80% at 100% 0%, rgba(var(--primary-rgb), .085), transparent 62%);
+  opacity: .82;
+  background:
+    radial-gradient(120% 80% at 100% 0%, rgba(var(--metric-accent-rgb), .16), transparent 62%),
+    linear-gradient(145deg, rgba(var(--metric-accent-rgb), .11), transparent 52%);
   transition: opacity .25s ease;
 }
 @media (hover: hover) {
@@ -1144,11 +1179,11 @@ body.is-mobile .phone::after { display: none; }
 }
 .metric-grid.is-revealed .metric-card:active { transform: scale(.985); }
 .metric-card[aria-pressed="true"] {
-  border-color: var(--primary);
+  border-color: var(--metric-accent, var(--primary));
   background: var(--card-selected);
   box-shadow:
-    0 0 0 1.5px var(--primary),
-    0 12px 26px -20px rgba(var(--primary-rgb), .65);
+    0 0 0 1.5px var(--metric-accent, var(--primary)),
+    0 12px 26px -20px rgba(var(--metric-accent-rgb, var(--primary-rgb)), .65);
 }
 .metric-card[aria-pressed="true"]::before { opacity: 1; }
 .metric-card.is-baseline .card-foot { color: var(--primary); font-weight: 600; }
@@ -1178,7 +1213,7 @@ body.is-mobile .phone::after { display: none; }
   font-size: 26px;
   font-weight: 650;
   letter-spacing: -.035em;
-  color: var(--text-primary);
+  color: var(--metric-accent, var(--text-primary));
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1, "lnum" 1;
 }
@@ -1278,7 +1313,7 @@ body.is-mobile .phone::after { display: none; }
   margin: -4px 0 0 -4px;
   border-radius: 50%;
   background: var(--card);
-  border: 2px solid var(--primary);
+  border: 2px solid var(--metric-accent, var(--primary));
   box-shadow:
     0 0 0 2px rgba(var(--primary-rgb), .10),
     0 1px 4px rgba(2, 6, 23, .24);
@@ -2685,7 +2720,10 @@ body.is-mobile .phone::after { display: none; }
     var h = 180;
     var cs = getComputedStyle(app);
     var colorOf = function (name) { return cs.getPropertyValue(name).trim(); };
-    var primary = colorOf('--primary');
+    var metricCard = cardEls[key];
+    var accent = metricCard ? getComputedStyle(metricCard).getPropertyValue('--metric-accent').trim() : '';
+    if (!accent) accent = colorOf('--primary');
+    var primary = accent;
     var cardColor = colorOf('--card');
     var divider = colorOf('--divider');
     var textTer = colorOf('--text-tertiary');

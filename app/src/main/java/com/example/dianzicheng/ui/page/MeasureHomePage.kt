@@ -506,7 +506,11 @@ fun MeasureHomePage(
                         .fillMaxSize()
                         .background(
                             Brush.radialGradient(
-                                colors = listOf(palette.backgroundGlow, Color.Transparent),
+                                colors = listOf(
+                                    palette.metricAccents.weight.copy(alpha = 0.10f),
+                                    palette.metricAccents.muscle.copy(alpha = 0.05f),
+                                    Color.Transparent,
+                                ),
                             )
                         )
                 )

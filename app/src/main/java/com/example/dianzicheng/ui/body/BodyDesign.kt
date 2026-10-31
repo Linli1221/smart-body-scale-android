@@ -57,6 +57,56 @@ data class BodyPalette(
     val divider: Color,
     val track: Color,
     val scrim: Color,
+    val metricAccents: MetricAccents,
+)
+
+// ── 指标专属强调色（更丰富的视觉层级） ────────────────────────────────────────
+//
+// 每张指标卡拥有独立的强调色，用于卡片微渐变、图标、区间游标与趋势线；
+// 健康状态（达标/临界/高危）仍由 good/warn/danger 三个语义色承担，二者互不混淆。
+@Immutable
+data class MetricAccents(
+    val weight: Color,
+    val bmi: Color,
+    val bodyFat: Color,
+    val muscle: Color,
+    val water: Color,
+    val visceral: Color,
+    val protein: Color,
+    val bone: Color,
+) {
+    fun forMetric(kind: MetricKind): Color = when (kind) {
+        MetricKind.WEIGHT -> weight
+        MetricKind.BMI -> bmi
+        MetricKind.BODY_FAT -> bodyFat
+        MetricKind.MUSCLE -> muscle
+        MetricKind.WATER -> water
+        MetricKind.VISCERAL_FAT -> visceral
+        MetricKind.PROTEIN -> protein
+        MetricKind.BONE -> bone
+    }
+}
+
+private val LightMetricAccents = MetricAccents(
+    weight = Color(0xFF2563EB),   // 蓝
+    bmi = Color(0xFF8B5CF6),      // 紫
+    bodyFat = Color(0xFFF97316),  // 橙
+    muscle = Color(0xFF06B6D4),   // 青
+    water = Color(0xFF0EA5E9),    // 天蓝
+    visceral = Color(0xFFF43F5E), // 玫红
+    protein = Color(0xFF6366F1),  // 靛蓝
+    bone = Color(0xFF14B8A6),     // 蓝绿
+)
+
+private val DarkMetricAccents = MetricAccents(
+    weight = Color(0xFF60A5FA),
+    bmi = Color(0xFFA78BFA),
+    bodyFat = Color(0xFFFB923C),
+    muscle = Color(0xFF22D3EE),
+    water = Color(0xFF38BDF8),
+    visceral = Color(0xFFFB7185),
+    protein = Color(0xFF818CF8),
+    bone = Color(0xFF2DD4BF),
 )
 
 // ── 浅色固定 token（交付方案） ────────────────────────────────────────────────
@@ -115,6 +165,7 @@ fun bodyPalette(): BodyPalette {
                 divider = DarkDivider,
                 track = DarkTrack,
                 scrim = DarkScrim,
+                metricAccents = DarkMetricAccents,
             )
         } else {
             BodyPalette(
@@ -133,6 +184,7 @@ fun bodyPalette(): BodyPalette {
                 divider = LightDivider,
                 track = LightTrack,
                 scrim = LightScrim,
+                metricAccents = LightMetricAccents,
             )
         }
     }
