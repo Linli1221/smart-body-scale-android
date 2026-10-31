@@ -306,7 +306,8 @@ private fun MeasurementResultCard(
     onRebind: () -> Unit
 ) {
     val hasBia = measurement.impedanceOhm > 0.0 && measurement.bodyFatPct > 0.0
-    val isMale = members.firstOrNull { it.id == measurement.memberId }?.sex == Sex.MALE
+    // 未绑定成员时默认按男性阈值判定体脂区间（与历史记录卡/详情弹窗保持一致）
+    val isMale = members.firstOrNull { it.id == measurement.memberId }?.sex != Sex.FEMALE
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(20.dp)) {

@@ -133,54 +133,55 @@ fun ScaleApp(
                 onDismissAlert = scaleViewModel::dismissAlert,
                 modifier = Modifier.padding(innerPadding)
             )
+
+            // ── 底部弹层：同一时刻只展示一个 ────────────────────────────
+            // Overlay 系弹层必须位于 Scaffold 子树内（由根 Scaffold 的 popup 层承载）
+            HistorySheet(
+                show = activeOverlay == ActiveOverlay.History,
+                history = history,
+                members = members,
+                metricOrder = metricOrder,
+                onSaveMetricOrder = historyViewModel::saveBodyMetricOrder,
+                onDelete = historyViewModel::deleteMeasurement,
+                onDismissRequest = { activeOverlay = null }
+            )
+
+            SettingsSheet(
+                show = activeOverlay == ActiveOverlay.Settings,
+                profileViewModel = profileViewModel,
+                onOpenPairing = { activeOverlay = ActiveOverlay.Pairing },
+                onOpenLogViewer = { activeOverlay = ActiveOverlay.LogViewer },
+                onOpenCapture = { activeOverlay = ActiveOverlay.CaptureViewer },
+                onDismissRequest = { activeOverlay = null }
+            )
+
+            PairingSheet(
+                show = activeOverlay == ActiveOverlay.Pairing,
+                mandatory = isPairingComplete == false,
+                uiState = uiState,
+                onStartPairingScan = scaleViewModel::startPairingScan,
+                onStopPairingScan = scaleViewModel::stopPairingScan,
+                onBindDevice = scaleViewModel::pairAndConnectDevice,
+                onSwitchActiveScale = scaleViewModel::switchActiveScale,
+                onSelectScaleModel = scaleViewModel::selectScaleModel,
+                onFinished = {
+                    activeOverlay = null
+                    if (isPairingComplete == false) onPairingComplete()
+                },
+                onDismissRequest = { activeOverlay = null }
+            )
+
+            LogSheet(
+                show = activeOverlay == ActiveOverlay.LogViewer,
+                profileViewModel = profileViewModel,
+                onDismissRequest = { activeOverlay = null }
+            )
+
+            CaptureSheet(
+                show = activeOverlay == ActiveOverlay.CaptureViewer,
+                profileViewModel = profileViewModel,
+                onDismissRequest = { activeOverlay = null }
+            )
         }
-
-        // ── 底部弹层：同一时刻只展示一个 ────────────────────────────────────
-        HistorySheet(
-            show = activeOverlay == ActiveOverlay.History,
-            history = history,
-            members = members,
-            metricOrder = metricOrder,
-            onSaveMetricOrder = historyViewModel::saveBodyMetricOrder,
-            onDelete = historyViewModel::deleteMeasurement,
-            onDismissRequest = { activeOverlay = null }
-        )
-
-        SettingsSheet(
-            show = activeOverlay == ActiveOverlay.Settings,
-            profileViewModel = profileViewModel,
-            onOpenPairing = { activeOverlay = ActiveOverlay.Pairing },
-            onOpenLogViewer = { activeOverlay = ActiveOverlay.LogViewer },
-            onOpenCapture = { activeOverlay = ActiveOverlay.CaptureViewer },
-            onDismissRequest = { activeOverlay = null }
-        )
-
-        PairingSheet(
-            show = activeOverlay == ActiveOverlay.Pairing,
-            mandatory = isPairingComplete == false,
-            uiState = uiState,
-            onStartPairingScan = scaleViewModel::startPairingScan,
-            onStopPairingScan = scaleViewModel::stopPairingScan,
-            onBindDevice = scaleViewModel::pairAndConnectDevice,
-            onSwitchActiveScale = scaleViewModel::switchActiveScale,
-            onSelectScaleModel = scaleViewModel::selectScaleModel,
-            onFinished = {
-                activeOverlay = null
-                if (isPairingComplete == false) onPairingComplete()
-            },
-            onDismissRequest = { activeOverlay = null }
-        )
-
-        LogSheet(
-            show = activeOverlay == ActiveOverlay.LogViewer,
-            profileViewModel = profileViewModel,
-            onDismissRequest = { activeOverlay = null }
-        )
-
-        CaptureSheet(
-            show = activeOverlay == ActiveOverlay.CaptureViewer,
-            profileViewModel = profileViewModel,
-            onDismissRequest = { activeOverlay = null }
-        )
     }
 }

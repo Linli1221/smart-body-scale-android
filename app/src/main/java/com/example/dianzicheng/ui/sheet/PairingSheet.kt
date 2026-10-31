@@ -52,7 +52,6 @@ import com.example.dianzicheng.domain.ScaleModel
 import com.example.dianzicheng.ui.component.HealthGreen
 import com.example.dianzicheng.ui.dialog.SelectScaleModelDialog
 import com.example.dianzicheng.ui.state.ScaleUiState
-import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
@@ -69,7 +68,6 @@ import top.yukonga.miuix.kmp.icon.extended.ExpandLess
 import top.yukonga.miuix.kmp.icon.extended.ExpandMore
 import top.yukonga.miuix.kmp.icon.extended.Info
 import top.yukonga.miuix.kmp.icon.extended.Refresh
-import top.yukonga.miuix.kmp.icon.extended.Report
 import top.yukonga.miuix.kmp.icon.extended.SearchDevice
 import top.yukonga.miuix.kmp.icon.extended.Tune
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
