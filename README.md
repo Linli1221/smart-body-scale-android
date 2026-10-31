@@ -355,3 +355,25 @@ JSON Lines（`.jsonl`）——首行是抓包元信息，其余每行一条报�
    - 准备一台拥有蓝牙功能的 **arm64** Android 真机（API 26+，开启手机蓝牙；APK 只打包 arm64-v8a，x86 模拟器不可用）；
    - 安装 APK 后打开应用，在「绑定体脂秤」页选择你的型号（薄荷健康/沃莱 或 小米体脂秤 2 代）并站上体脂秤完成配对；
    - 之后每次开启应用直接站上体脂秤即可开始称重与体脂分析。
+
+---
+
+## 🧭 身体报告单页（新版 UI）
+
+新版测量主页把「称重主舞台 + 历史抽屉」合并为同屏单页面，代码入口：
+
+| 内容 | 文件 |
+| :--- | :--- |
+| 页面编排 / 测量时序 / 异常态 | [`MeasureHomePage.kt`](app/src/main/java/com/example/dianzicheng/ui/page/MeasureHomePage.kt) |
+| 三态抽屉 / 时间轴 / 趋势图 | [`BodySheetState.kt`](app/src/main/java/com/example/dianzicheng/ui/body/BodySheetState.kt) / [`BodyHistoryDrawer.kt`](app/src/main/java/com/example/dianzicheng/ui/body/BodyHistoryDrawer.kt) / [`BodyTrendChart.kt`](app/src/main/java/com/example/dianzicheng/ui/body/BodyTrendChart.kt) |
+| 8 项指标 Bento 卡片 | [`MetricCards.kt`](app/src/main/java/com/example/dianzicheng/ui/body/MetricCards.kt) / [`BodyMetricUi.kt`](app/src/main/java/com/example/dianzicheng/ui/body/BodyMetricUi.kt) |
+| 主表盘 / 状态胶囊 | [`WeightStage.kt`](app/src/main/java/com/example/dianzicheng/ui/body/WeightStage.kt) |
+| 设计 token | [`BodyDesign.kt`](app/src/main/java/com/example/dianzicheng/ui/body/BodyDesign.kt) |
+| 实现契约 / 验收清单 | [`BODY_REPORT_UI_CONTRACT.md`](docs/BODY_REPORT_UI_CONTRACT.md) / [`BODY_REPORT_UI_ACCEPTANCE.md`](docs/BODY_REPORT_UI_ACCEPTANCE.md) |
+| 可交互 HTML 视觉走查稿 | [`prototype/body-report.html`](prototype/body-report.html) |
+
+- 三态抽屉高度 **12% / 62% / 92%**，弹簧 0.82/280，释放速度阈值 400dp/s；
+- 测量完成 T+0 锁定闪烁、T+300 流光、T+1300 半展开、T+1500 卡片 stagger；
+- 8 项指标为体重 / BMI / 体脂率 / 肌肉量 / 水分 / 内脏脂肪 / 蛋白质 / 骨量；
+- 内脏脂肪在原 BIA 数据模型中没有独立字段，新版 UI 用体脂率 + BMI + 年龄 + 性别做**估算展示**，不写入数据库、不作为医学结论；
+- 旧 HistorySheet 仍由「全部历史」入口打开，删除/详情/成员筛选等既有能力保留。

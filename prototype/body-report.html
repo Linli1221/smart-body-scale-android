@@ -1,0 +1,3637 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#F1F5F9">
+<title>身体报告 · 交互原型</title>
+<style>
+/* ============================================================
+   身体报告单页原型 · 375 x 812 设计基准
+   Z-0 背景微光 / Z-10 主舞台 / Z-20 遮罩 / Z-30 抽屉
+   仅使用系统字体，无外部资源，无构建。
+   ============================================================ */
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+html { background: #06080d; }
+body {
+  margin: 0;
+  min-height: 100svh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  overflow: auto;
+  background:
+    radial-gradient(900px 620px at 50% -10%, rgba(37, 99, 235, .20), transparent 62%),
+    radial-gradient(760px 560px at 88% 88%, rgba(6, 182, 212, .12), transparent 62%),
+    radial-gradient(640px 520px at 8% 78%, rgba(139, 92, 246, .12), transparent 64%),
+    #06080d;
+  color: #e2e8f0;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+    "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(148, 163, 184, .035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, .035) 1px, transparent 1px);
+  background-size: 64px 64px;
+  -webkit-mask-image: radial-gradient(80% 60% at 50% 45%, #000, transparent 82%);
+  mask-image: radial-gradient(80% 60% at 50% 45%, #000, transparent 82%);
+}
+button {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+button:disabled { cursor: default; }
+[hidden] { display: none !important; }
+
+/* ---------- 手机框 ---------- */
+.device {
+  position: relative;
+  width: 375px;
+  height: 812px;
+  flex: none;
+  z-index: 1;
+}
+.phone {
+  position: absolute;
+  inset: 0;
+  width: 375px;
+  height: 812px;
+  overflow: hidden;
+  border-radius: 46px;
+  background: #f1f5f9;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, .12),
+    0 2px 0 1px rgba(255, 255, 255, .05) inset,
+    0 40px 90px -26px rgba(0, 0, 0, .88),
+    0 0 130px -42px rgba(56, 189, 248, .38);
+  transform-origin: top left;
+  will-change: transform;
+}
+.phone::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 200;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, .10),
+    inset 0 1px 0 rgba(255, 255, 255, .16);
+}
+body.is-mobile {
+  display: block;
+  padding: 0;
+  overflow: hidden;
+  background: #06080d;
+}
+body.is-mobile .device { width: 100vw; height: 100dvh; }
+body.is-mobile .phone {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  box-shadow: none;
+}
+body.is-mobile .phone::after { display: none; }
+
+/* ---------- 设计 token（交付方案浅/深色） ---------- */
+.app {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: inherit;
+  transition: background-color .35s ease, color .35s ease;
+
+  --bg: #F1F5F9;
+  --bg-rgb: 241, 245, 249;
+  --sheet: #FFFFFF;
+  --sheet-rgb: 255, 255, 255;
+  --sheet-border: rgba(255, 255, 255, .74);
+  --card: #F8FAFC;
+  --card-selected: #EFF6FF;
+  --card-border: rgba(15, 23, 42, .055);
+  --text-primary: #0F172A;
+  --text-secondary: #64748B;
+  --text-tertiary: #94A3B8;
+  --text-rgb: 15, 23, 42;
+  --primary: #2563EB;
+  --primary-rgb: 37, 99, 235;
+  --primary-soft: rgba(37, 99, 235, .10);
+  --good: #10B981;
+  --good-rgb: 16, 185, 129;
+  --warn: #F59E0B;
+  --warn-rgb: 245, 158, 11;
+  --danger: #EF4444;
+  --danger-rgb: 239, 68, 68;
+  --accent-cyan: #06B6D4;
+  --accent-violet: #8B5CF6;
+  --divider: #E2E8F0;
+  --track: #E2E8F0;
+  --track-soft: #F1F5F9;
+  --handle: #CBD5E1;
+  --scrim: #020617;
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, .035), 0 10px 24px -20px rgba(15, 23, 42, .28);
+  --action-grad: linear-gradient(135deg, #2563EB 0%, #3B82F6 48%, #0891B2 118%);
+}
+.app[data-theme="dark"] {
+  --bg: #0B0F19;
+  --bg-rgb: 11, 15, 25;
+  --sheet: #1E293B;
+  --sheet-rgb: 30, 41, 59;
+  --sheet-border: rgba(148, 163, 184, .14);
+  --card: #0F172A;
+  --card-selected: #17223A;
+  --card-border: rgba(148, 163, 184, .10);
+  --text-primary: #F8FAFC;
+  --text-secondary: #94A3B8;
+  --text-tertiary: #64748B;
+  --text-rgb: 248, 250, 252;
+  --primary: #60A5FA;
+  --primary-rgb: 96, 165, 250;
+  --primary-soft: rgba(96, 165, 250, .14);
+  --good: #34D399;
+  --good-rgb: 52, 211, 153;
+  --warn: #FBBF24;
+  --warn-rgb: 251, 191, 36;
+  --danger: #F87171;
+  --danger-rgb: 248, 113, 113;
+  --accent-cyan: #22D3EE;
+  --accent-violet: #A78BFA;
+  --divider: #334155;
+  --track: #334155;
+  --track-soft: #172033;
+  --handle: #475569;
+  --scrim: #020617;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, .18), 0 14px 30px -24px rgba(0, 0, 0, .9);
+  --action-grad: linear-gradient(135deg, #1D4ED8 0%, #2563EB 50%, #0E7490 120%);
+}
+
+/* ---------- Z-0 背景微光 ---------- */
+.bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background: var(--bg);
+  transition: background-color .35s ease;
+}
+.bg-orb {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  filter: blur(24px);
+  will-change: transform;
+}
+.orb-1 {
+  width: 370px; height: 370px;
+  left: -146px; top: -118px;
+  background: radial-gradient(circle at 52% 52%, rgba(var(--primary-rgb), .50), transparent 68%);
+  animation: driftA 19s ease-in-out infinite alternate;
+}
+.orb-2 {
+  width: 330px; height: 330px;
+  right: -158px; top: 96px;
+  background: radial-gradient(circle at 50% 50%, rgba(6, 182, 212, .40), transparent 70%);
+  animation: driftB 23s ease-in-out infinite alternate;
+}
+.orb-3 {
+  width: 400px; height: 400px;
+  left: -120px; bottom: -210px;
+  background: radial-gradient(circle at 55% 45%, rgba(139, 92, 246, .34), transparent 70%);
+  animation: driftC 26s ease-in-out infinite alternate;
+}
+.orb-4 {
+  width: 286px; height: 286px;
+  left: 50%; top: 88px;
+  transform: translateX(-50%);
+  background: radial-gradient(circle, rgba(var(--primary-rgb), .16), transparent 66%);
+  filter: blur(14px);
+}
+.bg-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(var(--text-rgb), .045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--text-rgb), .045) 1px, transparent 1px);
+  background-size: 44px 44px;
+  -webkit-mask-image: radial-gradient(82% 66% at 50% 34%, #000 0%, transparent 78%);
+  mask-image: radial-gradient(82% 66% at 50% 34%, #000 0%, transparent 78%);
+  opacity: .55;
+  transition: opacity .3s ease;
+}
+.bg-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120% 96% at 50% 24%, transparent 48%, rgba(var(--bg-rgb), .52) 100%);
+}
+@keyframes driftA {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(26px, 22px, 0) scale(1.06); }
+}
+@keyframes driftB {
+  from { transform: translate3d(0, 0, 0) scale(1.04); }
+  to { transform: translate3d(-30px, 18px, 0) scale(.96); }
+}
+@keyframes driftC {
+  from { transform: translate3d(0, 0, 0) scale(.98); }
+  to { transform: translate3d(24px, -24px, 0) scale(1.05); }
+}
+
+/* ---------- Z-10 主舞台 ---------- */
+.stage {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  padding: 0 20px;
+  transform-origin: 50% 32%;
+  will-change: transform;
+}
+.stage-header {
+  flex: none;
+  height: 36px;
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  transition: opacity .25s ease;
+}
+.brand { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.brand-mark {
+  width: 30px; height: 30px;
+  flex: none;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: linear-gradient(145deg, var(--primary), var(--accent-cyan));
+  box-shadow: 0 7px 18px -8px rgba(var(--primary-rgb), .8);
+}
+.brand-mark svg { width: 17px; height: 17px; display: block; }
+.brand-copy { min-width: 0; }
+.brand-title {
+  display: block;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.05;
+  letter-spacing: .01em;
+}
+.brand-sub {
+  display: block;
+  margin-top: 3px;
+  font-size: 9px;
+  line-height: 1;
+  letter-spacing: .06em;
+  color: var(--text-tertiary);
+}
+.date-pill {
+  flex: none;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(var(--sheet-rgb), .50);
+  border: 1px solid rgba(var(--text-rgb), .06);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  font-size: 9.5px;
+  font-weight: 550;
+  color: var(--text-secondary);
+  letter-spacing: .01em;
+  font-variant-numeric: tabular-nums;
+}
+.date-pill i {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--good);
+  box-shadow: 0 0 0 3px rgba(var(--good-rgb), .12);
+}
+.hero {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 22px;
+}
+.status-capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 11px 0 12px;
+  border-radius: 14px;
+  background: rgba(var(--sheet-rgb), .56);
+  border: 1px solid rgba(var(--text-rgb), .07);
+  box-shadow: 0 6px 18px -14px rgba(15, 23, 42, .5);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  color: var(--text-secondary);
+  font-size: 10.5px;
+  font-weight: 550;
+  letter-spacing: .01em;
+  transition: background-color .25s ease, border-color .25s ease, transform .18s ease;
+}
+.status-capsule:hover { background: rgba(var(--sheet-rgb), .76); }
+.status-capsule:active { transform: scale(.985); }
+.status-dot {
+  width: 6px; height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--good);
+  box-shadow: 0 0 0 3px rgba(var(--good-rgb), .13);
+  animation: breathe 2.8s ease-in-out infinite;
+}
+.status-dot[data-tone="blue"] { background: var(--primary); box-shadow: 0 0 0 3px rgba(var(--primary-rgb), .16); }
+.status-dot[data-tone="amber"] { background: var(--warn); box-shadow: 0 0 0 3px rgba(var(--warn-rgb), .16); animation-duration: 1.15s; }
+.status-dot[data-tone="slate"] { background: var(--text-tertiary); box-shadow: 0 0 0 3px rgba(var(--text-rgb), .08); animation: none; }
+.status-text {
+  max-width: 238px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.capsule-chevron { width: 9px; height: 9px; opacity: .45; flex: none; }
+@keyframes breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .45; }
+}
+
+/* 表盘：240 / 4pt 环 / 64pt 数字 */
+.dial-wrap {
+  position: relative;
+  width: 240px;
+  height: 240px;
+  flex: none;
+  margin-top: 22px;
+}
+.ambient-ring {
+  position: absolute;
+  left: 50%; top: 50%;
+  border-radius: 50%;
+  border: 1px dashed rgba(var(--text-rgb), .13);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+.ring-a { width: 296px; height: 296px; animation: spin 70s linear infinite; }
+.ring-b { width: 330px; height: 330px; opacity: .5; animation: spin 110s linear infinite reverse; }
+@keyframes spin { to { transform: translate(-50%, -50%) rotate(360deg); } }
+.dial {
+  position: relative;
+  width: 240px;
+  height: 240px;
+  border-radius: 50%;
+}
+.dial::before {
+  content: "";
+  position: absolute;
+  inset: 12px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 38%, rgba(var(--sheet-rgb), .58), transparent 70%);
+  pointer-events: none;
+}
+.dial-halo {
+  position: absolute;
+  inset: -27px;
+  border-radius: 50%;
+  background: radial-gradient(circle,
+    rgba(var(--primary-rgb), .17) 0%,
+    rgba(6, 182, 212, .07) 42%,
+    transparent 68%);
+  filter: blur(7px);
+  pointer-events: none;
+}
+.dial-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.ring-track {
+  fill: none;
+  stroke: var(--track);
+  stroke-width: 4;
+  opacity: .62;
+}
+.ring-progress {
+  fill: none;
+  stroke: url(#ringGradient);
+  stroke-width: 4;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 5px rgba(var(--primary-rgb), .32));
+  transition: stroke-dashoffset .9s cubic-bezier(.22, 1, .36, 1);
+}
+.ring-inner {
+  fill: url(#innerGlow);
+  stroke: rgba(var(--text-rgb), .055);
+  stroke-width: 1;
+}
+.stop-primary { stop-color: var(--primary); }
+.stop-cyan { stop-color: var(--accent-cyan); }
+.stop-violet { stop-color: var(--accent-violet); }
+.inner-a { stop-color: var(--primary); stop-opacity: .11; }
+.inner-b { stop-color: var(--primary); stop-opacity: .025; }
+.inner-c { stop-color: var(--primary); stop-opacity: 0; }
+.dial-ticks line {
+  stroke: var(--text-tertiary);
+  stroke-width: 1;
+  opacity: .30;
+}
+.dial-ticks line.major { opacity: .52; stroke-width: 1.2; }
+.dial-flow {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  background: conic-gradient(from -90deg,
+    transparent 0%,
+    transparent 54%,
+    rgba(var(--primary-rgb), .06) 66%,
+    var(--primary) 86%,
+    rgba(255, 255, 255, .92) 94%,
+    transparent 100%);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 5px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 5px));
+  filter: drop-shadow(0 0 7px rgba(var(--primary-rgb), .65));
+}
+.dial.is-scanning .dial-flow { animation: ringSweep 1s cubic-bezier(.4, 0, .2, 1) both; }
+@keyframes ringSweep {
+  0% { opacity: 0; transform: rotate(-90deg); }
+  14% { opacity: 1; }
+  82% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(270deg); }
+}
+.dial.is-locked .weight-line { animation: numberFlicker .6s ease-in-out both; }
+@keyframes numberFlicker {
+  0%, 100% { opacity: 1; }
+  25% { opacity: .12; }
+  50% { opacity: 1; }
+  75% { opacity: .12; }
+}
+.dial-content {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-top: 1px;
+  pointer-events: none;
+}
+.dial-label {
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: .18em;
+  color: var(--text-tertiary);
+}
+.weight-line {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin-top: 5px;
+  line-height: 1;
+}
+.weight-value {
+  font-size: 64px;
+  font-weight: 600;
+  letter-spacing: -.045em;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+  text-shadow: 0 3px 26px rgba(var(--primary-rgb), .12);
+}
+.weight-unit {
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -.01em;
+  color: var(--text-secondary);
+}
+.weight-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  margin-top: 8px;
+  padding: 0 8px;
+  border-radius: 10px;
+  background: rgba(var(--good-rgb), .09);
+  color: var(--good);
+  font-size: 10px;
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  transition: background-color .25s ease, color .25s ease;
+}
+.weight-delta.up { background: rgba(var(--warn-rgb), .11); color: var(--warn); }
+.weight-delta.flat { background: rgba(var(--text-rgb), .05); color: var(--text-secondary); }
+.dial-caption {
+  margin: 14px 0 0;
+  min-height: 16px;
+  font-size: 10.5px;
+  line-height: 16px;
+  color: var(--text-secondary);
+  text-align: center;
+  letter-spacing: .01em;
+}
+.primary-action {
+  position: relative;
+  margin-top: 18px;
+  height: 48px;
+  min-width: 216px;
+  padding: 0 26px;
+  border-radius: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--action-grad);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: .015em;
+  box-shadow:
+    0 14px 28px -14px rgba(var(--primary-rgb), .85),
+    0 2px 8px -2px rgba(15, 23, 42, .18),
+    inset 0 1px 0 rgba(255, 255, 255, .26);
+  transition: transform .18s ease, box-shadow .25s ease, opacity .2s ease;
+}
+.primary-action:hover { box-shadow: 0 18px 34px -14px rgba(var(--primary-rgb), .9), inset 0 1px 0 rgba(255,255,255,.3); }
+.app[data-sheet="half"] .primary-action,
+.app[data-sheet="full"] .primary-action,
+.app[data-sheet="half"] .stage-insight,
+.app[data-sheet="full"] .stage-insight {
+  opacity: 0;
+  pointer-events: none;
+}
+.primary-action:active { transform: scale(.97); }
+.primary-action:disabled { opacity: .62; box-shadow: 0 8px 20px -18px rgba(var(--primary-rgb), .7); }
+.action-icon svg { width: 16px; height: 16px; display: block; }
+.action-spinner {
+  display: none;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, .32);
+  border-top-color: #fff;
+  animation: spinSimple .85s linear infinite;
+}
+.app[data-phase="calculating"] .action-spinner { display: block; }
+.app[data-phase="calculating"] .action-icon { display: none; }
+@keyframes spinSimple { to { transform: rotate(360deg); } }
+.stage-insight {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 15px;
+  min-height: 14px;
+  font-size: 9.5px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  transition: opacity .2s ease;
+}
+.stage-insight b { color: var(--text-secondary); font-weight: 650; }
+.insight-sep { width: 1px; height: 8px; background: var(--divider); }
+.stage-footer {
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  bottom: calc(12% + 14px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  transition: opacity .25s ease;
+}
+.member-pill {
+  height: 34px;
+  padding: 0 10px 0 6px;
+  border-radius: 17px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(var(--sheet-rgb), .58);
+  border: 1px solid rgba(var(--text-rgb), .065);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  color: var(--text-secondary);
+  font-size: 10.5px;
+  font-weight: 550;
+  box-shadow: 0 8px 20px -18px rgba(15, 23, 42, .5);
+}
+.member-pill:hover { background: rgba(var(--sheet-rgb), .78); }
+.mini-avatar {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  background: var(--avatar, #8B5CF6);
+}
+.member-pill svg { width: 9px; height: 9px; opacity: .45; }
+.ghost-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 9px;
+  border-radius: 12px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 550;
+}
+.ghost-link:hover { background: rgba(var(--text-rgb), .045); }
+.ghost-link svg { width: 11px; height: 11px; opacity: .5; }
+.app[data-sheet="full"] .stage-header,
+.app[data-sheet="full"] .stage-footer { opacity: 0; pointer-events: none; }
+
+/* ---------- Z-20 遮罩 ---------- */
+.scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: var(--scrim);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .22s ease;
+}
+
+/* ---------- Z-30 抽屉：固定 92% 高 + 位移 ---------- */
+.sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  height: 92%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 28px 28px 0 0;
+  background: rgba(var(--sheet-rgb), .94);
+  border-top: 1px solid var(--sheet-border);
+  box-shadow:
+    0 -24px 70px -30px rgba(2, 6, 23, .48),
+    0 -1px 0 rgba(255, 255, 255, .35) inset;
+  -webkit-backdrop-filter: blur(30px) saturate(160%);
+  backdrop-filter: blur(30px) saturate(160%);
+  transform: translate3d(0, 87%, 0);
+  will-change: transform;
+  transition: background-color .3s ease, border-color .3s ease;
+}
+.sheet-head {
+  position: relative;
+  flex: none;
+  padding: 0 16px;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.grabber,
+.sheet-title-row { touch-action: none; }
+.sheet-controls { touch-action: pan-x; }
+.trend-chart text {
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.sheet-head.is-dragging { cursor: grabbing; }
+.sheet-head::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 28px 28px 0 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(var(--sheet-rgb), .62), transparent 78%);
+}
+.grabber {
+  position: relative;
+  height: 4px;
+  margin-top: 8px;
+  display: flex;
+  justify-content: center;
+}
+.grabber span {
+  display: block;
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--handle);
+}
+.sheet-title-row {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+}
+.sheet-title { min-width: 0; }
+.sheet-title-line { display: flex; align-items: center; gap: 8px; }
+.sheet-title h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 21px;
+  letter-spacing: -.012em;
+  color: var(--text-primary);
+}
+.sheet-badge {
+  height: 17px;
+  padding: 0 7px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  font-size: 8.5px;
+  font-weight: 650;
+  letter-spacing: .02em;
+  color: var(--primary);
+  background: var(--primary-soft);
+  white-space: nowrap;
+}
+.sheet-badge.is-warn { color: var(--warn); background: rgba(var(--warn-rgb), .11); }
+.sheet-badge.is-muted { color: var(--text-secondary); background: rgba(var(--text-rgb), .055); }
+.sheet-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 3px 0 0;
+  font-size: 10px;
+  line-height: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+.sheet-meta .meta-sep { opacity: .45; }
+.icon-button {
+  flex: none;
+  width: 30px; height: 30px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  color: var(--text-secondary);
+  background: var(--track-soft);
+  border: 1px solid rgba(var(--text-rgb), .045);
+  transition: background-color .2s ease, transform .2s ease;
+}
+.icon-button:hover { background: rgba(var(--text-rgb), .07); }
+.icon-button svg { width: 14px; height: 14px; transition: transform .32s cubic-bezier(.22, 1, .36, 1); }
+.sheet.is-full .sheet-toggle svg { transform: rotate(180deg); }
+.sheet-controls {
+  position: relative;
+  padding-top: 11px;
+  padding-bottom: 9px;
+  transition: opacity .18s ease;
+}
+.sheet.is-collapsed .sheet-controls { opacity: 0; }
+.control-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.segmented {
+  position: relative;
+  display: inline-flex;
+  height: 30px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--track-soft);
+  border: 1px solid rgba(var(--text-rgb), .045);
+}
+.seg-btn {
+  position: relative;
+  z-index: 1;
+  width: 52px;
+  height: 24px;
+  border-radius: 8px;
+  font-size: 10.5px;
+  font-weight: 550;
+  color: var(--text-secondary);
+  transition: color .2s ease;
+}
+.seg-btn.active { color: var(--text-primary); font-weight: 650; }
+.seg-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 52px;
+  height: 24px;
+  border-radius: 8px;
+  background: rgba(var(--sheet-rgb), .98);
+  box-shadow:
+    0 2px 8px -3px rgba(15, 23, 42, .22),
+    0 0 0 1px rgba(var(--text-rgb), .035);
+  transform: translateX(calc(var(--seg-index, 0) * 52px));
+  transition: transform .34s cubic-bezier(.22, 1, .36, 1);
+}
+.record-count {
+  font-size: 9px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.timeline {
+  position: relative;
+  display: flex;
+  gap: 8px;
+  height: 44px;
+  margin-top: 8px;
+  padding: 0 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  scroll-snap-type: x proximity;
+  touch-action: pan-x;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 7px, #000 calc(100% - 12px), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 7px, #000 calc(100% - 12px), transparent 100%);
+}
+.timeline::-webkit-scrollbar { display: none; }
+.tl-chip {
+  flex: none;
+  height: 44px;
+  min-width: 56px;
+  padding: 5px 9px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 1px;
+  text-align: left;
+  scroll-snap-align: start;
+  transition: background-color .2s ease, border-color .2s ease;
+}
+.tl-chip:hover { background: rgba(var(--text-rgb), .035); }
+.tl-chip.active {
+  background: var(--primary-soft);
+  border-color: rgba(var(--primary-rgb), .34);
+}
+.tl-date {
+  font-size: 10.5px;
+  font-weight: 650;
+  line-height: 13px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .01em;
+}
+.tl-chip.active .tl-date { color: var(--primary); }
+.tl-sub {
+  font-size: 8.5px;
+  line-height: 11px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.tl-chip.active .tl-sub { color: var(--primary); opacity: .78; }
+.member-filter {
+  display: flex;
+  gap: 6px;
+  margin-top: 7px;
+  padding-bottom: 1px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  touch-action: pan-x;
+}
+.member-filter::-webkit-scrollbar { display: none; }
+.member-chip {
+  flex: none;
+  height: 24px;
+  padding: 0 8px 0 4px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--divider);
+  color: var(--text-secondary);
+  font-size: 9.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background-color .2s ease, border-color .2s ease, color .2s ease;
+}
+.member-chip:hover { background: rgba(var(--text-rgb), .035); }
+.member-chip.active {
+  color: var(--primary);
+  border-color: rgba(var(--primary-rgb), .42);
+  background: var(--primary-soft);
+}
+.chip-avatar {
+  width: 17px; height: 17px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: #fff;
+  font-size: 7.5px;
+  font-weight: 700;
+  background: var(--avatar, var(--primary));
+}
+.chip-avatar.all { background: var(--text-tertiary); }
+
+/* 抽屉内容 */
+.sheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 10px 0 max(24px, env(safe-area-inset-bottom));
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  transition: padding-bottom .15s ease;
+}
+.sheet-body::-webkit-scrollbar { display: none; }
+
+/* 180pt 趋势图 */
+.trend-panel {
+  margin: 2px 16px 14px;
+  padding: 12px 12px 6px;
+  border-radius: 16px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow-card);
+  transition: background-color .3s ease, border-color .3s ease;
+}
+.trend-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  height: 32px;
+}
+.trend-title {
+  display: block;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 15px;
+  color: var(--text-primary);
+}
+.trend-sub {
+  display: block;
+  margin-top: 1px;
+  font-size: 8.5px;
+  line-height: 11px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.trend-current { display: flex; align-items: baseline; gap: 2px; }
+.trend-value {
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -.025em;
+  line-height: 1;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.trend-unit { font-size: 8.5px; color: var(--text-tertiary); }
+.trend-delta {
+  margin-left: 5px;
+  padding: 1px 5px;
+  border-radius: 6px;
+  font-size: 8.5px;
+  font-weight: 650;
+  color: var(--good);
+  background: rgba(var(--good-rgb), .10);
+  font-variant-numeric: tabular-nums;
+}
+.trend-delta.up { color: var(--warn); background: rgba(var(--warn-rgb), .12); }
+.trend-chart-wrap { position: relative; height: 180px; margin-top: 2px; }
+.trend-chart {
+  display: block;
+  width: 100%;
+  height: 180px;
+  overflow: visible;
+  cursor: crosshair;
+}
+.chart-single-note {
+  position: absolute;
+  left: 50%;
+  bottom: 30px;
+  transform: translateX(-50%);
+  max-width: calc(100% - 20px);
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(var(--sheet-rgb), .86);
+  border: 1px solid var(--divider);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: var(--text-secondary);
+  font-size: 9px;
+  white-space: nowrap;
+}
+.chart-pulse { animation: chartPulse 2.6s ease-in-out infinite; }
+@keyframes chartPulse {
+  0%, 100% { opacity: .10; }
+  50% { opacity: .26; }
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 16px 8px;
+}
+.section-title { font-size: 11px; font-weight: 650; color: var(--text-secondary); letter-spacing: .01em; }
+.section-hint { font-size: 8.5px; color: var(--text-tertiary); }
+
+/* 8 项 Bento */
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 16px;
+  align-items: stretch;
+}
+.bia-tip {
+  grid-column: 1 / -1;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border-radius: 10px;
+  background: rgba(var(--warn-rgb), .10);
+  border: 1px solid rgba(var(--warn-rgb), .18);
+  color: var(--warn);
+  font-size: 9.5px;
+  line-height: 1.3;
+}
+.bia-tip svg { width: 13px; height: 13px; flex: none; }
+.metric-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 16px;
+  border: 1px solid var(--card-border);
+  background: var(--card);
+  color: var(--text-primary);
+  text-align: left;
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+  opacity: 0;
+  transform: translateY(12px);
+  transition:
+    opacity .38s cubic-bezier(.22, 1, .36, 1),
+    transform .38s cubic-bezier(.22, 1, .36, 1),
+    background-color .25s ease,
+    border-color .25s ease,
+    box-shadow .25s ease;
+}
+.metric-grid.is-revealed .metric-card { opacity: 1; transform: translateY(0); }
+.metric-grid.instant .metric-card { opacity: 1; transform: none; transition: none; }
+/* 严格高度：76 / 96 / 84 / 68，含 1px 边框与 10/16px 内边距 */
+.metric-card.h76 { height: 76px; padding: 8px 12px; }
+.metric-card.h96 { height: 96px; padding: 10px 13px; }
+.metric-card.h84 { height: 84px; padding: 10px 12px; }
+.metric-card.h68 { height: 68px; padding: 8px 11px; }
+.h84 .card-foot { display: none; }
+.metric-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(120% 80% at 100% 0%, rgba(var(--primary-rgb), .085), transparent 62%);
+  transition: opacity .25s ease;
+}
+@media (hover: hover) {
+  .metric-grid.is-revealed .metric-card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 3px 6px rgba(15, 23, 42, .04), 0 14px 28px -20px rgba(15, 23, 42, .38);
+  }
+  .metric-card:hover::before { opacity: 1; }
+}
+.metric-grid.is-revealed .metric-card:active { transform: scale(.985); }
+.metric-card[aria-pressed="true"] {
+  border-color: var(--primary);
+  background: var(--card-selected);
+  box-shadow:
+    0 0 0 1.5px var(--primary),
+    0 12px 26px -20px rgba(var(--primary-rgb), .65);
+}
+.metric-card[aria-pressed="true"]::before { opacity: 1; }
+.metric-card.is-baseline .card-foot { color: var(--primary); font-weight: 600; }
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+  min-height: 16px;
+}
+.card-title {
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 14px;
+  letter-spacing: .01em;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.card-value {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  margin-top: 3px;
+  line-height: 1;
+}
+.num {
+  font-size: 26px;
+  font-weight: 650;
+  letter-spacing: -.035em;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
+.unit {
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: .01em;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+.h96 .num { font-size: 30px; }
+.h84 .num { font-size: 27px; }
+.h68 .num { font-size: 21px; letter-spacing: -.03em; }
+.h76 .num { font-size: 26px; }
+.h96 .unit, .h84 .unit { font-size: 9px; }
+.h68 .unit { font-size: 8px; }
+.metric-card.no-data .num { color: var(--text-tertiary); font-weight: 500; letter-spacing: 0; }
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 16px;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 8.5px;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  background: rgba(var(--text-rgb), .055);
+}
+.status-pill i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; flex: none; }
+.status-pill.good { color: var(--good); background: rgba(var(--good-rgb), .10); }
+.status-pill.warn { color: var(--warn); background: rgba(var(--warn-rgb), .12); }
+.status-pill.danger { color: var(--danger); background: rgba(var(--danger-rgb), .11); }
+.status-pill.neutral { color: var(--text-tertiary); background: rgba(var(--text-rgb), .05); }
+.delta-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  font-size: 8.5px;
+  font-weight: 650;
+  line-height: 1;
+  color: var(--good);
+  background: rgba(var(--good-rgb), .10);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.delta-pill.up { color: var(--warn); background: rgba(var(--warn-rgb), .12); }
+.delta-pill.flat { color: var(--text-secondary); background: rgba(var(--text-rgb), .05); }
+.delta-pill svg { width: 8px; height: 8px; transition: transform .25s ease; }
+.delta-pill.up svg { transform: rotate(180deg); }
+.baseline-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  color: var(--primary);
+  background: var(--primary-soft);
+  font-size: 8.5px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.range {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 10px;
+  margin-top: auto;
+  flex: none;
+}
+.range-track {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--track);
+  transition: opacity .25s ease;
+}
+.h68 .range-track { height: 3px; }
+.seg { display: block; height: 100%; width: 0; transition: width .45s cubic-bezier(.22, 1, .36, 1); }
+.seg.low { background: rgba(var(--warn-rgb), .34); }
+.seg.ok { background: rgba(var(--good-rgb), .72); }
+.seg.high { background: rgba(var(--danger-rgb), .32); }
+.range-pin {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  background: var(--card);
+  border: 2px solid var(--primary);
+  box-shadow:
+    0 0 0 2px rgba(var(--primary-rgb), .10),
+    0 1px 4px rgba(2, 6, 23, .24);
+  transition: left .45s cubic-bezier(.22, 1, .36, 1);
+}
+.h68 .range-pin { width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; }
+.metric-card.no-data .range-track { opacity: .42; }
+.metric-card.no-data .range-pin { display: none; }
+.card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  margin-top: auto;
+  min-height: 11px;
+  font-size: 8px;
+  line-height: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.range + .card-foot { margin-top: 4px; }
+.card-foot b { font-weight: 650; color: var(--text-secondary); }
+.h96 .card-foot { font-size: 8.5px; }
+
+.sheet-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 16px 16px 0;
+  padding-top: 2px;
+  color: var(--text-tertiary);
+  font-size: 8.5px;
+}
+.text-btn {
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 8px;
+  color: var(--primary);
+  font-size: 9.5px;
+  font-weight: 600;
+}
+.text-btn:hover { background: var(--primary-soft); }
+
+/* 抽屉收起/全展开状态 */
+.sheet.is-full { border-radius: 28px 28px 0 0; }
+.app[data-sheet="full"] .stage-header,
+.app[data-sheet="full"] .stage-footer { opacity: 0; pointer-events: none; }
+
+/* Toast */
+.toast {
+  position: absolute;
+  left: 50%;
+  bottom: calc(12% + 24px);
+  z-index: 60;
+  max-width: calc(100% - 40px);
+  padding: 9px 14px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, .94);
+  color: #F8FAFC;
+  font-size: 10.5px;
+  line-height: 15px;
+  text-align: center;
+  box-shadow: 0 16px 36px -18px rgba(0, 0, 0, .8);
+  opacity: 0;
+  transform: translate(-50%, 8px);
+  pointer-events: none;
+  transition: opacity .22s ease, transform .22s ease;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* ---------- 演示控制台（手机框外） ---------- */
+.demo-panel {
+  position: fixed;
+  left: 28px;
+  bottom: 28px;
+  z-index: 1000;
+  width: 236px;
+  padding: 15px;
+  border-radius: 20px;
+  background: rgba(12, 18, 30, .78);
+  border: 1px solid rgba(148, 163, 184, .18);
+  box-shadow:
+    0 30px 70px -20px rgba(0, 0, 0, .85),
+    inset 0 1px 0 rgba(255, 255, 255, .07);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+  backdrop-filter: blur(22px) saturate(150%);
+  color: #E2E8F0;
+  font-size: 11px;
+}
+.demo-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: .01em;
+  color: #F8FAFC;
+}
+.demo-head .live-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #34D399;
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, .14);
+}
+.demo-head .demo-tag {
+  margin-left: auto;
+  font-size: 8px;
+  font-weight: 550;
+  letter-spacing: .05em;
+  color: #94A3B8;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(148, 163, 184, .10);
+}
+.demo-label {
+  margin: 13px 0 6px;
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: .13em;
+  color: #64748B;
+}
+.demo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.demo-state, .demo-theme {
+  height: 30px;
+  border-radius: 9px;
+  border: 1px solid rgba(148, 163, 184, .16);
+  background: rgba(148, 163, 184, .07);
+  color: #CBD5E1;
+  font-size: 10px;
+  font-weight: 550;
+  transition: background-color .18s ease, border-color .18s ease, color .18s ease;
+}
+.demo-state:hover, .demo-theme:hover { background: rgba(148, 163, 184, .13); }
+.demo-state.active, .demo-theme.active {
+  color: #EFF6FF;
+  border-color: rgba(96, 165, 250, .55);
+  background: rgba(37, 99, 235, .30);
+}
+.demo-row { display: flex; gap: 6px; }
+.demo-theme { flex: 1; }
+.demo-primary {
+  width: 100%;
+  height: 36px;
+  margin-top: 13px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 650;
+  background: linear-gradient(135deg, #2563EB, #0EA5E9);
+  box-shadow: 0 12px 24px -14px rgba(37, 99, 235, .9), inset 0 1px 0 rgba(255, 255, 255, .24);
+  transition: transform .18s ease, filter .2s ease;
+}
+.demo-primary:hover { filter: brightness(1.08); }
+.demo-primary:active { transform: scale(.98); }
+.demo-primary svg { width: 12px; height: 12px; }
+.demo-note {
+  margin: 10px 0 0;
+  font-size: 8.5px;
+  line-height: 14px;
+  color: #64748B;
+  text-align: center;
+}
+.demo-fab {
+  display: none;
+  position: fixed;
+  right: 16px;
+  bottom: calc(18px + env(safe-area-inset-bottom));
+  z-index: 1001;
+  height: 38px;
+  padding: 0 15px;
+  border-radius: 19px;
+  align-items: center;
+  gap: 7px;
+  background: rgba(15, 23, 42, .88);
+  border: 1px solid rgba(148, 163, 184, .24);
+  color: #E2E8F0;
+  font-size: 10.5px;
+  font-weight: 650;
+  box-shadow: 0 16px 34px -16px rgba(0, 0, 0, .9);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+.demo-fab::before {
+  content: "";
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #38BDF8;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, .16);
+}
+.demo-fab.is-open { background: #1E293B; }
+@media (max-width: 1100px) {
+  .demo-panel { display: none; }
+  .demo-fab { display: inline-flex; }
+  .demo-panel.open {
+    display: block;
+    left: 12px;
+    right: 12px;
+    bottom: calc(68px + env(safe-area-inset-bottom));
+    width: auto;
+    max-height: 72dvh;
+    overflow: auto;
+  }
+}
+@media (max-width: 640px) {
+  body { padding: 0; display: block; overflow: hidden; }
+  .stage-header { margin-top: calc(14px + env(safe-area-inset-top)); }
+  .sheet-head { padding-left: 16px; padding-right: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}
+</style>
+</head>
+<body>
+<main class="device" id="device" aria-label="375 × 812 手机原型">
+  <div class="phone" id="phone">
+    <div class="app" id="app" data-theme="light" data-sheet="collapsed" data-demo="normal" data-phase="complete">
+      <!-- Z-0 背景微光 -->
+      <div class="bg" aria-hidden="true">
+        <div class="bg-orb orb-1"></div>
+        <div class="bg-orb orb-2"></div>
+        <div class="bg-orb orb-3"></div>
+        <div class="bg-orb orb-4"></div>
+        <div class="bg-grid"></div>
+        <div class="bg-vignette"></div>
+      </div>
+
+      <!-- Z-10 主舞台 -->
+      <section class="stage" id="stage" aria-label="称重主舞台">
+        <header class="stage-header">
+          <div class="brand">
+            <span class="brand-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3.5" y="15.2" width="17" height="4.6" rx="2.3"></rect>
+                <path d="M7.2 15.2c.5-3.3 2.1-4.9 4.8-4.9s4.3 1.6 4.8 4.9"></path>
+                <path d="M12 10.3V6.6"></path>
+                <circle cx="12" cy="5.1" r="1.35"></circle>
+              </svg>
+            </span>
+            <span class="brand-copy">
+              <span class="brand-title">身体报告</span>
+              <span class="brand-sub" id="todayLabel">11月1日 周六</span>
+            </span>
+          </div>
+          <div class="date-pill" aria-hidden="true">
+            <i></i>
+            <span id="syncLabel">已同步</span>
+          </div>
+        </header>
+
+        <div class="hero">
+          <button class="status-capsule" id="statusCapsule" type="button" aria-label="查看设备状态与完整报告">
+            <span class="status-dot" id="statusDot" data-tone="green"></span>
+            <span class="status-text" id="statusText">设备已连接</span>
+            <svg class="capsule-chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 4.5 6 7.5 9 4.5"></path>
+            </svg>
+          </button>
+
+          <div class="dial-wrap">
+            <div class="ambient-ring ring-a" aria-hidden="true"></div>
+            <div class="ambient-ring ring-b" aria-hidden="true"></div>
+            <div class="dial" id="dial">
+              <div class="dial-halo" aria-hidden="true"></div>
+              <svg class="dial-svg" viewBox="0 0 240 240" aria-hidden="true">
+                <defs>
+                  <linearGradient id="ringGradient" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0" class="stop-primary"></stop>
+                    <stop offset=".52" class="stop-cyan"></stop>
+                    <stop offset="1" class="stop-violet"></stop>
+                  </linearGradient>
+                  <radialGradient id="innerGlow" cx="50%" cy="40%" r="66%">
+                    <stop offset="0" class="inner-a"></stop>
+                    <stop offset=".62" class="inner-b"></stop>
+                    <stop offset="1" class="inner-c"></stop>
+                  </radialGradient>
+                </defs>
+                <circle class="ring-inner" cx="120" cy="120" r="104"></circle>
+                <g class="dial-ticks" id="dialTicks"></g>
+                <circle class="ring-track" cx="120" cy="120" r="116"></circle>
+                <circle class="ring-progress" id="ringProgress" cx="120" cy="120" r="116" transform="rotate(-90 120 120)"></circle>
+              </svg>
+              <div class="dial-flow" aria-hidden="true"></div>
+              <div class="dial-content">
+                <span class="dial-label">当前体重</span>
+                <div class="weight-line" id="weightLine">
+                  <span class="weight-value" id="weightValue">54.2</span>
+                  <span class="weight-unit">kg</span>
+                </div>
+                <div class="weight-delta" id="weightDelta">较上次 −0.6 kg</div>
+              </div>
+            </div>
+          </div>
+
+          <p class="dial-caption" id="dialCaption">赤足站立 3 秒，获取 8 项体成分</p>
+
+          <button class="primary-action" id="primaryAction" type="button">
+            <span class="action-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m7 7 10 10-5 5V2l5 5L7 17"></path>
+              </svg>
+            </span>
+            <span class="action-label" id="actionLabel">开始测量</span>
+            <span class="action-spinner" aria-hidden="true"></span>
+          </button>
+
+          <div class="stage-insight" aria-live="polite">
+            <span><b id="insightDelta">−0.6</b><span id="insightDeltaLabel"> kg 较上次</span></span>
+            <span class="insight-sep" aria-hidden="true"></span>
+            <span><b id="insightCount">8</b> 项指标</span>
+          </div>
+        </div>
+
+        <footer class="stage-footer">
+          <button class="member-pill" id="stageMember" type="button" title="切换成员">
+            <span class="mini-avatar" id="stageAvatar" style="--avatar:#8B5CF6">满</span>
+            <span id="stageMemberName">林小满</span>
+            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 4.5 6 7.5 9 4.5"></path>
+            </svg>
+          </button>
+          <button class="ghost-link" id="stageHistory" type="button">
+            全部报告
+            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4.5 3 7.5 6 4.5 9"></path>
+            </svg>
+          </button>
+        </footer>
+      </section>
+
+      <!-- Z-20 遮罩 -->
+      <div class="scrim" id="scrim" aria-hidden="true"></div>
+
+      <!-- Z-30 顶部 28pt 圆角抽屉 -->
+      <section class="sheet" id="sheet" aria-label="身体报告抽屉">
+        <header class="sheet-head" id="sheetHead">
+          <div class="grabber" aria-hidden="true"><span></span></div>
+          <div class="sheet-title-row">
+            <div class="sheet-title">
+              <div class="sheet-title-line">
+                <h2>身体报告</h2>
+                <span class="sheet-badge" id="sheetBadge">8 项</span>
+              </div>
+              <p class="sheet-meta">
+                <span id="sheetDate">今天 09:42</span>
+                <span class="meta-sep" aria-hidden="true">·</span>
+                <span id="sheetMember">林小满 · 女 28岁</span>
+              </p>
+            </div>
+            <button class="icon-button sheet-toggle" id="sheetToggle" type="button" aria-label="展开完整报告">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 10l4-4 4 4"></path>
+              </svg>
+            </button>
+          </div>
+
+          <div class="sheet-controls">
+            <div class="control-row">
+              <div class="segmented" id="modeControl" role="tablist" aria-label="统计范围">
+                <span class="seg-thumb" id="segThumb" aria-hidden="true"></span>
+                <button class="seg-btn active" type="button" role="tab" data-mode="single" aria-selected="true">单次</button>
+                <button class="seg-btn" type="button" role="tab" data-mode="week" aria-selected="false">周均</button>
+                <button class="seg-btn" type="button" role="tab" data-mode="month" aria-selected="false">月均</button>
+              </div>
+              <span class="record-count" id="recordCount">14 次记录</span>
+            </div>
+            <div class="timeline" id="timeline" role="listbox" aria-label="测量时间轴"></div>
+            <div class="member-filter" id="memberFilter" role="group" aria-label="成员筛选"></div>
+          </div>
+        </header>
+
+        <div class="sheet-body" id="sheetBody">
+          <!-- 全展开 180pt 趋势图 -->
+          <section class="trend-panel" id="trendPanel" hidden aria-label="指标趋势">
+            <div class="trend-head">
+              <div class="trend-title-wrap">
+                <span class="trend-title" id="trendTitle">体重趋势</span>
+                <span class="trend-sub" id="trendSub">单次 · 14 个数据点</span>
+              </div>
+              <div class="trend-current">
+                <span class="trend-value" id="trendValue">54.2</span>
+                <span class="trend-unit" id="trendUnit">kg</span>
+                <span class="trend-delta" id="trendDelta">−0.6</span>
+              </div>
+            </div>
+            <div class="trend-chart-wrap" id="trendChartWrap">
+              <svg class="trend-chart" id="trendChart" height="180" role="img" aria-label="体重趋势图"></svg>
+              <div class="chart-single-note" id="chartSingleNote" hidden>再测一次即可连成趋势曲线</div>
+            </div>
+          </section>
+
+          <div class="section-head">
+            <span class="section-title">8 项身体指标</span>
+            <span class="section-hint">点击卡片切换趋势</span>
+          </div>
+
+          <div class="metric-grid" id="metricGrid">
+            <button class="metric-card h76" type="button" data-metric="weight" aria-pressed="true" aria-label="体重，点击查看趋势">
+              <span class="card-head">
+                <span class="card-title">体重</span>
+                <span class="delta-pill" id="weightDeltaPill">
+                  <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M6 2.2v7.6M2.8 6.8 6 10l3.2-3.2"></path>
+                  </svg>
+                  <span id="weightDeltaText">−0.6 kg</span>
+                </span>
+                <span class="baseline-tag" id="weightBaselineTag" hidden>基准</span>
+              </span>
+              <span class="card-value"><span class="num">54.2</span><span class="unit">kg</span></span>
+              <span class="card-foot" id="weightFoot">较上次 <b>−0.6 kg</b></span>
+            </button>
+
+            <button class="metric-card h76" type="button" data-metric="bmi" aria-pressed="false" aria-label="BMI，点击查看趋势">
+              <span class="card-head">
+                <span class="card-title">BMI</span>
+                <span class="status-pill good"><i></i><span>标准</span></span>
+              </span>
+              <span class="card-value"><span class="num">20.2</span><span class="unit">kg/m²</span></span>
+              <span class="range" aria-hidden="true">
+                <span class="range-track"><span class="seg low"></span><span class="seg ok"></span><span class="seg high"></span></span>
+                <span class="range-pin"></span>
+              </span>
+            </button>
+
+            <div class="bia-tip" id="biaTip" role="note" hidden>
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="8" cy="8" r="6.2"></circle>
+                <path d="M8 7.1v4"></path>
+                <circle cx="8" cy="4.9" r=".7" fill="currentColor" stroke="none"></circle>
+              </svg>
+              <span>未检测到赤足接触，本次仅记录体重与 BMI</span>
+            </div>
+
+            <button class="metric-card h96" type="button" data-metric="bodyFat" aria-pressed="false" aria-label="体脂率，点击查看趋势">
+              <span class="card-head">
+                <span class="card-title">体脂率</span>
+                <span class="status-pill good"><i></i><span>标准</span></span>
+              </span>
+              <span class="card-value"><span class="num">24.6</span><span class="unit">%</span></span>
+              <span class="range" aria-hidden="true">
+                <span class="range-track"><span class="seg low"></span><span class="seg ok"></span><span class="seg high"></span></span>
+                <span class="range-pin"></span>
+              </span>
+              <span class="card-foot" data-std>标准 18–28%</span>
+            </button>
+
+            <button class="metric-card h96" type="button" data-metric="muscle" aria-pressed="false" aria-label="肌肉量，点击查看趋势">
+              <span class="card-head">
+                <span class="card-title">肌肉量</span>
+                <span class="status-pill good"><i></i><span>达标</span></span>
+              </span>
+              <span class="card-value"><span class="num">21.3</span><span class="unit">kg</span></span>
+              <span class="range" aria-hidden="true">
+                <span class="range-track"><span class="seg low"></span><span class="seg ok"></span><span class="seg high"></span></span>
+                <span class="range-pin"></span>
+              </span>
+              <span class="card-foot" data-std>标准 19.0–29.8 kg</span>
+            </button>
+
+            <button class="metric-card h84" type="button" data-metric="water" aria-pressed="false" aria-label="水分率，点击查看趋势">
+              <span class="card-head">
+                <span class="card-title">水分率</span>
+                <span class="status-pill good"><i></i><span>达标</span></span>
+              </span>
+              <span class="card-value"><span class="num">52.4</span><span class="unit">%</span></span>
+              <span class="range" aria-hidden="true">
+                <span class="range-track"><span class="seg low"></span><span class="seg ok"></span><span class="seg high"></span></span>
+                <span class="range-pin"></span>
+              </span>
+              <span class="card-foot" data-std>标准 45–60%</span>
+            </button>
+
+            <button class="metric-card h84" type="button" data-metric="visceral" aria-pressed="false" aria-label="内脏脂肪，点击查看趋势">
+              <span class="card-head">
+                <span class="card-title">内脏脂肪</span>
+                <span class="status-pill good"><i></i><span>达标</span></span>
+              </span>
+              <span class="card-value"><span class="num">7</span><span class="unit">级</span></span>
+              <span class="range" aria-hidden="true">
+                <span class="range-track"><span class="seg low"></span><span class="seg ok"></span><span class="seg high"></span></span>
+                <span class="range-pin"></span>
+              </span>
+              <span class="card-foot" data-std>标准 1–9 级</span>
+            </button>
+
+            <button class="metric-card h68" type="button" data-metric="protein" aria-pressed="false" aria-label="蛋白质，点击查看趋势">
+              <span class="card-head">
+                <span class="card-title">蛋白质</span>
+                <span class="status-pill good"><i></i><span>达标</span></span>
+              </span>
+              <span class="card-value"><span class="num">17.8</span><span class="unit">%</span></span>
+              <span class="range" aria-hidden="true">
+                <span class="range-track"><span class="seg low"></span><span class="seg ok"></span><span class="seg high"></span></span>
+                <span class="range-pin"></span>
+              </span>
+            </button>
+
+            <button class="metric-card h68" type="button" data-metric="bone" aria-pressed="false" aria-label="骨量，点击查看趋势">
+              <span class="card-head">
+                <span class="card-title">骨量</span>
+                <span class="status-pill good"><i></i><span>正常</span></span>
+              </span>
+              <span class="card-value"><span class="num">2.2</span><span class="unit">kg</span></span>
+              <span class="range" aria-hidden="true">
+                <span class="range-track"><span class="seg low"></span><span class="seg ok"></span><span class="seg high"></span></span>
+                <span class="range-pin"></span>
+              </span>
+            </button>
+          </div>
+
+          <footer class="sheet-foot">
+            <span>数据仅供健康参考，不构成医疗建议</span>
+            <button class="text-btn" id="allHistoryBtn" type="button">全部历史</button>
+          </footer>
+        </div>
+      </section>
+
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    </div>
+  </div>
+</main>
+
+<aside class="demo-panel" id="demoPanel" aria-label="演示控制台">
+  <div class="demo-head">
+    <span class="live-dot" aria-hidden="true"></span>
+    <span>演示控制台</span>
+    <span class="demo-tag">375×812</span>
+  </div>
+  <div class="demo-label">报告状态</div>
+  <div class="demo-grid">
+    <button class="demo-state active" type="button" data-state="normal" aria-pressed="true">正常报告</button>
+    <button class="demo-state" type="button" data-state="nobia" aria-pressed="false">无 BIA</button>
+    <button class="demo-state" type="button" data-state="first" aria-pressed="false">首次使用</button>
+    <button class="demo-state" type="button" data-state="offline" aria-pressed="false">离线历史</button>
+  </div>
+  <div class="demo-label">主题</div>
+  <div class="demo-row">
+    <button class="demo-theme active" type="button" data-theme-choice="light" aria-pressed="true">浅色</button>
+    <button class="demo-theme" type="button" data-theme-choice="dark" aria-pressed="false">深色</button>
+  </div>
+  <button class="demo-primary" id="replayBtn" type="button">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M3 8a5 5 0 1 0 1.6-3.7"></path>
+      <path d="M3 2.6v3h3"></path>
+    </svg>
+    模拟测量完成
+  </button>
+  <p class="demo-note">拖拽抽屉头部 · 点击卡片切换趋势<br>URL 参数见 README</p>
+</aside>
+<button class="demo-fab" id="demoFab" type="button" aria-expanded="false" aria-controls="demoPanel">演示</button>
+
+<script>
+(function () {
+  'use strict';
+
+  var $ = function (sel, root) { return (root || document).querySelector(sel); };
+  var $$ = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
+  var clamp = function (v, a, b) { return Math.min(b, Math.max(a, v)); };
+  var pad2 = function (n) { return (n < 10 ? '0' : '') + n; };
+
+  var DAY = 86400000;
+  var MEMBERS = [
+    { id: 'm1', name: '林小满', short: '满', sex: 'female', sexLabel: '女', age: 28, heightCm: 164, color: '#8B5CF6' },
+    { id: 'm2', name: '陈屿', short: '屿', sex: 'male', sexLabel: '男', age: 31, heightCm: 178, color: '#0EA5E9' },
+    { id: 'm3', name: '王小北', short: '北', sex: 'male', sexLabel: '男', age: 26, heightCm: 175, color: '#F59E0B' }
+  ];
+
+  /* 14 条历史，按“最近在前”排列；用于单次/周均/月均聚合 */
+  var SERIES = {
+    m1: {
+      weights: [54.2, 54.8, 55.0, 55.3, 55.6, 55.4, 56.0, 56.2, 56.5, 56.7, 56.9, 56.8, 57.0, 57.1],
+      bodyFat: [24.6, 24.8, 25.0, 25.2, 25.4, 25.3, 25.7, 26.0, 26.2, 26.4, 26.6, 26.5, 26.8, 27.0],
+      muscle:  [21.3, 21.5, 21.6, 21.7, 21.8, 21.7, 22.0, 22.1, 22.2, 22.3, 22.4, 22.3, 22.4, 22.5],
+      water:   [52.4, 52.2, 52.1, 51.9, 51.8, 51.9, 51.6, 51.4, 51.3, 51.1, 51.0, 51.1, 50.9, 50.8],
+      visceral:[7, 7, 7, 8, 8, 8, 9, 9, 9, 9, 10, 10, 10, 10],
+      protein: [17.8, 17.7, 17.7, 17.6, 17.5, 17.6, 17.4, 17.3, 17.2, 17.1, 17.0, 17.1, 16.9, 16.8],
+      bone: 2.2
+    },
+    m2: {
+      weights: [72.4, 72.8, 73.1, 73.5, 73.2, 73.8, 74.1, 74.0, 74.5, 74.8, 75.0, 74.9, 75.3, 75.5],
+      bodyFat: [18.2, 18.4, 18.5, 18.8, 18.7, 19.0, 19.2, 19.1, 19.4, 19.6, 19.8, 19.7, 20.0, 20.1],
+      muscle:  [44.0, 44.2, 44.3, 44.5, 44.4, 44.7, 44.8, 44.8, 45.0, 45.1, 45.2, 45.2, 45.4, 45.5],
+      water:   [58.6, 58.4, 58.3, 58.1, 58.2, 57.9, 57.7, 57.8, 57.5, 57.3, 57.1, 57.2, 57.0, 56.8],
+      visceral:[8, 8, 8, 8, 9, 9, 9, 9, 10, 10, 10, 10, 11, 11],
+      protein: [18.6, 18.5, 18.5, 18.4, 18.4, 18.3, 18.2, 18.2, 18.1, 18.0, 18.0, 17.9, 17.9, 17.8],
+      bone: 2.9
+    },
+    m3: {
+      weights: [68.8, 69.0, 69.3, 69.5, 69.4, 69.8, 70.1, 70.0, 70.3, 70.6, 70.8, 70.7, 71.0, 71.2],
+      bodyFat: [15.8, 16.0, 16.1, 16.3, 16.2, 16.5, 16.7, 16.6, 16.9, 17.1, 17.2, 17.1, 17.4, 17.5],
+      muscle:  [41.9, 42.0, 42.2, 42.3, 42.3, 42.5, 42.7, 42.7, 42.9, 43.0, 43.1, 43.1, 43.3, 43.4],
+      water:   [60.2, 60.0, 59.9, 59.7, 59.8, 59.5, 59.3, 59.4, 59.1, 58.9, 58.8, 58.9, 58.6, 58.5],
+      visceral:[6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 9, 9, 9, 9],
+      protein: [18.9, 18.8, 18.8, 18.7, 18.7, 18.6, 18.5, 18.5, 18.4, 18.3, 18.3, 18.2, 18.1, 18.1],
+      bone: 2.8
+    }
+  };
+
+  var DAY_OFFSETS = [0.03, 2, 5, 9, 14, 20, 27, 34, 42, 50, 58, 66, 74, 82];
+  var METRIC_KEYS = ['weight', 'bmi', 'bodyFat', 'muscle', 'water', 'visceral', 'protein', 'bone'];
+  var METRICS = {
+    weight:   { title: '体重',     unit: 'kg',     decimals: 1 },
+    bmi:      { title: 'BMI',      unit: 'kg/m²',  decimals: 1 },
+    bodyFat:  { title: '体脂率',   unit: '%',      decimals: 1 },
+    muscle:   { title: '肌肉量',   unit: 'kg',     decimals: 1 },
+    water:    { title: '水分率',   unit: '%',      decimals: 1 },
+    visceral: { title: '内脏脂肪', unit: '级',     decimals: 0 },
+    protein:  { title: '蛋白质',   unit: '%',      decimals: 1 },
+    bone:     { title: '骨量',     unit: 'kg',     decimals: 1 }
+  };
+  var MODE_LABEL = { single: '单次', week: '周均', month: '月均' };
+  var ANCHOR = { full: 0, half: 0.30, collapsed: 0.80 };
+  var RING_C = 2 * Math.PI * 116;
+  var SVGNS = 'http://www.w3.org/2000/svg';
+  var WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+  var app = $('#app');
+  var phone = $('#phone');
+  var device = $('#device');
+  var stage = $('#stage');
+  var sheet = $('#sheet');
+  var sheetHead = $('#sheetHead');
+  var sheetBody = $('#sheetBody');
+  var scrim = $('#scrim');
+  var timelineEl = $('#timeline');
+  var memberFilterEl = $('#memberFilter');
+  var grid = $('#metricGrid');
+  var trendPanel = $('#trendPanel');
+  var trendChartWrap = $('#trendChartWrap');
+  var chartSvg = $('#trendChart');
+  var chartNote = $('#chartSingleNote');
+  var dial = $('#dial');
+  var ringProgress = $('#ringProgress');
+  var weightValue = $('#weightValue');
+  var weightDelta = $('#weightDelta');
+  var statusText = $('#statusText');
+  var statusDot = $('#statusDot');
+  var dialCaption = $('#dialCaption');
+  var primaryAction = $('#primaryAction');
+  var actionLabel = $('#actionLabel');
+  var insightDelta = $('#insightDelta');
+  var insightDeltaLabel = $('#insightDeltaLabel');
+  var insightCount = $('#insightCount');
+  var stageAvatar = $('#stageAvatar');
+  var stageMemberName = $('#stageMemberName');
+  var sheetDate = $('#sheetDate');
+  var sheetMember = $('#sheetMember');
+  var sheetBadge = $('#sheetBadge');
+  var recordCount = $('#recordCount');
+  var segThumb = $('#segThumb');
+  var sheetToggle = $('#sheetToggle');
+  var trendTitle = $('#trendTitle');
+  var trendSub = $('#trendSub');
+  var trendValue = $('#trendValue');
+  var trendUnit = $('#trendUnit');
+  var trendDelta = $('#trendDelta');
+  var toast = $('#toast');
+  var demoPanel = $('#demoPanel');
+  var demoFab = $('#demoFab');
+  var todayLabel = $('#todayLabel');
+  var syncLabel = $('#syncLabel');
+
+  var cardEls = {};
+  $$('.metric-card').forEach(function (card) {
+    cardEls[card.getAttribute('data-metric')] = card;
+  });
+
+  var state = {
+    demo: 'normal',
+    theme: 'light',
+    mode: 'single',
+    memberFilter: 'm1',
+    members: MEMBERS.slice(),
+    records: [],
+    snapshots: [],
+    selectedIndex: 0,
+    selectedMetric: 'weight',
+    phase: 'complete',
+    offline: false,
+    isFirst: false,
+    sheetAnchor: 'collapsed',
+    sheetTarget: 'collapsed',
+    sheetOffset: 0,
+    sheetState: 'collapsed',
+    dragging: false,
+    springing: false,
+    seqRunning: false,
+    dragStartY: 0,
+    dragStartOffset: 0,
+    dragMoved: 0,
+    dragSamples: [],
+    releaseVelocity: 0,
+    chartPoints: [],
+    chartW: 0
+  };
+
+  var seqTimers = [];
+  var springRaf = 0;
+  var scrambleTimer = 0;
+  var revealTimer = 0;
+  var toastTimer = 0;
+
+  /* ---------------- 数据 ---------------- */
+
+  function memberOf(id) {
+    for (var i = 0; i < MEMBERS.length; i++) {
+      if (MEMBERS[i].id === id) return MEMBERS[i];
+    }
+    return null;
+  }
+
+  function bmiOf(weight, member) {
+    if (weight == null || !member) return null;
+    var m = member.heightCm / 100;
+    return weight / (m * m);
+  }
+
+  function recordsFor(member, base) {
+    var data = SERIES[member.id];
+    var out = [];
+    for (var i = 0; i < DAY_OFFSETS.length; i++) {
+      var bone = Array.isArray(data.bone) ? data.bone[i] : data.bone;
+      out.push({
+        id: member.id + '-' + i,
+        memberId: member.id,
+        measuredAt: base - DAY_OFFSETS[i] * DAY,
+        weight: data.weights[i],
+        bodyFat: data.bodyFat[i],
+        muscle: data.muscle[i],
+        water: data.water[i],
+        visceral: data.visceral[i],
+        protein: data.protein[i],
+        bone: bone,
+        hasBia: true
+      });
+    }
+    return out;
+  }
+
+  function buildDemoRecords(demo) {
+    var latestBase = Date.now() - 37 * 60000;
+    var base = demo === 'offline' ? latestBase - 28 * 3600000 : latestBase;
+    var members = demo === 'first' ? [MEMBERS[0]] : MEMBERS;
+    var list = [];
+    members.forEach(function (member) {
+      list = list.concat(recordsFor(member, base));
+    });
+    list.sort(function (a, b) { return b.measuredAt - a.measuredAt; });
+
+    if (demo === 'first') {
+      list = list.filter(function (r) { return r.memberId === 'm1'; }).slice(0, 1);
+    }
+    if (demo === 'nobia') {
+      var latest = null;
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].memberId === 'm1') { latest = list[i]; break; }
+      }
+      if (latest) {
+        latest.hasBia = false;
+        latest.bodyFat = null;
+        latest.muscle = null;
+        latest.water = null;
+        latest.visceral = null;
+        latest.protein = null;
+        latest.bone = null;
+      }
+    }
+    return list;
+  }
+
+  function weekStart(ts) {
+    var d = new Date(ts);
+    d.setHours(0, 0, 0, 0);
+    var day = (d.getDay() + 6) % 7;
+    d.setDate(d.getDate() - day);
+    return d.getTime();
+  }
+
+  function monthStart(ts) {
+    var d = new Date(ts);
+    return new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+  }
+
+  function average(values) {
+    var arr = values.filter(function (v) {
+      return typeof v === 'number' && isFinite(v) && v > 0;
+    });
+    if (!arr.length) return null;
+    var sum = 0;
+    for (var i = 0; i < arr.length; i++) sum += arr[i];
+    return sum / arr.length;
+  }
+
+  function singleSnapshot(r) {
+    var member = memberOf(r.memberId);
+    var d = new Date(r.measuredAt);
+    var dateLine = dayPrefix(r.measuredAt) + ' ' + formatHM(r.measuredAt);
+    return {
+      id: r.id,
+      mode: 'single',
+      memberId: r.memberId,
+      member: member,
+      bucketStart: r.measuredAt,
+      measuredAt: r.measuredAt,
+      label: pad2(d.getMonth() + 1) + '/' + pad2(d.getDate()),
+      sublabel: formatHM(r.measuredAt),
+      dateLine: dateLine,
+      sampleCount: 1,
+      weight: r.weight,
+      bmi: bmiOf(r.weight, member),
+      bodyFat: r.bodyFat,
+      muscle: r.muscle,
+      water: r.water,
+      visceral: r.visceral,
+      protein: r.protein,
+      bone: r.bone,
+      hasBia: r.hasBia
+    };
+  }
+
+  function aggregateSnapshot(records, bucketStart, mode, filterId) {
+    var sorted = records.slice().sort(function (a, b) { return b.measuredAt - a.measuredAt; });
+    var latest = sorted[0];
+    var memberId = filterId || null;
+    var member = memberId ? memberOf(memberId) : null;
+    var bodyFat = average(sorted.map(function (r) { return r.bodyFat; }));
+    var muscle = average(sorted.map(function (r) { return r.muscle; }));
+    var water = average(sorted.map(function (r) { return r.water; }));
+    var visceral = average(sorted.map(function (r) { return r.visceral; }));
+    var protein = average(sorted.map(function (r) { return r.protein; }));
+    var bone = average(sorted.map(function (r) { return r.bone; }));
+    var weight = average(sorted.map(function (r) { return r.weight; }));
+    var bmi = average(sorted.map(function (r) { return bmiOf(r.weight, memberOf(r.memberId)); }));
+    var hasBia = bodyFat != null || muscle != null || water != null ||
+      visceral != null || protein != null || bone != null;
+    var b = new Date(bucketStart);
+    var label;
+    var sublabel;
+    var dateLine;
+    if (mode === 'week') {
+      label = pad2(b.getMonth() + 1) + '/' + pad2(b.getDate());
+      sublabel = '周均';
+      var end = new Date(bucketStart + 6 * DAY);
+      dateLine = label + '–' + pad2(end.getMonth() + 1) + '/' + pad2(end.getDate()) + ' 周均';
+    } else {
+      label = (b.getMonth() + 1) + '月';
+      sublabel = '月均';
+      dateLine = b.getFullYear() + '年' + (b.getMonth() + 1) + '月 · 月均';
+    }
+    return {
+      id: mode + '-' + bucketStart,
+      mode: mode,
+      memberId: memberId,
+      member: member,
+      bucketStart: bucketStart,
+      measuredAt: latest.measuredAt,
+      label: label,
+      sublabel: sublabel,
+      dateLine: dateLine,
+      sampleCount: records.length,
+      weight: weight,
+      bmi: bmi,
+      bodyFat: bodyFat,
+      muscle: muscle,
+      water: water,
+      visceral: visceral,
+      protein: protein,
+      bone: bone,
+      hasBia: hasBia
+    };
+  }
+
+  function buildSnapshots(mode, filterId) {
+    var recs = state.records.filter(function (r) {
+      return !filterId || r.memberId === filterId;
+    });
+    if (mode === 'single') {
+      return recs.map(singleSnapshot).sort(function (a, b) { return b.measuredAt - a.measuredAt; });
+    }
+    var groups = {};
+    recs.forEach(function (r) {
+      var key = mode === 'week' ? weekStart(r.measuredAt) : monthStart(r.measuredAt);
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(r);
+    });
+    var list = [];
+    Object.keys(groups).forEach(function (key) {
+      list.push(aggregateSnapshot(groups[key], Number(key), mode, filterId));
+    });
+    list.sort(function (a, b) { return b.bucketStart - a.bucketStart; });
+    return list;
+  }
+
+  /* ---------------- 指标/阈值 ---------------- */
+
+  function femaleOf(snapshot) {
+    var member = snapshot.member || memberOf(snapshot.memberId) || state.members[0];
+    return member && member.sex === 'female';
+  }
+
+  function boneTarget(weight, female) {
+    if (female) {
+      if (!weight) return 2.2;
+      return weight < 45 ? 1.8 : (weight <= 60 ? 2.2 : 2.5);
+    }
+    if (!weight) return 2.9;
+    return weight < 60 ? 2.5 : (weight <= 75 ? 2.9 : 3.2);
+  }
+
+  function rangeSpec(key, snapshot) {
+    var female = femaleOf(snapshot);
+    var weight = snapshot.weight;
+    if (key === 'bmi') {
+      return { min: 14, stdStart: 18.5, stdEnd: 23.9, max: 32 };
+    }
+    if (key === 'bodyFat') {
+      return { min: 5, stdStart: female ? 18 : 10, stdEnd: female ? 28 : 20, max: 40 };
+    }
+    if (key === 'muscle') {
+      if (!weight) return null;
+      return {
+        min: 0,
+        stdStart: weight * (female ? 0.35 : 0.40),
+        stdEnd: weight * (female ? 0.55 : 0.60),
+        max: weight * 0.65
+      };
+    }
+    if (key === 'water') {
+      return { min: 30, stdStart: female ? 45 : 55, stdEnd: female ? 60 : 65, max: 75 };
+    }
+    if (key === 'visceral') {
+      return { min: 1, stdStart: 1, stdEnd: 9, max: 20 };
+    }
+    if (key === 'protein') {
+      return { min: 10, stdStart: 16, stdEnd: 20, max: 24 };
+    }
+    if (key === 'bone') {
+      var target = boneTarget(weight, female);
+      return { min: 1, stdStart: target - 0.3, stdEnd: target + 0.3, max: 5 };
+    }
+    return null;
+  }
+
+  function statusFor(key, value, snapshot) {
+    if (value == null) return { tone: 'neutral', label: '无数据' };
+    var female = femaleOf(snapshot);
+    var weight = snapshot.weight || 0;
+    if (key === 'bmi') {
+      if (value < 18.5) return { tone: 'warn', label: '偏瘦' };
+      if (value < 24) return { tone: 'good', label: '标准' };
+      if (value < 28) return { tone: 'warn', label: '偏胖' };
+      return { tone: 'danger', label: '肥胖' };
+    }
+    if (key === 'bodyFat') {
+      var loF = female ? 18 : 10;
+      var hiF = female ? 28 : 20;
+      if (value < loF) return { tone: 'warn', label: '偏低' };
+      if (value <= hiF) return { tone: 'good', label: '标准' };
+      if (value <= hiF + 5) return { tone: 'warn', label: '偏高' };
+      return { tone: 'danger', label: '肥胖' };
+    }
+    if (key === 'muscle') {
+      var loM = weight * (female ? 0.35 : 0.40);
+      var hiM = weight * (female ? 0.55 : 0.60);
+      if (value < loM) return { tone: 'warn', label: '偏低' };
+      if (value <= hiM) return { tone: 'good', label: '达标' };
+      return { tone: 'warn', label: '偏高' };
+    }
+    if (key === 'water') {
+      var loW = female ? 45 : 55;
+      var hiW = female ? 60 : 65;
+      if (value < loW) return { tone: 'warn', label: '偏低' };
+      if (value <= hiW) return { tone: 'good', label: '达标' };
+      return { tone: 'warn', label: '偏高' };
+    }
+    if (key === 'visceral') {
+      if (value <= 9) return { tone: 'good', label: '达标' };
+      if (value <= 14) return { tone: 'warn', label: '偏高' };
+      return { tone: 'danger', label: '超标' };
+    }
+    if (key === 'protein') {
+      if (value < 16) return { tone: 'warn', label: '偏低' };
+      if (value <= 20) return { tone: 'good', label: '达标' };
+      return { tone: 'warn', label: '偏高' };
+    }
+    if (key === 'bone') {
+      var target = boneTarget(weight, female);
+      if (Math.abs(value - target) <= 0.3) return { tone: 'good', label: '正常' };
+      return { tone: 'warn', label: value < target ? '偏低' : '偏高' };
+    }
+    return { tone: 'neutral', label: '' };
+  }
+
+  function footText(key, value, snapshot) {
+    var spec = rangeSpec(key, snapshot);
+    if (!spec) return '';
+    if (key === 'bodyFat') return '标准 ' + spec.stdStart + '–' + spec.stdEnd + '%';
+    if (key === 'muscle') return '标准 ' + spec.stdStart.toFixed(1) + '–' + spec.stdEnd.toFixed(1) + ' kg';
+    if (key === 'water') return '标准 ' + spec.stdStart + '–' + spec.stdEnd + '%';
+    if (key === 'visceral') return '标准 ' + spec.stdStart + '–' + spec.stdEnd + ' 级';
+    if (key === 'protein') return '标准 ' + spec.stdStart + '–' + spec.stdEnd + '%';
+    if (key === 'bone') return '目标 ' + ((spec.stdStart + spec.stdEnd) / 2).toFixed(1) + ' ± 0.3 kg';
+    return '';
+  }
+
+  function metricValue(snapshot, key) {
+    if (!snapshot) return null;
+    if (key === 'bmi') return snapshot.bmi;
+    var v = snapshot[key];
+    return typeof v === 'number' && isFinite(v) ? v : null;
+  }
+
+  function formatValue(key, value) {
+    if (value == null) return '--';
+    return Number(value).toFixed(METRICS[key].decimals);
+  }
+
+  function currentSnapshot() {
+    return state.snapshots[state.selectedIndex] || null;
+  }
+
+  function deltaFor(snapshot) {
+    var older = state.snapshots[state.selectedIndex + 1];
+    if (!snapshot || !older) return null;
+    if (snapshot.weight == null || older.weight == null) return null;
+    return snapshot.weight - older.weight;
+  }
+
+  /* ---------------- 渲染：抽屉信息/时间轴 ---------------- */
+
+  function formatHM(ts) {
+    var d = new Date(ts);
+    return pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+  }
+
+  function dayPrefix(ts) {
+    var d = new Date(ts);
+    var now = new Date();
+    var today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    var that = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    var diff = Math.round((today - that) / DAY);
+    if (diff === 0) return '今天';
+    if (diff === 1) return '昨天';
+    return (d.getMonth() + 1) + '月' + d.getDate() + '日';
+  }
+
+  function formatToday() {
+    var d = new Date();
+    return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + WEEKDAYS[d.getDay()];
+  }
+
+  function renderSheetMeta(snapshot) {
+    if (!snapshot) return;
+    if (snapshot.mode === 'single') {
+      sheetDate.textContent = dayPrefix(snapshot.measuredAt) + ' ' + formatHM(snapshot.measuredAt);
+    } else {
+      sheetDate.textContent = snapshot.dateLine;
+    }
+    var member = snapshot.member || memberOf(snapshot.memberId);
+    sheetMember.textContent = member
+      ? member.name + ' · ' + member.sexLabel + ' ' + member.age + '岁'
+      : '全部成员 · 合并趋势';
+    var badgeText = '';
+    var badgeClass = 'sheet-badge';
+    if (state.demo === 'offline') {
+      badgeText = '离线';
+      badgeClass += ' is-muted';
+    } else if (!snapshot.hasBia) {
+      badgeText = '2 项';
+      badgeClass += ' is-warn';
+    } else if (state.isFirst) {
+      badgeText = '基准';
+    } else {
+      badgeText = '8 项';
+    }
+    sheetBadge.className = badgeClass;
+    sheetBadge.textContent = badgeText;
+
+    var n = state.snapshots.length;
+    if (state.mode === 'single') recordCount.textContent = n + ' 次记录';
+    else if (state.mode === 'week') recordCount.textContent = n + ' 周';
+    else recordCount.textContent = n + ' 个月';
+  }
+
+  function renderTimeline() {
+    var html = '';
+    for (var i = 0; i < state.snapshots.length; i++) {
+      var s = state.snapshots[i];
+      var active = i === state.selectedIndex;
+      html += '<button class="tl-chip' + (active ? ' active' : '') + '" type="button" role="option" aria-selected="' +
+        (active ? 'true' : 'false') + '" data-index="' + i + '" title="' + s.dateLine + ' · ' + s.sampleCount + ' 次">' +
+        '<span class="tl-date">' + s.label + '</span>' +
+        '<span class="tl-sub">' + s.sublabel + '</span>' +
+        '</button>';
+    }
+    timelineEl.innerHTML = html;
+  }
+
+  function renderMemberFilter() {
+    if (state.members.length < 2) {
+      memberFilterEl.hidden = true;
+      memberFilterEl.innerHTML = '';
+      return;
+    }
+    memberFilterEl.hidden = false;
+    var html = '<button class="member-chip' + (state.memberFilter == null ? ' active' : '') +
+      '" type="button" data-member="all"><span class="chip-avatar all">全</span>全部</button>';
+    state.members.forEach(function (m) {
+      var active = state.memberFilter === m.id;
+      html += '<button class="member-chip' + (active ? ' active' : '') + '" type="button" data-member="' +
+        m.id + '"><span class="chip-avatar" style="--avatar:' + m.color + '">' + m.short + '</span>' + m.name + '</button>';
+    });
+    memberFilterEl.innerHTML = html;
+  }
+
+  function renderModeUI() {
+    $$('.seg-btn').forEach(function (btn) {
+      var active = btn.getAttribute('data-mode') === state.mode;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    var index = state.mode === 'single' ? 0 : (state.mode === 'week' ? 1 : 2);
+    segThumb.style.setProperty('--seg-index', String(index));
+  }
+
+  /* ---------------- 渲染：数字/卡片/表盘 ---------------- */
+
+  function animateNumber(el, target, decimals, duration, delay) {
+    var token = (el.__token || 0) + 1;
+    el.__token = token;
+    var start = performance.now() + (delay || 0);
+    var from = 0;
+    el.textContent = (0).toFixed(decimals);
+    function frame(now) {
+      if (el.__token !== token) return;
+      if (now < start) {
+        requestAnimationFrame(frame);
+        return;
+      }
+      var t = clamp((now - start) / duration, 0, 1);
+      var eased = 1 - Math.pow(1 - t, 3);
+      el.textContent = (from + (target - from) * eased).toFixed(decimals);
+      if (t < 1) requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  function setCardNumber(card, key, value, roll, delay) {
+    var num = card.querySelector('.num');
+    if (!num) return;
+    if (value == null) {
+      num.__token = (num.__token || 0) + 1;
+      num.textContent = '--';
+      return;
+    }
+    if (roll) animateNumber(num, value, METRICS[key].decimals, 400, delay || 0);
+    else num.textContent = formatValue(key, value);
+  }
+
+  function setStatus(card, info) {
+    var pill = card.querySelector('.status-pill');
+    if (!pill) return;
+    pill.className = 'status-pill ' + info.tone;
+    var text = pill.querySelector('span');
+    if (text) text.textContent = info.label;
+  }
+
+  function setFoot(card, text) {
+    var foot = card.querySelector('.card-foot');
+    if (foot) foot.textContent = text;
+  }
+
+  function setRange(card, key, value, snapshot) {
+    var range = card.querySelector('.range');
+    if (!range) return;
+    var spec = rangeSpec(key, snapshot);
+    if (!spec) {
+      range.style.visibility = 'hidden';
+      return;
+    }
+    range.style.visibility = value == null ? 'hidden' : 'visible';
+    var total = spec.max - spec.min;
+    if (total <= 0) return;
+    var low = clamp((spec.stdStart - spec.min) / total * 100, 0, 100);
+    var ok = clamp((spec.stdEnd - spec.stdStart) / total * 100, 0, 100);
+    var high = Math.max(0, 100 - low - ok);
+    var segs = range.querySelectorAll('.seg');
+    if (segs.length === 3) {
+      segs[0].style.width = low + '%';
+      segs[1].style.width = ok + '%';
+      segs[2].style.width = high + '%';
+    }
+    var pin = range.querySelector('.range-pin');
+    if (pin && value != null) {
+      var pos = clamp((value - spec.min) / total * 100, 1.5, 98.5);
+      pin.style.left = pos + '%';
+    }
+  }
+
+  function renderWeightCard(snapshot) {
+    var card = cardEls.weight;
+    if (!card) return;
+    var pill = $('#weightDeltaPill');
+    var tag = $('#weightBaselineTag');
+    var deltaText = $('#weightDeltaText');
+    var foot = $('#weightFoot');
+    var weight = snapshot.weight;
+    var first = state.isFirst || state.snapshots.length === 1;
+    if (weight == null) {
+      pill.hidden = true;
+      tag.hidden = true;
+      foot.textContent = '暂无数据';
+      return;
+    }
+    if (first) {
+      card.classList.add('is-baseline');
+      pill.hidden = true;
+      tag.hidden = false;
+      tag.textContent = '基准';
+      foot.textContent = '首次基准记录';
+      return;
+    }
+    card.classList.remove('is-baseline');
+    var delta = deltaFor(snapshot);
+    if (delta == null) {
+      pill.hidden = true;
+      tag.hidden = true;
+      foot.textContent = '暂无对比数据';
+      return;
+    }
+    var abs = Math.abs(delta);
+    var sign = delta > 0 ? '+' : (delta < 0 ? '−' : '');
+    var text = (delta === 0 ? '0.0' : sign + abs.toFixed(1)) + ' kg';
+    pill.hidden = false;
+    tag.hidden = true;
+    deltaText.textContent = text;
+    pill.classList.toggle('up', delta > 0.0001);
+    pill.classList.toggle('flat', Math.abs(delta) <= 0.0001);
+    foot.innerHTML = '较上次 <b>' + (delta === 0 ? '0.0' : sign + abs.toFixed(1)) + ' kg</b>';
+  }
+
+  function renderCards(snapshot, roll) {
+    if (!snapshot) return;
+    var biaTip = $('#biaTip');
+    if (biaTip) biaTip.hidden = !!snapshot.hasBia;
+    METRIC_KEYS.forEach(function (key, index) {
+      var card = cardEls[key];
+      if (!card) return;
+      var value = metricValue(snapshot, key);
+      var missing = value == null;
+      card.classList.toggle('no-data', missing);
+      setCardNumber(card, key, value, roll, Math.floor(index / 2) * 50);
+      if (key !== 'weight') {
+        setStatus(card, missing ? { tone: 'neutral', label: '无数据' } : statusFor(key, value, snapshot));
+      }
+      setRange(card, key, value, snapshot);
+      if (key !== 'weight') {
+        setFoot(card, missing ? '暂无数据' : footText(key, value, snapshot));
+      }
+    });
+    renderWeightCard(snapshot);
+  }
+
+  function setRing(fraction, animate) {
+    var f = clamp(fraction, 0, 1);
+    ringProgress.style.transition = animate ? 'stroke-dashoffset .9s cubic-bezier(.22, 1, .36, 1)' : 'none';
+    ringProgress.style.strokeDasharray = RING_C + ' ' + RING_C;
+    ringProgress.style.strokeDashoffset = String(RING_C * (1 - f));
+  }
+
+  function renderDial(snapshot) {
+    if (!snapshot) return;
+    if (snapshot.weight == null) weightValue.textContent = '--';
+    else weightValue.textContent = formatValue('weight', snapshot.weight);
+
+    var first = state.isFirst || state.snapshots.length === 1;
+    var delta = deltaFor(snapshot);
+    weightDelta.className = 'weight-delta';
+    if (first) {
+      weightDelta.textContent = '首次基准记录';
+      weightDelta.classList.add('flat');
+    } else if (delta == null) {
+      weightDelta.textContent = '暂无历史对比';
+      weightDelta.classList.add('flat');
+    } else if (Math.abs(delta) <= 0.0001) {
+      weightDelta.textContent = '较上次 0.0 kg';
+      weightDelta.classList.add('flat');
+    } else {
+      var sign = delta > 0 ? '+' : '−';
+      weightDelta.textContent = '较上次 ' + sign + Math.abs(delta).toFixed(1) + ' kg';
+      if (delta > 0) weightDelta.classList.add('up');
+    }
+    setRing(snapshot.hasBia ? 1 : 0.25, true);
+  }
+
+  function updateStage() {
+    var snapshot = currentSnapshot();
+    if (!snapshot) return;
+    var member = snapshot.member || memberOf(snapshot.memberId) || state.members[0];
+    if (member) {
+      stageAvatar.textContent = member.short;
+      stageAvatar.style.setProperty('--avatar', member.color);
+      stageMemberName.textContent = member.name;
+    } else {
+      stageAvatar.textContent = '全';
+      stageAvatar.style.setProperty('--avatar', 'var(--text-tertiary)');
+      stageMemberName.textContent = '全部成员';
+    }
+    var first = state.isFirst || state.snapshots.length === 1;
+    var delta = deltaFor(snapshot);
+    if (first) {
+      insightDelta.textContent = '首次';
+      insightDeltaLabel.textContent = ' 基准记录';
+    } else if (delta == null) {
+      insightDelta.textContent = '—';
+      insightDeltaLabel.textContent = ' 暂无对比';
+    } else if (Math.abs(delta) <= 0.0001) {
+      insightDelta.textContent = '0.0';
+      insightDeltaLabel.textContent = ' kg 较上次';
+    } else {
+      insightDelta.textContent = (delta > 0 ? '+' : '−') + Math.abs(delta).toFixed(1);
+      insightDeltaLabel.textContent = ' kg 较上次';
+    }
+    insightCount.textContent = snapshot.hasBia ? '8' : '2';
+  }
+
+  function renderAll(options) {
+    options = options || {};
+    if (!state.snapshots.length) return;
+    if (state.selectedIndex >= state.snapshots.length) state.selectedIndex = 0;
+    var snapshot = currentSnapshot();
+    todayLabel.textContent = formatToday();
+    syncLabel.textContent = state.offline ? '离线缓存' : '已同步';
+    $$('.metric-card').forEach(function (card) {
+      card.setAttribute('aria-pressed', card.getAttribute('data-metric') === state.selectedMetric ? 'true' : 'false');
+    });
+    renderModeUI();
+    renderTimeline();
+    renderMemberFilter();
+    renderSheetMeta(snapshot);
+    renderDial(snapshot);
+    renderCards(snapshot, !!options.roll);
+    updateStage();
+    if (!trendPanel.hidden) renderChart();
+  }
+
+  /* ---------------- 趋势图（SVG 自绘） ---------------- */
+
+  function svgEl(tag, attrs, parent) {
+    var el = document.createElementNS(SVGNS, tag);
+    if (attrs) {
+      Object.keys(attrs).forEach(function (name) {
+        el.setAttribute(name, attrs[name]);
+      });
+    }
+    if (parent) parent.appendChild(el);
+    return el;
+  }
+
+  function svgText(parent, x, y, text, attrs) {
+    var el = svgEl('text', attrs || {}, parent);
+    el.setAttribute('x', x);
+    el.setAttribute('y', y);
+    el.textContent = text;
+    return el;
+  }
+
+  function smoothPath(pts) {
+    if (!pts.length) return '';
+    if (pts.length === 1) return 'M ' + pts[0].x + ' ' + pts[0].y;
+    var d = 'M ' + pts[0].x + ' ' + pts[0].y;
+    for (var i = 0; i < pts.length - 1; i++) {
+      var p0 = pts[i - 1] || pts[i];
+      var p1 = pts[i];
+      var p2 = pts[i + 1];
+      var p3 = pts[i + 2] || pts[i + 1];
+      var c1x = p1.x + (p2.x - p0.x) / 6;
+      var c1y = p1.y + (p2.y - p0.y) / 6;
+      var c2x = p2.x - (p3.x - p1.x) / 6;
+      var c2y = p2.y - (p3.y - p1.y) / 6;
+      d += ' C ' + c1x + ' ' + c1y + ', ' + c2x + ' ' + c2y + ', ' + p2.x + ' ' + p2.y;
+    }
+    return d;
+  }
+
+  function renderChart() {
+    if (trendPanel.hidden) return;
+    var snapshot = currentSnapshot();
+    if (!snapshot) return;
+    var key = state.selectedMetric;
+    var def = METRICS[key];
+    var w = Math.max(240, Math.round(trendChartWrap.clientWidth || 319));
+    var h = 180;
+    var cs = getComputedStyle(app);
+    var colorOf = function (name) { return cs.getPropertyValue(name).trim(); };
+    var primary = colorOf('--primary');
+    var cardColor = colorOf('--card');
+    var divider = colorOf('--divider');
+    var textTer = colorOf('--text-tertiary');
+    var primarySoft = colorOf('--primary-soft');
+
+    var series = [];
+    for (var i = state.snapshots.length - 1; i >= 0; i--) {
+      var v = metricValue(state.snapshots[i], key);
+      if (v != null) series.push({ i: i, v: v, s: state.snapshots[i] });
+    }
+
+    var currentValue = metricValue(snapshot, key);
+    trendTitle.textContent = def.title + '趋势';
+    trendSub.textContent = MODE_LABEL[state.mode] + ' · ' + series.length + ' 个数据点';
+    trendValue.textContent = currentValue == null ? '--' : formatValue(key, currentValue);
+    trendUnit.textContent = def.unit;
+
+    var older = state.snapshots[state.selectedIndex + 1];
+    var olderValue = older ? metricValue(older, key) : null;
+    if (currentValue != null && olderValue != null) {
+      var dv = currentValue - olderValue;
+      trendDelta.hidden = false;
+      trendDelta.textContent = (dv > 0 ? '+' : (dv < 0 ? '−' : '')) + Math.abs(dv).toFixed(def.decimals);
+      trendDelta.className = 'trend-delta' + (dv > 0.0001 ? ' up' : '');
+    } else {
+      trendDelta.hidden = true;
+    }
+
+    while (chartSvg.firstChild) chartSvg.removeChild(chartSvg.firstChild);
+    chartSvg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+    chartSvg.setAttribute('width', String(w));
+    chartSvg.setAttribute('height', String(h));
+    chartSvg.setAttribute('aria-label', def.title + '趋势，共 ' + series.length + ' 个数据点');
+    state.chartW = w;
+
+    var defs = svgEl('defs', {}, chartSvg);
+    var grad = svgEl('linearGradient', {
+      id: 'chartAreaGrad', x1: '0', y1: '0', x2: '0', y2: '1'
+    }, defs);
+    svgEl('stop', { offset: '0', 'stop-color': primary, 'stop-opacity': '.26' }, grad);
+    svgEl('stop', { offset: '1', 'stop-color': primary, 'stop-opacity': '0' }, grad);
+
+    if (!series.length) {
+      svgText(chartSvg, w / 2, h / 2 - 4, '暂无可对比的趋势数据', {
+        'text-anchor': 'middle',
+        fill: textTer,
+        'font-size': '10'
+      });
+      chartNote.hidden = false;
+      chartNote.textContent = '本次暂无该指标的历史数据';
+      state.chartPoints = [];
+      return;
+    }
+
+    var left = 6;
+    var right = w - 12;
+    var top = 22;
+    var bottom = h - 28;
+    var plotW = Math.max(10, right - left);
+    var plotH = Math.max(10, bottom - top);
+    var values = series.map(function (p) { return p.v; });
+    var vmin = Math.min.apply(null, values);
+    var vmax = Math.max.apply(null, values);
+    if (vmax - vmin < 0.001) {
+      var pad0 = Math.max(Math.abs(vmax) * 0.06, 1);
+      vmin -= pad0;
+      vmax += pad0;
+    } else {
+      var pad = (vmax - vmin) * 0.22;
+      vmin -= pad;
+      vmax += pad;
+    }
+
+    function xFor(index) {
+      if (series.length === 1) return (left + right) / 2;
+      return left + (index / (series.length - 1)) * plotW;
+    }
+    function yFor(value) {
+      return top + (vmax - value) / (vmax - vmin) * plotH;
+    }
+
+    [0, 0.5, 1].forEach(function (t) {
+      var y = top + plotH * t;
+      svgEl('line', {
+        x1: left, y1: y, x2: right, y2: y,
+        stroke: divider, 'stroke-width': '1', 'stroke-dasharray': '2 5', opacity: '.8'
+      }, chartSvg);
+      svgText(chartSvg, right, y - 4, formatValue(key, vmax - (vmax - vmin) * t), {
+        'text-anchor': 'end',
+        fill: textTer,
+        'font-size': '7.5',
+        opacity: '.72'
+      });
+    });
+
+    var pts = series.map(function (p, idx) {
+      return { x: xFor(idx), y: yFor(p.v), v: p.v, i: p.i, s: p.s };
+    });
+
+    var linePath = smoothPath(pts);
+    if (pts.length > 1) {
+      var areaPath = linePath + ' L ' + pts[pts.length - 1].x + ' ' + bottom +
+        ' L ' + pts[0].x + ' ' + bottom + ' Z';
+      svgEl('path', { d: areaPath, fill: 'url(#chartAreaGrad)', stroke: 'none' }, chartSvg);
+      svgEl('path', {
+        d: linePath, fill: 'none', stroke: primary, 'stroke-width': '2',
+        'stroke-linecap': 'round', 'stroke-linejoin': 'round'
+      }, chartSvg);
+    }
+
+    var selectedPoint = null;
+    pts.forEach(function (p) {
+      if (p.i === state.selectedIndex) {
+        selectedPoint = p;
+        return;
+      }
+      svgEl('circle', {
+        cx: p.x, cy: p.y, r: '2.3', fill: primary,
+        stroke: cardColor, 'stroke-width': '1.2', opacity: '.88'
+      }, chartSvg);
+    });
+
+    var indices = [];
+    if (pts.length === 1) indices = [0];
+    else indices = [0, Math.floor((pts.length - 1) / 2), pts.length - 1];
+    var seen = {};
+    indices.forEach(function (idx) {
+      if (seen[idx]) return;
+      seen[idx] = true;
+      var p = pts[idx];
+      var anchor = pts.length === 1 ? 'middle' : (idx === 0 ? 'start' : (idx === pts.length - 1 ? 'end' : 'middle'));
+      var x = pts.length === 1 ? (left + right) / 2 : (idx === 0 ? left : (idx === pts.length - 1 ? right : p.x));
+      svgText(chartSvg, x, h - 8, p.s.label, {
+        'text-anchor': anchor,
+        fill: textTer,
+        'font-size': '8'
+      });
+    });
+
+    if (pts.length === 1) {
+      var sp = pts[0];
+      svgEl('line', {
+        x1: left, y1: sp.y, x2: right, y2: sp.y,
+        stroke: divider, 'stroke-width': '1', 'stroke-dasharray': '3 5', opacity: '.9'
+      }, chartSvg);
+      svgEl('circle', {
+        cx: sp.x, cy: sp.y, r: '15', fill: primary, opacity: '.12', 'class': 'chart-pulse'
+      }, chartSvg);
+      svgEl('circle', { cx: sp.x, cy: sp.y, r: '7', fill: primary, opacity: '.16' }, chartSvg);
+      svgEl('circle', {
+        cx: sp.x, cy: sp.y, r: '4.8', fill: primary, stroke: cardColor, 'stroke-width': '2'
+      }, chartSvg);
+      svgText(chartSvg, sp.x, Math.max(sp.y - 14, 12), formatValue(key, sp.v), {
+        'text-anchor': 'middle',
+        fill: cardColor,
+        'font-size': '9',
+        'font-weight': '650'
+      });
+    } else if (selectedPoint) {
+      svgEl('line', {
+        x1: selectedPoint.x, y1: selectedPoint.y, x2: selectedPoint.x, y2: bottom,
+        stroke: primary, 'stroke-width': '1', 'stroke-dasharray': '3 4', opacity: '.22'
+      }, chartSvg);
+      svgEl('circle', {
+        cx: selectedPoint.x, cy: selectedPoint.y, r: '10',
+        fill: primary, opacity: '.13', 'class': 'chart-pulse'
+      }, chartSvg);
+      svgEl('circle', {
+        cx: selectedPoint.x, cy: selectedPoint.y, r: '4.6',
+        fill: primary, stroke: cardColor, 'stroke-width': '2'
+      }, chartSvg);
+      svgText(chartSvg, selectedPoint.x, Math.max(selectedPoint.y - 12, 12), formatValue(key, selectedPoint.v), {
+        'text-anchor': 'middle',
+        fill: cardColor,
+        'font-size': '9',
+        'font-weight': '650'
+      });
+    }
+
+    chartNote.hidden = pts.length !== 1;
+    if (pts.length === 1) chartNote.textContent = '再测一次即可连成趋势曲线';
+
+    state.chartPoints = pts.map(function (p) {
+      return { x: p.x, index: p.i };
+    });
+  }
+
+  /* ---------------- 抽屉几何与弹簧 ---------------- */
+
+  function anchorsPx() {
+    var h = app.clientHeight || 812;
+    return { full: 0, half: h * ANCHOR.half, collapsed: h * ANCHOR.collapsed };
+  }
+
+  function applySheet(offset) {
+    var A = anchorsPx();
+    var y = clamp(offset, 0, A.collapsed);
+    state.sheetOffset = y;
+    sheet.style.transform = 'translate3d(0, ' + y + 'px, 0)';
+
+    var scale;
+    var ty;
+    if (y >= A.half) {
+      var p = clamp((A.collapsed - y) / (A.collapsed - A.half), 0, 1);
+      scale = 1 - 0.28 * p;
+      ty = -80 * p;
+    } else {
+      var q = clamp((A.half - y) / A.half, 0, 1);
+      scale = 0.72 - 0.22 * q;
+      ty = -80 - 16 * q;
+    }
+    stage.style.transform = 'translate3d(0, ' + ty + 'px, 0) scale(' + scale + ')';
+
+    var sp = clamp((A.half - y) / A.half, 0, 1);
+    scrim.style.opacity = String(0.45 * sp);
+    scrim.style.pointerEvents = sp > 0.02 ? 'auto' : 'none';
+
+    var nearFull = y < 10;
+    var nearCollapsed = y > A.collapsed - 36;
+    app.dataset.sheet = nearFull ? 'full' : (nearCollapsed ? 'collapsed' : 'half');
+    sheet.classList.toggle('is-full', nearFull);
+    sheet.classList.toggle('is-collapsed', nearCollapsed);
+
+    if (nearFull && trendPanel.hidden) {
+      trendPanel.hidden = false;
+      requestAnimationFrame(renderChart);
+    } else if (!nearFull && !trendPanel.hidden) {
+      trendPanel.hidden = true;
+    }
+  }
+
+  function finishSheet(anchor) {
+    var wasFull = state.sheetAnchor === 'full';
+    state.sheetAnchor = anchor;
+    state.sheetTarget = anchor;
+    app.dataset.sheet = anchor;
+    sheet.classList.toggle('is-full', anchor === 'full');
+    sheet.classList.toggle('is-collapsed', anchor === 'collapsed');
+    trendPanel.hidden = anchor !== 'full';
+    var pad = Math.round(state.sheetOffset) + 24;
+    sheetBody.style.paddingBottom = 'calc(' + pad + 'px + env(safe-area-inset-bottom))';
+    sheetToggle.setAttribute('aria-label', anchor === 'full' ? '收起到半屏' : '展开完整报告');
+    if (anchor === 'full') {
+      requestAnimationFrame(renderChart);
+      if (!wasFull) requestAnimationFrame(function () { sheetBody.scrollTo({ top: 0, behavior: 'smooth' }); });
+    }
+  }
+
+  function cancelSpring() {
+    if (springRaf) cancelAnimationFrame(springRaf);
+    springRaf = 0;
+    state.springing = false;
+  }
+
+  function springTo(target, anchor) {
+    cancelSpring();
+    var k = 280;
+    var zeta = 0.82;
+    var c = 2 * zeta * Math.sqrt(k);
+    var x = state.sheetOffset;
+    var v = state.releaseVelocity || 0;
+    state.releaseVelocity = 0;
+    state.springing = true;
+    var last = performance.now();
+    function frame(now) {
+      var dt = Math.min(0.032, Math.max(0.001, (now - last) / 1000));
+      last = now;
+      var accel = -k * (x - target) - c * v;
+      v += accel * dt;
+      x += v * dt;
+      if (Math.abs(x - target) < 0.5 && Math.abs(v) < 5) {
+        x = target;
+        applySheet(x);
+        state.springing = false;
+        finishSheet(anchor);
+        return;
+      }
+      applySheet(x);
+      springRaf = requestAnimationFrame(frame);
+    }
+    springRaf = requestAnimationFrame(frame);
+  }
+
+  function nearestAnchor(offset) {
+    var A = anchorsPx();
+    var best = 'half';
+    var bestDistance = Infinity;
+    ['full', 'half', 'collapsed'].forEach(function (name) {
+      var d = Math.abs(A[name] - offset);
+      if (d < bestDistance) {
+        bestDistance = d;
+        best = name;
+      }
+    });
+    return best;
+  }
+
+  function sheetTo(anchor, mode) {
+    anchor = normalizeSheet(anchor) || 'half';
+    var A = anchorsPx();
+    state.sheetTarget = anchor;
+    if (mode === 'instant') {
+      cancelSpring();
+      state.dragging = false;
+      sheetHead.classList.remove('is-dragging');
+      applySheet(A[anchor]);
+      finishSheet(anchor);
+      return;
+    }
+    springTo(A[anchor], anchor);
+  }
+
+  function selectSnapshot(index, scroll) {
+    if (index < 0 || index >= state.snapshots.length) return;
+    state.selectedIndex = index;
+    $$('.tl-chip').forEach(function (chip, i) {
+      var active = i === index;
+      chip.classList.toggle('active', active);
+      chip.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    var snapshot = currentSnapshot();
+    renderSheetMeta(snapshot);
+    renderDial(snapshot);
+    renderCards(snapshot, false);
+    updateStage();
+    if (!trendPanel.hidden) renderChart();
+    if (scroll) scrollChip(index);
+  }
+
+  function scrollChip(index) {
+    var chip = timelineEl.querySelector('[data-index="' + index + '"]');
+    if (!chip) return;
+    var tr = timelineEl.getBoundingClientRect();
+    var cr = chip.getBoundingClientRect();
+    var delta = (cr.left - tr.left) - (tr.width - cr.width) / 2;
+    timelineEl.scrollBy({ left: delta, behavior: 'smooth' });
+  }
+
+  function selectMetric(metric) {
+    if (!METRICS[metric]) return;
+    state.selectedMetric = metric;
+    $$('.metric-card').forEach(function (card) {
+      card.setAttribute('aria-pressed', card.getAttribute('data-metric') === metric ? 'true' : 'false');
+    });
+    if (state.sheetAnchor !== 'full') {
+      sheetTo('full', 'spring');
+      setTimeout(function () {
+        sheetBody.scrollTo({ top: 0, behavior: 'smooth' });
+        if (!trendPanel.hidden) renderChart();
+      }, 420);
+    } else {
+      if (!trendPanel.hidden) renderChart();
+      sheetBody.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }
+
+  function setMode(mode) {
+    if (!MODE_LABEL[mode] || state.mode === mode) return;
+    state.mode = mode;
+    state.snapshots = buildSnapshots(mode, state.memberFilter);
+    state.selectedIndex = 0;
+    renderAll({ instant: true });
+    timelineEl.scrollLeft = 0;
+  }
+
+  function setMemberFilter(id) {
+    state.memberFilter = id;
+    state.snapshots = buildSnapshots(state.mode, id);
+    state.selectedIndex = 0;
+    renderAll({ instant: true });
+    timelineEl.scrollLeft = 0;
+  }
+
+  /* ---------------- 时序与状态 ---------------- */
+
+  function updatePhaseUI() {
+    app.dataset.phase = state.phase;
+    var view = statusView();
+    statusText.textContent = view.text;
+    statusDot.setAttribute('data-tone', view.tone);
+    dialCaption.textContent = captionView();
+
+    var label = actionView();
+    actionLabel.textContent = label;
+    primaryAction.disabled = state.phase === 'locked' || state.phase === 'calculating';
+    dial.classList.toggle('is-scanning', state.phase === 'calculating');
+  }
+
+  function statusView() {
+    if (state.phase === 'offline') return { text: '未连接设备 · 点击唤醒测量', tone: 'slate' };
+    if (state.phase === 'locked') return { text: '体重已锁定', tone: 'blue' };
+    if (state.phase === 'calculating') return { text: '正在分析体成分', tone: 'amber' };
+    if (state.phase === 'complete') {
+      if (state.demo === 'nobia') return { text: '已记录体重 · 缺少体成分', tone: 'amber' };
+      if (state.demo === 'first') return { text: '首次基准已建立', tone: 'green' };
+      return { text: '报告已生成', tone: 'green' };
+    }
+    return { text: '设备已连接', tone: 'green' };
+  }
+
+  function captionView() {
+    if (state.phase === 'offline') return '展示最近一次同步数据 · 点击按钮重新连接';
+    if (state.phase === 'locked') return '体重已锁定，正在读取生物电阻抗';
+    if (state.phase === 'calculating') return '正在生成体成分报告';
+    if (state.phase === 'complete') {
+      if (state.demo === 'nobia') return '未检测到赤足接触，仅记录体重与 BMI';
+      if (state.demo === 'first') return '这是你的第一份身体报告';
+      return '8 项指标已更新 · 数据已同步';
+    }
+    return '赤足站立 3 秒，获取 8 项体成分';
+  }
+
+  function actionView() {
+    if (state.phase === 'offline') return '连接设备';
+    if (state.phase === 'locked') return '测量完成';
+    if (state.phase === 'calculating') return '分析中…';
+    if (state.phase === 'complete') return '再测一次';
+    return '开始测量';
+  }
+
+  function flashLocked() {
+    dial.classList.remove('is-locked');
+    void dial.offsetWidth;
+    dial.classList.add('is-locked');
+    setTimeout(function () { dial.classList.remove('is-locked'); }, 660);
+  }
+
+  function startScramble() {
+    stopScramble();
+    var snapshot = currentSnapshot();
+    if (!snapshot || snapshot.weight == null) return;
+    var target = snapshot.weight;
+    scrambleTimer = setInterval(function () {
+      var jitter = (Math.random() - 0.5) * 1.1;
+      weightValue.textContent = (target + jitter).toFixed(1);
+    }, 70);
+  }
+
+  function stopScramble() {
+    if (scrambleTimer) clearInterval(scrambleTimer);
+    scrambleTimer = 0;
+  }
+
+  function stopSequence() {
+    seqTimers.forEach(function (t) { clearTimeout(t); });
+    seqTimers = [];
+    state.seqRunning = false;
+    stopScramble();
+    dial.classList.remove('is-scanning', 'is-locked');
+  }
+
+  function runSequence() {
+    stopSequence();
+    state.seqRunning = true;
+    state.offline = false;
+
+    var snapshot = currentSnapshot();
+    hideCards();
+    sheetBody.scrollTop = 0;
+    sheetTo('collapsed', 'instant');
+    state.phase = 'locked';
+    updatePhaseUI();
+    flashLocked();
+    setRing(0, false);
+    if (snapshot && snapshot.weight != null) weightValue.textContent = formatValue('weight', snapshot.weight);
+
+    seqTimers.push(setTimeout(function () {
+      state.phase = 'calculating';
+      updatePhaseUI();
+      setRing(snapshot && snapshot.hasBia ? 1 : 0.25, true);
+      startScramble();
+    }, 300));
+
+    seqTimers.push(setTimeout(function () {
+      stopScramble();
+      if (snapshot && snapshot.weight != null) weightValue.textContent = formatValue('weight', snapshot.weight);
+    }, 1300));
+
+    seqTimers.push(setTimeout(function () {
+      sheetTo('half', 'spring');
+    }, 1300));
+
+    seqTimers.push(setTimeout(function () {
+      state.phase = 'complete';
+      updatePhaseUI();
+      renderAll({ instant: true, roll: true });
+      revealCards(true);
+    }, 1500));
+
+    seqTimers.push(setTimeout(function () {
+      state.seqRunning = false;
+    }, 2600));
+  }
+
+  function hideCards() {
+    grid.classList.remove('is-revealed');
+    grid.classList.remove('instant');
+    $$('.metric-card', grid).forEach(function (card) {
+      card.style.transitionDelay = '';
+    });
+  }
+
+  function revealCards(animate) {
+    var cards = $$('.metric-card', grid);
+    clearTimeout(revealTimer);
+    cards.forEach(function (card) { card.style.transitionDelay = ''; });
+    if (!animate) {
+      grid.classList.add('instant');
+      grid.classList.add('is-revealed');
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () { grid.classList.remove('instant'); });
+      });
+      return;
+    }
+    grid.classList.remove('instant');
+    grid.classList.remove('is-revealed');
+    void grid.offsetWidth;
+    cards.forEach(function (card, i) {
+      card.style.transitionDelay = (Math.floor(i / 2) * 50) + 'ms';
+    });
+    requestAnimationFrame(function () { grid.classList.add('is-revealed'); });
+    revealTimer = setTimeout(function () {
+      cards.forEach(function (card) { card.style.transitionDelay = ''; });
+    }, 950);
+  }
+
+  /* ---------------- 演示状态 ---------------- */
+
+  function normalizeDemo(value) {
+    if (!value) return null;
+    var v = String(value).toLowerCase();
+    if (v === 'nobia' || v === 'no-bia' || v === 'no_bia' || v === 'no bia') return 'nobia';
+    if (v === 'normal' || v === 'first' || v === 'offline') return v;
+    return null;
+  }
+
+  function normalizeSheet(value) {
+    if (value == null) return null;
+    var v = String(value).toLowerCase();
+    if (v === 'full' || v === '2') return 'full';
+    if (v === 'half' || v === '1') return 'half';
+    if (v === 'collapsed' || v === '0') return 'collapsed';
+    return null;
+  }
+
+  function normalizeTheme(value) {
+    if (!value) return null;
+    var v = String(value).toLowerCase();
+    if (v === 'dark') return 'dark';
+    if (v === 'light') return 'light';
+    return null;
+  }
+
+  function applyDemo(name, options) {
+    options = options || {};
+    var demo = normalizeDemo(name) || 'normal';
+    stopSequence();
+    state.demo = demo;
+    state.members = demo === 'first' ? [MEMBERS[0]] : MEMBERS.slice();
+    state.records = buildDemoRecords(demo);
+    state.isFirst = demo === 'first';
+    state.offline = demo === 'offline';
+    state.mode = 'single';
+    state.memberFilter = state.members[0].id;
+    state.selectedMetric = 'weight';
+    state.selectedIndex = 0;
+    state.snapshots = buildSnapshots('single', state.memberFilter);
+    state.phase = demo === 'offline' ? 'offline' : 'complete';
+    app.dataset.demo = demo;
+    sheetBody.scrollTop = 0;
+    updateDemoButtons();
+    renderAll({ instant: true });
+    updatePhaseUI();
+    if (!options.keepSheet) {
+      sheetTo('half', options.instantSheet ? 'instant' : 'spring');
+    }
+    if (!options.hideCards) revealCards(false);
+    else hideCards();
+  }
+
+  function updateDemoButtons() {
+    $$('.demo-state').forEach(function (btn) {
+      var active = btn.getAttribute('data-state') === state.demo;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+  }
+
+  function updateThemeButtons() {
+    $$('.demo-theme').forEach(function (btn) {
+      var active = btn.getAttribute('data-theme-choice') === state.theme;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+  }
+
+  function setTheme(theme, silent) {
+    state.theme = theme === 'dark' ? 'dark' : 'light';
+    app.dataset.theme = state.theme;
+    document.documentElement.style.colorScheme = state.theme;
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', state.theme === 'dark' ? '#0B0F19' : '#F1F5F9');
+    updateThemeButtons();
+    if (!silent && !trendPanel.hidden) renderChart();
+  }
+
+  function showToast(text) {
+    if (!toast) return;
+    toast.textContent = text;
+    toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toast.classList.remove('show'); }, 1800);
+  }
+
+  /* ---------------- 布局/拖动 ---------------- */
+
+  function layoutDevice() {
+    var mobile = window.innerWidth <= 640;
+    document.body.classList.toggle('is-mobile', mobile);
+    if (mobile) {
+      device.style.width = '100vw';
+      device.style.height = '100dvh';
+      phone.style.transform = 'none';
+    } else {
+      var fit = Math.min(1, (window.innerHeight - 56) / 812);
+      device.style.width = (375 * fit) + 'px';
+      device.style.height = (812 * fit) + 'px';
+      phone.style.transform = 'scale(' + fit + ')';
+      phone.style.transformOrigin = 'top left';
+    }
+  }
+
+  function pointerDown(e) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (e.target.closest('.sheet-controls')) return;
+    if (e.target.closest('button, a, input, select, textarea')) return;
+    e.preventDefault();
+    cancelSpring();
+    state.dragging = true;
+    state.dragStartY = e.clientY;
+    state.dragStartOffset = state.sheetOffset;
+    state.dragMoved = 0;
+    state.dragSamples = [{ t: performance.now(), y: state.sheetOffset }];
+    sheetHead.classList.add('is-dragging');
+    try { sheetHead.setPointerCapture(e.pointerId); } catch (err) {}
+  }
+
+  function pointerMove(e) {
+    if (!state.dragging) return;
+    e.preventDefault();
+    var A = anchorsPx();
+    var rect = phone.getBoundingClientRect();
+    var scale = (rect.height / (phone.offsetHeight || 812)) || 1;
+    var next = clamp(state.dragStartOffset + (e.clientY - state.dragStartY) / scale, 0, A.collapsed);
+    state.dragMoved = Math.max(state.dragMoved, Math.abs(e.clientY - state.dragStartY) / scale);
+    applySheet(next);
+    state.dragSamples.push({ t: performance.now(), y: next });
+    if (state.dragSamples.length > 14) state.dragSamples.shift();
+  }
+
+  function pointerUp() {
+    if (!state.dragging) return;
+    state.dragging = false;
+    sheetHead.classList.remove('is-dragging');
+    var now = performance.now();
+    var recent = state.dragSamples.filter(function (s) { return now - s.t < 140; });
+    var velocity = 0;
+    if (recent.length > 1) {
+      var first = recent[0];
+      var last = recent[recent.length - 1];
+      var dt = (last.t - first.t) / 1000;
+      if (dt > 0.008) velocity = (last.y - first.y) / dt;
+    }
+    state.releaseVelocity = velocity;
+    var A = anchorsPx();
+    var target;
+    if (state.dragMoved < 4) {
+      if (state.sheetOffset > A.half) target = 'half';
+      else if (state.sheetOffset < 10) target = 'half';
+      else target = 'full';
+    } else if (Math.abs(velocity) > 400) {
+      if (velocity < 0) target = state.sheetOffset > A.half ? 'half' : 'full';
+      else target = state.sheetOffset < A.half ? 'half' : 'collapsed';
+    } else {
+      target = nearestAnchor(state.sheetOffset);
+    }
+    springTo(A[target], target);
+  }
+
+  function pointerCancel() {
+    if (!state.dragging) return;
+    state.dragging = false;
+    state.releaseVelocity = 0;
+    sheetHead.classList.remove('is-dragging');
+    springTo(anchorsPx()[nearestAnchor(state.sheetOffset)], nearestAnchor(state.sheetOffset));
+  }
+
+  function connectAndMeasure() {
+    if (state.demo === 'offline') {
+      applyDemo('normal', { keepSheet: true, hideCards: true });
+      showToast('设备已连接');
+    }
+    runSequence();
+  }
+
+  /* ---------------- 事件 ---------------- */
+
+  function bindEvents() {
+    sheetHead.addEventListener('pointerdown', pointerDown);
+    sheetHead.addEventListener('pointermove', pointerMove);
+    sheetHead.addEventListener('pointerup', pointerUp);
+    sheetHead.addEventListener('pointercancel', pointerCancel);
+    sheetHead.addEventListener('lostpointercapture', function () {
+      if (state.dragging) pointerCancel();
+    });
+
+    scrim.addEventListener('click', function () {
+      if (state.sheetAnchor === 'full') sheetTo('half', 'spring');
+      else if (state.sheetAnchor === 'half') sheetTo('collapsed', 'spring');
+    });
+
+    sheetToggle.addEventListener('click', function () {
+      if (state.sheetAnchor === 'full') sheetTo('half', 'spring');
+      else if (state.sheetAnchor === 'half') sheetTo('full', 'spring');
+      else sheetTo('half', 'spring');
+    });
+
+    $('#modeControl').addEventListener('click', function (e) {
+      var btn = e.target.closest('.seg-btn');
+      if (btn) setMode(btn.getAttribute('data-mode'));
+    });
+
+    timelineEl.addEventListener('click', function (e) {
+      var chip = e.target.closest('.tl-chip');
+      if (!chip) return;
+      selectSnapshot(Number(chip.getAttribute('data-index')), true);
+    });
+
+    memberFilterEl.addEventListener('click', function (e) {
+      var chip = e.target.closest('.member-chip');
+      if (!chip) return;
+      var id = chip.getAttribute('data-member');
+      setMemberFilter(id === 'all' ? null : id);
+    });
+
+    grid.addEventListener('click', function (e) {
+      var card = e.target.closest('.metric-card');
+      if (!card) return;
+      selectMetric(card.getAttribute('data-metric'));
+    });
+
+    primaryAction.addEventListener('click', function () {
+      if (primaryAction.disabled) return;
+      connectAndMeasure();
+    });
+
+    $('#statusCapsule').addEventListener('click', function () {
+      if (state.demo === 'offline') {
+        connectAndMeasure();
+        return;
+      }
+      if (state.sheetAnchor === 'collapsed') sheetTo('half', 'spring');
+      else if (state.sheetAnchor === 'half') sheetTo('full', 'spring');
+      else sheetTo('half', 'spring');
+    });
+
+    $('#stageHistory').addEventListener('click', function () {
+      sheetTo('full', 'spring');
+    });
+
+    $('#stageMember').addEventListener('click', function () {
+      var index = -1;
+      for (var i = 0; i < state.members.length; i++) {
+        if (state.members[i].id === state.memberFilter) { index = i; break; }
+      }
+      var next = state.members[(index + 1) % state.members.length];
+      setMemberFilter(next.id);
+      showToast('已切换到 ' + next.name);
+    });
+
+    $('#allHistoryBtn').addEventListener('click', function () {
+      showToast('已打开全部历史（原型演示）');
+    });
+
+    $('#replayBtn').addEventListener('click', function () {
+      connectAndMeasure();
+      if (window.innerWidth <= 1100) closeDemoPanel();
+    });
+
+    $$('.demo-state').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        applyDemo(btn.getAttribute('data-state'));
+        if (window.innerWidth <= 1100) closeDemoPanel();
+      });
+    });
+
+    $$('.demo-theme').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        setTheme(btn.getAttribute('data-theme-choice'));
+      });
+    });
+
+    demoFab.addEventListener('click', function () {
+      var open = demoPanel.classList.toggle('open');
+      demoFab.classList.toggle('is-open', open);
+      demoFab.setAttribute('aria-expanded', open ? 'true' : 'false');
+      demoFab.textContent = open ? '关闭' : '演示';
+    });
+
+    chartSvg.addEventListener('click', function (e) {
+      if (!state.chartPoints.length) return;
+      var rect = chartSvg.getBoundingClientRect();
+      var x = (e.clientX - rect.left) / rect.width * state.chartW;
+      var best = null;
+      var bestDistance = Infinity;
+      state.chartPoints.forEach(function (p) {
+        var d = Math.abs(p.x - x);
+        if (d < bestDistance) { bestDistance = d; best = p; }
+      });
+      if (best && bestDistance < 36) selectSnapshot(best.index, true);
+    });
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        if (state.sheetAnchor === 'full') sheetTo('half', 'spring');
+        else if (state.sheetAnchor === 'half') sheetTo('collapsed', 'spring');
+      }
+    });
+
+    window.addEventListener('resize', function () {
+      clearTimeout(window.__resizeTimer);
+      window.__resizeTimer = setTimeout(function () {
+        cancelSpring();
+        layoutDevice();
+        if (state.snapshots.length) {
+          applySheet(anchorsPx()[state.sheetAnchor]);
+          finishSheet(state.sheetAnchor);
+        }
+        if (!trendPanel.hidden) renderChart();
+      }, 120);
+    });
+
+    window.addEventListener('orientationchange', function () {
+      setTimeout(function () {
+        layoutDevice();
+        applySheet(anchorsPx()[state.sheetAnchor]);
+        finishSheet(state.sheetAnchor);
+        if (!trendPanel.hidden) renderChart();
+      }, 220);
+    });
+  }
+
+  function closeDemoPanel() {
+    demoPanel.classList.remove('open');
+    demoFab.classList.remove('is-open');
+    demoFab.setAttribute('aria-expanded', 'false');
+    demoFab.textContent = '演示';
+  }
+
+  function buildTicks() {
+    var group = $('#dialTicks');
+    if (!group) return;
+    for (var i = 0; i < 60; i++) {
+      var angle = (i / 60) * Math.PI * 2 - Math.PI / 2;
+      var major = i % 5 === 0;
+      var r1 = 104;
+      var r2 = major ? 110 : 107.5;
+      var line = document.createElementNS(SVGNS, 'line');
+      line.setAttribute('x1', String(120 + Math.cos(angle) * r1));
+      line.setAttribute('y1', String(120 + Math.sin(angle) * r1));
+      line.setAttribute('x2', String(120 + Math.cos(angle) * r2));
+      line.setAttribute('y2', String(120 + Math.sin(angle) * r2));
+      line.setAttribute('class', major ? 'major' : 'minor');
+      group.appendChild(line);
+    }
+  }
+
+  function exposeDebugApi() {
+    window.__setDemo = function (name) {
+      var demo = normalizeDemo(name);
+      if (!demo) return false;
+      applyDemo(demo);
+      return true;
+    };
+    window.__setSheet = function (anchor) {
+      var a = normalizeSheet(anchor);
+      if (!a) return false;
+      sheetBody.scrollTop = 0;
+      sheetTo(a, 'instant');
+      revealCards(false);
+      return true;
+    };
+    window.__setTheme = function (theme) {
+      var t = normalizeTheme(theme);
+      if (!t) return false;
+      setTheme(t);
+      return true;
+    };
+    window.__replay = function () { connectAndMeasure(); return true; };
+    window.__state = function () {
+      return {
+        demo: state.demo,
+        theme: state.theme,
+        mode: state.mode,
+        memberFilter: state.memberFilter,
+        sheet: state.sheetAnchor,
+        metric: state.selectedMetric,
+        selectedIndex: state.selectedIndex,
+        snapshots: state.snapshots.length,
+        phase: state.phase,
+        hasBia: currentSnapshot() ? currentSnapshot().hasBia : null
+      };
+    };
+  }
+
+  function init() {
+    layoutDevice();
+    buildTicks();
+    bindEvents();
+    exposeDebugApi();
+
+    applySheet(anchorsPx().collapsed);
+    finishSheet('collapsed');
+
+    var params = new URLSearchParams(window.location.search);
+    var hasParams = params.has('theme') || params.has('demo') || params.has('sheet');
+    var theme = normalizeTheme(params.get('theme')) || 'light';
+    var demo = normalizeDemo(params.get('demo')) || 'normal';
+    setTheme(theme, true);
+    applyDemo(demo, { keepSheet: true, hideCards: true });
+
+    if (hasParams) {
+      var anchor = normalizeSheet(params.get('sheet')) || 'half';
+      sheetTo(anchor, 'instant');
+      revealCards(false);
+      if (!trendPanel.hidden) requestAnimationFrame(renderChart);
+    } else if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      sheetTo('half', 'instant');
+      revealCards(false);
+    } else {
+      seqTimers.push(setTimeout(runSequence, 700));
+    }
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
