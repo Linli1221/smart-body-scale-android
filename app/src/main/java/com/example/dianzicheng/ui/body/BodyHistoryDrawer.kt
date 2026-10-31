@@ -45,7 +45,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 时间轴行高（契约：44dp 横向时间轴）。 */
@@ -69,7 +68,7 @@ private val HISTORY_MODES = listOf(HistoryMode.SINGLE, HistoryMode.WEEK, History
  * - 顶部 28dp 圆角、左右 16dp 边距、36×4dp 拖拽条。
  * - 拖拽手势**只**绑定在头部（标题 / 分段控制器 / 时间轴 / 筛选 chip），
  *   抽屉内部内容用 `verticalScroll` 独立滚动，两者不冲突。
- * - 头部：标题 + 日期/成员 + 全部历史入口 + 单次/周均/月均 + 44dp 时间轴 + 多成员筛选。
+ * - 头部：标题 + 日期/成员 + 单次/周均/月均 + 44dp 时间轴 + 多成员筛选。
  * - 内容：全展开时的 180dp 趋势图 + A 组 `BodyMetricGrid` 卡片网格（不在此重写卡片）。
  *
  * 高频动画量（fraction / scrimAlpha / topOffset）只在绘制与布局阶段读取，
@@ -98,7 +97,6 @@ fun BodyHistoryDrawer(
     memberFilterId: String?,
     onMemberFilter: (String?) -> Unit,
     revealCards: Boolean,
-    onOpenAllHistory: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val palette = bodyPalette()
@@ -214,7 +212,6 @@ fun BodyHistoryDrawer(
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
-                        TextButton(text = "全部历史", onClick = onOpenAllHistory)
                     }
 
                     // 收起态只露出标题行；留 20dp 让分段控制器正好落在 12% 折线以下。

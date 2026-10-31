@@ -39,7 +39,7 @@ private enum class ActiveOverlay {
  *   设置、配对、日志与抓包查看器仍以底部弹层（OverlayBottomSheet）承载，无页面导航栈；
  * - 契约 §5：去掉顶栏，[Scaffold] 的 contentWindowInsets 置零，安全区由页面用 safeDrawing 自理；
  * - 契约 §5：测量完成不再自动弹出旧 HistorySheet，改由新抽屉承担时序；
- *   HistorySheet 仍由首页「全部历史」入口打开；
+ *   历史入口按钮已按需求移除；
  * - `isPairingComplete` 三态门控保持旧行为：null=偏好未读出（纯背景，防误触发扫描）、
  *   false=强制配对引导（配对弹层不可关闭，「跳过」后进入正常态）、true=正常单页面。
  */
@@ -99,8 +99,6 @@ fun ScaleApp(
                 onSelectMember = scaleViewModel::selectMember,
                 onBindMember = scaleViewModel::bindCurrentMeasurementToMember,
                 onDismissAlert = scaleViewModel::dismissAlert,
-                onOpenSettings = { activeOverlay = ActiveOverlay.Settings },
-                onOpenHistory = { activeOverlay = ActiveOverlay.History },
             )
 
             // ── 底部弹层：同一时刻只展示一个 ────────────────────────────

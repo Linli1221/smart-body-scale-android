@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -72,7 +71,6 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Contacts
-import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 
@@ -123,8 +121,6 @@ fun MeasureHomePage(
     onSelectMember: (FamilyMember?) -> Unit,
     onBindMember: (FamilyMember) -> Unit,
     onDismissAlert: () -> Unit,
-    onOpenSettings: () -> Unit,
-    onOpenHistory: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val palette = bodyPalette()
@@ -491,7 +487,6 @@ fun MeasureHomePage(
                 onStatusClick = statusAction,
                 memberLabel = memberLabel,
                 onMemberClick = { memberDialogMode = HomeMemberDialogMode.Select },
-                onSettingsClick = onOpenSettings,
             )
 
             Box(
@@ -556,26 +551,26 @@ fun MeasureHomePage(
                         Spacer(modifier = Modifier.height(16.dp))
                     }
 
-                    if (stageCollapsed) {
+                    // 「寻找体脂秤」类主按钮按需求隐藏；未绑定/扫描中的入口由状态胶囊承担。
+                    val showPrimaryAction = uiState.isDeviceRemembered &&
+                        uiState.connection != BleScaleClient.ConnectionState.SCANNING
+                    if (stageCollapsed && showPrimaryAction) {
                         StagePrimaryAction(
                             text = primaryText,
                             onClick = primaryAction,
                             modifier = Modifier.fillMaxWidth(),
                         )
-
+                    }
+                    if (stageCollapsed && uiState.currentMeasurement != null) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.Center,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            TextButton(text = "配对设备", onClick = onOpenPairing)
-                            if (uiState.currentMeasurement != null) {
-                                TextButton(
-                                    text = "重绑成员",
-                                    onClick = { memberDialogMode = HomeMemberDialogMode.Bind },
-                                )
-                            }
-                            TextButton(text = "全部历史", onClick = onOpenHistory)
+                            TextButton(
+                                text = "重绑成员",
+                                onClick = { memberDialogMode = HomeMemberDialogMode.Bind },
+                            )
                         }
                     }
                 }
@@ -610,7 +605,6 @@ fun MeasureHomePage(
             // 无任何测量时保持卡片隐藏：抽屉内的「暂无历史记录」文案承担空态，
             // 避免占位 BodyReport 的 0.00 读数被当成真实数据。
             revealCards = reveal && measurement != null,
-            onOpenAllHistory = onOpenHistory,
         )
 
         // ── 弹窗（Window 层，可在抽屉之上安全展示） ──────────────────────────
@@ -660,7 +654,6 @@ private fun HomeHeader(
     onStatusClick: () -> Unit,
     memberLabel: String,
     onMemberClick: () -> Unit,
-    onSettingsClick: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -676,23 +669,6 @@ private fun HomeHeader(
         }
         Spacer(modifier = Modifier.width(8.dp))
         MemberEntry(label = memberLabel, onClick = onMemberClick)
-        Surface(
-            onClick = onSettingsClick,
-            shape = CircleShape,
-            color = Color.Transparent,
-            modifier = Modifier.size(28.dp),
-        ) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = MiuixIcons.Settings,
-                    contentDescription = "设置",
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-        }
     }
 }
 

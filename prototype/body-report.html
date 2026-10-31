@@ -1646,12 +1646,6 @@ body.is-mobile .phone::after { display: none; }
               <path d="M3 4.5 6 7.5 9 4.5"></path>
             </svg>
           </button>
-          <button class="ghost-link" id="stageHistory" type="button">
-            全部报告
-            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M4.5 3 7.5 6 4.5 9"></path>
-            </svg>
-          </button>
         </footer>
       </section>
 
@@ -1837,7 +1831,6 @@ body.is-mobile .phone::after { display: none; }
 
           <footer class="sheet-foot">
             <span>数据仅供健康参考，不构成医疗建议</span>
-            <button class="text-btn" id="allHistoryBtn" type="button">全部历史</button>
           </footer>
         </div>
       </section>
@@ -3490,10 +3483,6 @@ body.is-mobile .phone::after { display: none; }
       else sheetTo('half', 'spring');
     });
 
-    $('#stageHistory').addEventListener('click', function () {
-      sheetTo('full', 'spring');
-    });
-
     $('#stageMember').addEventListener('click', function () {
       var index = -1;
       for (var i = 0; i < state.members.length; i++) {
@@ -3502,10 +3491,6 @@ body.is-mobile .phone::after { display: none; }
       var next = state.members[(index + 1) % state.members.length];
       setMemberFilter(next.id);
       showToast('已切换到 ' + next.name);
-    });
-
-    $('#allHistoryBtn').addEventListener('click', function () {
-      showToast('已打开全部历史（原型演示）');
     });
 
     $('#replayBtn').addEventListener('click', function () {
