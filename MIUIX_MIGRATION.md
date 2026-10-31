@@ -15,6 +15,12 @@
   二级页面仅在确有页面边界（自带 TopAppBar/返回键）时才加局部 `Scaffold`。
   注意：`isPairingComplete == false` 时 PairingScreen 渲染在根 Scaffold **之外**，其弹窗若用 Overlay 系需要页面自带 `Scaffold` 宿主（或用 Window 系弹窗）。
 
+## 0.5 工具链要求（CI 失败日志实证）
+
+- `compileSdk = 37`：miuix 0.9.4 的 AAR 在 `checkAarMetadata` 强制要求 compileSdk ≥ 37（targetSdk/minSdk 不必变）。
+- Kotlin **2.4.20**（显式 `org.jetbrains.kotlin.android` + `org.jetbrains.kotlin.plugin.compose` 同版本）：miuix 0.9.4 由 Kotlin 2.4.20 构建，metadata 2.4 需要 ≥2.4 的编译器读取；显式 KGP 覆盖 AGP 内置 Kotlin。
+- KSP **2.3.13**（独立版本线，配套新 Kotlin）；Compose BOM **2026.09.00**（对齐 miuix 所需的 androidx.compose 1.12.x）。
+
 ## 1. 硬性规则
 
 1. **禁止引用 `androidx.compose.material3.*` / `androidx.compose.material.icons.*`**（最后会移除依赖）。所有 UI 走 Miuix。

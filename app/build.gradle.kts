@@ -1,12 +1,16 @@
 plugins {
     alias(libs.plugins.android.application)
+    // 显式 Kotlin 2.4.20：miuix 0.9.4 由 Kotlin 2.4.20 构建（metadata 2.4），
+    // 需要 ≥2.4 的编译器读取；显式 KGP 覆盖 AGP 内置 Kotlin。
+    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
 }
 
 android {
     namespace = "com.example.dianzicheng"
-    compileSdk = 36
+    // miuix 0.9.4 的 AAR 要求 compileSdk >= 37（checkAarMetadata 强校验）
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.example.dianzicheng"
