@@ -21,12 +21,14 @@ ios版项目地址 https://github.com/maoziban/smart-body-scale-IOS
   - 支持添加、删除家庭成员，**免去烦琐的体重估算输入**。
   - **首测智能绑定**：新成员首次称重时，系统会自动捕获并将实际体重绑定为该成员的参考体重。
   - **动态权重匹配**：后续测量时，系统会自动在 ±7kg 的范围内动态匹配最接近的家庭成员。
-- 📅 **历史测量档案与详情页**：
-  - 提供清爽的测量历史卡片流，支持一键删除单次记录。
-  - **二级测量详情页**：点击卡片可平滑切入二级详情界面，以专业的指标网格完整展示多达 8 项身体参数及其达标分析。
-- 🎨 **极简科技风 UI 设计**：
-  - 全站界面基于 Material Design 3 标准，配合动感渐变色与平滑动效。
-  - 全站统一收紧为直观干练的 `8.dp` 现代微圆角风格，视觉更加精致、高级。
+- 📅 **历史测量档案与详情**：
+  - 历史数据以底部弹层呈现：六张指标走势图（顺序可调）+ 指标统计卡 + 全部记录卡片流，支持一键删除单次记录。
+  - **测量详情弹窗**：点击记录卡片即可查看 8 项身体参数（体重/BMI/体脂率/水分/肌肉量/蛋白质/骨量/阻抗）及其健康区间达标徽标。
+- 🎨 **HyperOS 单页面 UI（Miuix）**：
+  - 全站界面基于 **Miuix 0.9.4**（HyperOS 设计语言）：统一字阶、SmallTitle + Card 分组、Preference 设置行与语义色 token。
+  - **单页面 + 弹层架构**：默认单页面就是测量主页；历史数据、我的/设置、配对、日志与协议抓包全部以**底部弹层**承载，无页面导航栈，返回手势逐层关闭弹层。
+  - **测量完成自动弹出历史**：一次称重结束后，历史数据弹层自动从底部弹出，直接看到本次结果与全部历史趋势。
+  - 历史详情以弹窗展示 8 项身体参数（体重/BMI/体脂率/水分/肌肉量/蛋白质/骨量/阻抗）及健康区间达标徽标。
 - 🧪 **蓝牙协议完整抓包（Debug 专用）**：Debug 包内置协议抓包器，完整记录扫描广播、GATT 连接、服务/特征拓扑、CCCD 订阅、AFU 握手包与体重/阻抗通知的**全部原始十六进制字节**，支持一键导出 `.jsonl` 文件分享到电脑离线分析。
 - 🔍 **运行日志查看器（Debug 专用）**：Debug 包的「我的 → 查看运行日志」可实时查看内存环形缓冲中的运行日志，并支持复制/分享导出。
 - 📦 **仅 arm64-v8a**：`defaultConfig.ndk.abiFilters` 只保留 `arm64-v8a`，APK 内不再打包其它 ABI 的 `.so`（Compose 的传递依赖 `androidx.graphics:graphics-path` 原本会带入 armeabi-v7a / arm64-v8a / x86 / x86_64 四份 `libandroidx.graphics.path.so`），安装包更小。
@@ -90,10 +92,10 @@ Wu 2015 模型应得 **≈ 21.0%**，Jebb 2000 模型应得 **≈ 18.0%**。
 ## 🛠️ 技术栈
 
 - **开发语言**：Kotlin
-- **UI 框架**：Jetpack Compose
+- **UI 框架**：Jetpack Compose + **Miuix 0.9.4**（HyperOS 设计语言组件库：miuix-ui / miuix-preference / miuix-icons）
+- **界面架构**：单页面 + 底部弹层（OverlayBottomSheet / WindowDialog），无页面导航栈
 - **异步与流式编程**：Kotlin Coroutines & Flow (StateFlow / SharedFlow)
 - **本地数据库**：Room Database (支持自动建表与实体映射转换)
-- **导航组件**：Jetpack Navigation Compose (支持带参数的二级页面深度跳转)
 - **蓝牙通信**：Android BLE Core APIs (基于 GATT 协议开发，高度定制化 PacketParser)
 - **协议调试**：Debug 专用 BLE 协议完整抓包器（JSON Lines 导出 + FileProvider 文件分享）
 - **构建环境**：JDK 21 / Gradle 9.5 / AGP 9.3 / compileSdk 36
@@ -197,8 +199,15 @@ app/src/main/java/com/example/dianzicheng/
 ├── domain/               # 业务实体 (Models)、支持型号枚举 (ScaleModel)、
 │                         #   电阻抗估算模型枚举 (BiaModel) 及 BIA 身体指标核心算法 (BodyAlgorithm)
 │
-└── ui/                   # 主页 (DashboardScreen)、历史 (HistoryScreen)、我的 (ProfileScreen)、
-                          # 配对 (PairingScreen) 及对应的 ViewModel 和 Theme 主题包
+└── ui/                   # 单页面 + 弹层前端（全部基于 Miuix 0.9.4）
+    ├── ScaleApp.kt       #   应用壳：根 Scaffold + 弹层路由（测量完成自动弹出历史数据）
+    ├── theme/            #   AppTheme 根主题（ThemeController(MonetSystem) + MiuixTheme）
+    ├── state/            #   ScaleViewModel（称重会话状态机）、HistoryViewModel、ProfileViewModel 与 UI 状态
+    ├── page/             #   MeasurePage：测量主页（成员绑定 / 连接状态 / 体重大读数 / 结果卡 / 操作区）
+    ├── sheet/            #   HistorySheet（完整历史）、SettingsSheet（我的）、PairingSheet（配对）、
+    │                     #   DebugSheets（运行日志 / 蓝牙协议抓包，Debug 专用）——均为底部弹层
+    ├── dialog/           #   成员选择/添加、型号与体脂模型选择、WebDAV 配置、删除确认等弹窗
+    └── component/        #   指标趋势图自绘、健康区间徽标、连接状态 chip 等共享组件
 ```
 
 ---

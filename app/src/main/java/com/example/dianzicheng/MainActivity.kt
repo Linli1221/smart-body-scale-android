@@ -4,34 +4,37 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.room.Room
+import com.example.dianzicheng.data.backup.WebDavManager
 import com.example.dianzicheng.data.ble.BleScaleClient
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.launch
+import com.example.dianzicheng.data.health.HealthConnectManager
 import com.example.dianzicheng.data.local.AppDatabase
 import com.example.dianzicheng.data.local.PreferenceManager
 import com.example.dianzicheng.data.repository.ProfileRepository
 import com.example.dianzicheng.data.repository.ScaleRepository
 import com.example.dianzicheng.domain.normalizeMacAddress
-import com.example.dianzicheng.ui.HistoryViewModel
-import com.example.dianzicheng.ui.MainScreen
-import com.example.dianzicheng.ui.ProfileViewModel
-import com.example.dianzicheng.ui.ScaleViewModel
-import com.example.dianzicheng.ui.theme.电子秤Theme
+import com.example.dianzicheng.ui.ScaleApp
+import com.example.dianzicheng.ui.state.HistoryViewModel
+import com.example.dianzicheng.ui.state.ProfileViewModel
+import com.example.dianzicheng.ui.state.ScaleViewModel
+import kotlinx.coroutines.launch
 
-import com.example.dianzicheng.data.backup.WebDavManager
-import com.example.dianzicheng.data.health.HealthConnectManager
-
+/**
+ * 应用入口：装配数据层依赖、处理运行时权限与 BLE 前后台生命周期，
+ * 内容区交给单页面 + 弹层架构的 [ScaleApp]。
+ */
 class MainActivity : ComponentActivity() {
     private lateinit var database: AppDatabase
     private lateinit var bleClient: BleScaleClient
@@ -44,10 +47,15 @@ class MainActivity : ComponentActivity() {
     private val bluetoothReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
             if (intent?.action == android.bluetooth.BluetoothAdapter.ACTION_STATE_CHANGED) {
-                val state = intent.getIntExtra(android.bluetooth.BluetoothAdapter.EXTRA_STATE, android.bluetooth.BluetoothAdapter.ERROR)
+                val state = intent.getIntExtra(
+                    android.bluetooth.BluetoothAdapter.EXTRA_STATE,
+                    android.bluetooth.BluetoothAdapter.ERROR
+                )
                 if (state == android.bluetooth.BluetoothAdapter.STATE_ON) {
                     // 蓝牙打开后，若已记住任意一台设备且当前处于 IDLE，自动恢复扫描
-                    if (bleClient.hasRememberedDevice && bleClient.connectionState.value == BleScaleClient.ConnectionState.IDLE) {
+                    if (bleClient.hasRememberedDevice &&
+                        bleClient.connectionState.value == BleScaleClient.ConnectionState.IDLE
+                    ) {
                         bleClient.startScan()
                     }
                 }
@@ -61,24 +69,24 @@ class MainActivity : ComponentActivity() {
         val denied = permissions.filter { !it.value }.keys
         if (denied.isNotEmpty()) {
             // 有权限被拒绝：提示用户前往系统设置手动开启，否则蓝牙功能无法使用
-            android.widget.Toast.makeText(
+            Toast.makeText(
                 this,
                 "蓝牙权限被拒绝，请前往「设置 → 应用 → 权限」手动开启蓝牙权限，否则无法搜索体脂秤",
-                android.widget.Toast.LENGTH_LONG
+                Toast.LENGTH_LONG
             ).show()
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
+
         checkPermissions()
-        
+
         database = Room.databaseBuilder(
             applicationContext,
-            AppDatabase::class.java, "scale-db"
+            AppDatabase::class.java, "scale-db" // 库名保持不变，避免老用户数据丢失
         ).addMigrations(AppDatabase.MIGRATION_1_2).build()
-        
+
         bleClient = BleScaleClient(applicationContext)
         // 传入 database 而非仅 dao：ScaleRepository 的历史重算需要跨表事务
         scaleRepository = ScaleRepository(database.scaleDao(), database)
@@ -113,12 +121,14 @@ class MainActivity : ComponentActivity() {
 
         lifecycleScope.launch {
             preferenceManager.pairedMac.collect { mac ->
-                bleClient.lastPairedMac = mac  // null clears memory, preventing stale reconnect
+                bleClient.lastPairedMac = mac // null clears memory, preventing stale reconnect
                 if (mac.isNullOrEmpty()) {
                     bleClient.disconnectAndReset()
                 } else {
                     bleClient.isPairingMode = false
-                    if (bleClient.connectionState.value == BleScaleClient.ConnectionState.IDLE && bleClient.isBluetoothEnabled()) {
+                    if (bleClient.connectionState.value == BleScaleClient.ConnectionState.IDLE &&
+                        bleClient.isBluetoothEnabled()
+                    ) {
                         bleClient.startScan()
                     }
                 }
@@ -131,56 +141,54 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val isPairingComplete by preferenceManager.isPairingComplete.collectAsState(initial = null)
-            
-            电子秤Theme {
-                val scaleViewModel: ScaleViewModel = viewModel(
-                    factory = object : ViewModelProvider.Factory {
-                        @Suppress("UNCHECKED_CAST")
-                        override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                            return ScaleViewModel(
-                                bleClient,
-                                scaleRepository,
-                                preferenceManager,
-                                healthConnectManager
-                            ) as T
-                        }
-                    }
-                )
-                val historyViewModel: HistoryViewModel = viewModel(
-                    factory = object : ViewModelProvider.Factory {
-                        @Suppress("UNCHECKED_CAST")
-                        override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                            return HistoryViewModel(scaleRepository, preferenceManager, healthConnectManager) as T
-                        }
-                    }
-                )
-                val profileViewModel: ProfileViewModel = viewModel(
-                    factory = object : ViewModelProvider.Factory {
-                        @Suppress("UNCHECKED_CAST")
-                        override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                            return ProfileViewModel(
-                                profileRepository,
-                                preferenceManager,
-                                webDavManager,
-                                healthConnectManager,
-                                scaleRepository
-                            ) as T
-                        }
-                    }
-                )
 
-                MainScreen(
-                    scaleViewModel = scaleViewModel,
-                    historyViewModel = historyViewModel,
-                    profileViewModel = profileViewModel,
-                    isPairingComplete = isPairingComplete,
-                    onPairingComplete = {
-                        lifecycleScope.launch {
-                            preferenceManager.setPairingComplete(true)
-                        }
+            val scaleViewModel: ScaleViewModel = viewModel(
+                factory = object : ViewModelProvider.Factory {
+                    @Suppress("UNCHECKED_CAST")
+                    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                        return ScaleViewModel(
+                            bleClient,
+                            scaleRepository,
+                            preferenceManager,
+                            healthConnectManager
+                        ) as T
                     }
-                )
-            }
+                }
+            )
+            val historyViewModel: HistoryViewModel = viewModel(
+                factory = object : ViewModelProvider.Factory {
+                    @Suppress("UNCHECKED_CAST")
+                    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                        return HistoryViewModel(scaleRepository, preferenceManager, healthConnectManager) as T
+                    }
+                }
+            )
+            val profileViewModel: ProfileViewModel = viewModel(
+                factory = object : ViewModelProvider.Factory {
+                    @Suppress("UNCHECKED_CAST")
+                    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                        return ProfileViewModel(
+                            profileRepository,
+                            preferenceManager,
+                            webDavManager,
+                            healthConnectManager,
+                            scaleRepository
+                        ) as T
+                    }
+                }
+            )
+
+            ScaleApp(
+                scaleViewModel = scaleViewModel,
+                historyViewModel = historyViewModel,
+                profileViewModel = profileViewModel,
+                isPairingComplete = isPairingComplete,
+                onPairingComplete = {
+                    lifecycleScope.launch {
+                        preferenceManager.setPairingComplete(true)
+                    }
+                }
+            )
         }
     }
 
@@ -196,11 +204,11 @@ class MainActivity : ComponentActivity() {
             permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
             permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION)
         }
-        
+
         val missing = permissions.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
-        
+
         if (missing.isNotEmpty()) {
             requestPermissionLauncher.launch(missing.toTypedArray())
         }
@@ -227,7 +235,8 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
         try {
             unregisterReceiver(bluetoothReceiver)
-        } catch (e: Exception) {}
+        } catch (_: Exception) {
+        }
         bleClient.disconnectAndReset()
     }
 }
