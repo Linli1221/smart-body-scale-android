@@ -700,7 +700,7 @@ fun HistoryScreen(
 @Preview(showBackground = true)
 @Composable
 fun HistoryPreview() {
-    电子秤Theme(dynamicColor = true) {
+    电子秤Theme {
         HistoryContent(
             history = listOf(
                 BodyMeasurement("1", System.currentTimeMillis(), 70.5, 500.0, 22.8, 18.5, 55.0, 60.0, 16.5, 3.2, "1", "我的名字"),

@@ -552,7 +552,7 @@ fun ModernMeasurementCard(
 @Preview(showBackground = true)
 @Composable
 fun HistoryDataScreenPreview() {
-    电子秤Theme(dynamicColor = true) {
+    电子秤Theme {
         HistoryDataScreen(
             history = listOf(
                 BodyMeasurement("1", System.currentTimeMillis(), 70.5, 500.0, 22.8, 18.5, 60.0, 55.0, 16.5, 3.2, "1", "我的名字"),
