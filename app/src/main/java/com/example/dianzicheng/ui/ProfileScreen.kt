@@ -5,21 +5,14 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.health.connect.client.PermissionController
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.automirrored.filled.Article
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,26 +26,58 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import com.example.dianzicheng.data.ble.BleProtocolRecorder
-import com.example.dianzicheng.data.local.AppLogger
-import com.example.dianzicheng.domain.BiaModel
-import com.example.dianzicheng.domain.FamilyMember
-import com.example.dianzicheng.domain.RememberedScale
-import com.example.dianzicheng.domain.ScaleModel
-import com.example.dianzicheng.domain.Sex
-import com.example.dianzicheng.domain.sameMacAddress
-import com.example.dianzicheng.ui.theme.电子秤Theme
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
+import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
+import top.yukonga.miuix.kmp.basic.RadioButton
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.SmallTopAppBar
+import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.basic.Close
+import top.yukonga.miuix.kmp.icon.extended.Add
+import top.yukonga.miuix.kmp.icon.extended.CloudFill
+import top.yukonga.miuix.kmp.icon.extended.Contacts
+import top.yukonga.miuix.kmp.icon.extended.Copy
+import top.yukonga.miuix.kmp.icon.extended.Delete
+import top.yukonga.miuix.kmp.icon.extended.Download
+import top.yukonga.miuix.kmp.icon.extended.Favorites
+import top.yukonga.miuix.kmp.icon.extended.FavoritesFill
+import top.yukonga.miuix.kmp.icon.extended.File
+import top.yukonga.miuix.kmp.icon.extended.Info
+import top.yukonga.miuix.kmp.icon.extended.Link
+import top.yukonga.miuix.kmp.icon.extended.Lock
+import top.yukonga.miuix.kmp.icon.extended.Notes
+import top.yukonga.miuix.kmp.icon.extended.Scan
+import top.yukonga.miuix.kmp.icon.extended.SearchDevice
+import top.yukonga.miuix.kmp.icon.extended.Settings
+import top.yukonga.miuix.kmp.icon.extended.Share
+import top.yukonga.miuix.kmp.icon.extended.Tasks
+import top.yukonga.miuix.kmp.icon.extended.Tune
+import top.yukonga.miuix.kmp.icon.extended.Update
+import top.yukonga.miuix.kmp.icon.extended.UploadCloud
+import top.yukonga.miuix.kmp.overlay.OverlayDialog
+import top.yukonga.miuix.kmp.preference.ArrowPreference
+import top.yukonga.miuix.kmp.preference.SwitchPreference
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileContent(
     members: List<FamilyMember>,
@@ -124,17 +149,14 @@ fun ProfileContent(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "我的",
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.titleLarge
-                    )
-                },
+            SmallTopAppBar(
+                title = "我的",
                 actions = {
                     IconButton(onClick = { showAddDialog = true }) {
-                        Icon(Icons.Default.Add, contentDescription = "添加成员")
+                        Icon(
+                            imageVector = MiuixIcons.Add,
+                            contentDescription = "添加成员"
+                        )
                     }
                 }
             )
@@ -152,8 +174,8 @@ fun ProfileContent(
             item {
                 Text(
                     text = "成员管理",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
+                    style = MiuixTheme.textStyles.title2,
+                    color = MiuixTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold
                 )
             }
@@ -162,16 +184,15 @@ fun ProfileContent(
                 item {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                        ),
-                        shape = MaterialTheme.shapes.large
+                        colors = CardDefaults.defaultColors(
+                            color = MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                        )
                     ) {
                         Text(
                             "暂无成员，点击右上角图标添加",
                             modifier = Modifier.padding(24.dp),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.onSurfaceSecondary
                         )
                     }
                 }
@@ -189,8 +210,8 @@ fun ProfileContent(
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "系统健康同步 (Health Connect)",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
+                    style = MiuixTheme.textStyles.title2,
+                    color = MiuixTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold
                 )
             }
@@ -200,51 +221,40 @@ fun ProfileContent(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                        .background(MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primaryContainer),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.Default.Favorite,
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp),
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(text = "同步至系统健康", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                            Text(
-                                text = "将体重与体脂数据同步至系统 Health Connect",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = healthConnectEnabled,
-                            onCheckedChange = onToggleHealthConnect
-                        )
-                    }
+                    SwitchPreference(
+                        checked = healthConnectEnabled,
+                        onCheckedChange = onToggleHealthConnect,
+                        title = "同步至系统健康",
+                        summary = "将体重与体脂数据同步至系统 Health Connect",
+                        startAction = {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(MiuixTheme.colorScheme.primaryContainer),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = MiuixIcons.FavoritesFill,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp),
+                                    tint = MiuixTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                        },
+                        insideMargin = PaddingValues(horizontal = 20.dp, vertical = 16.dp)
+                    )
 
                     if (healthConnectEnabled) {
                         HorizontalDivider(
                             modifier = Modifier.padding(horizontal = 16.dp),
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                            color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.5f)
                         )
                         SettingsItem(
                             title = "申请健康中心读写权限",
-                            icon = Icons.Default.Security,
+                            icon = MiuixIcons.Lock,
                             onClick = onRequestHealthConnectPermissions
                         )
                     }
@@ -256,8 +266,8 @@ fun ProfileContent(
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "导入小米健康 (Mi Health)",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
+                    style = MiuixTheme.textStyles.title2,
+                    color = MiuixTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold
                 )
             }
@@ -267,7 +277,7 @@ fun ProfileContent(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                        .background(MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
                 ) {
                     // 说明栏
                     Row(
@@ -280,27 +290,27 @@ fun ProfileContent(
                             modifier = Modifier
                                 .size(40.dp)
                                 .clip(CircleShape)
-                                .background(androidx.compose.ui.graphics.Color(0xFFFF6900).copy(alpha = 0.15f)),
+                                .background(Color(0xFFFF6900).copy(alpha = 0.15f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                Icons.Default.FavoriteBorder,
+                                imageVector = MiuixIcons.Favorites,
                                 contentDescription = null,
                                 modifier = Modifier.size(20.dp),
-                                tint = androidx.compose.ui.graphics.Color(0xFFFF6900)
+                                tint = Color(0xFFFF6900)
                             )
                         }
                         Spacer(modifier = Modifier.width(16.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = "同步历史数据到小米健康",
-                                style = MaterialTheme.typography.bodyLarge,
+                                style = MiuixTheme.textStyles.body1,
                                 fontWeight = FontWeight.Medium
                             )
                             Text(
                                 text = "小米健康通过 Health Connect 读取数据。请先开启上方\"同步至系统健康\"并授权，再点击\"立即同步\"将全部历史记录一键导入小米健康。",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceSecondary
                             )
                             if (syncProgress != null) {
                                 Spacer(modifier = Modifier.height(8.dp))
@@ -308,40 +318,40 @@ fun ProfileContent(
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = syncProgress,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.primary
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    color = MiuixTheme.colorScheme.primary
                                 )
                             }
                         }
                     }
                     HorizontalDivider(
                         modifier = Modifier.padding(horizontal = 16.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.5f)
                     )
                     SettingsItem(
                         title = "立即同步全部历史数据",
                         subtitle = "体重与体脂写入 Health Connect，小米健康可直接读取",
-                        icon = Icons.Default.CloudSync,
+                        icon = MiuixIcons.Update,
                         onClick = onBatchSyncToHealthConnect,
                         isLoading = syncProgress != null
                     )
                     HorizontalDivider(
                         modifier = Modifier.padding(horizontal = 16.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.5f)
                     )
                     SettingsItem(
                         title = if (isMiHealthInstalled) "打开小米健康" else "安装小米健康",
                         subtitle = "在小米健康 > 设置 > 数据来源 中启用 Health Connect",
-                        icon = Icons.AutoMirrored.Filled.OpenInNew,
+                        icon = MiuixIcons.Link,
                         onClick = onOpenMiHealth
                     )
                     HorizontalDivider(
                         modifier = Modifier.padding(horizontal = 16.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.5f)
                     )
                     SettingsItem(
                         title = "管理 Health Connect 权限",
-                        icon = Icons.Default.ManageAccounts,
+                        icon = MiuixIcons.Settings,
                         onClick = onOpenHealthConnectSettings
                     )
                 }
@@ -352,8 +362,8 @@ fun ProfileContent(
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "WebDAV 云端备份",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
+                    style = MiuixTheme.textStyles.title2,
+                    color = MiuixTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold
                 )
             }
@@ -363,31 +373,31 @@ fun ProfileContent(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                        .background(MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
                 ) {
                     SettingsItem(
                         title = if (webdavUrl.isBlank()) "配置 WebDAV 服务器" else "WebDAV 已配置 (${if (webdavUrl.length > 24) webdavUrl.take(24) + "..." else webdavUrl})",
-                        icon = Icons.Default.Cloud,
+                        icon = MiuixIcons.CloudFill,
                         onClick = { showWebdavDialog = true }
                     )
                     HorizontalDivider(
                         modifier = Modifier.padding(horizontal = 16.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.5f)
                     )
                     SettingsItem(
                         title = "立即备份到 WebDAV",
                         subtitle = if (lastBackupTime > 0) "上次备份：${dateFormat.format(Date(lastBackupTime))}" else "从未备份",
-                        icon = Icons.Default.CloudUpload,
+                        icon = MiuixIcons.UploadCloud,
                         onClick = onBackupData,
                         isLoading = isOperating
                     )
                     HorizontalDivider(
                         modifier = Modifier.padding(horizontal = 16.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.5f)
                     )
                     SettingsItem(
                         title = "从 WebDAV 恢复数据",
-                        icon = Icons.Default.CloudDownload,
+                        icon = MiuixIcons.Download,
                         onClick = onRestoreData,
                         isLoading = isOperating
                     )
@@ -399,8 +409,8 @@ fun ProfileContent(
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "应用设置",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
+                    style = MiuixTheme.textStyles.title2,
+                    color = MiuixTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold
                 )
             }
@@ -410,7 +420,7 @@ fun ProfileContent(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                        .background(MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
                 ) {
                     // ── 已记住的体脂秤列表（支持同时记住多台：点击切换当前使用设备，右侧按钮移除） ──
                     if (rememberedScales.isNotEmpty()) {
@@ -422,21 +432,21 @@ fun ProfileContent(
                         ) {
                             Text(
                                 text = "已记住的体脂秤 (${rememberedScales.size})",
-                                style = MaterialTheme.typography.labelLarge,
+                                style = MiuixTheme.textStyles.button,
                                 fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = MiuixTheme.colorScheme.onSurfaceSecondary,
                                 modifier = Modifier.weight(1f)
                             )
                             Text(
                                 text = "踩任意一台即可自动连接",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.outline
+                                style = MiuixTheme.textStyles.footnote2,
+                                color = MiuixTheme.colorScheme.outline
                             )
                         }
                         rememberedScales.forEach { scale ->
                             HorizontalDivider(
                                 modifier = Modifier.padding(horizontal = 16.dp),
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.5f)
                             )
                             RememberedScaleItem(
                                 scale = scale,
@@ -449,7 +459,7 @@ fun ProfileContent(
                         // 必须放在分支内，否则列表为空时卡片顶部会出现一条多余的孤立分隔线
                         HorizontalDivider(
                             modifier = Modifier.padding(horizontal = 16.dp),
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                            color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.5f)
                         )
                     }
                     SettingsItem(
@@ -459,22 +469,22 @@ fun ProfileContent(
                         } else {
                             "支持同时记住多台体脂秤（当前 ${rememberedScales.size} 台），随时切换当前使用设备"
                         },
-                        icon = Icons.Default.Bluetooth,
+                        icon = MiuixIcons.SearchDevice,
                         onClick = onNavigateToPairing
                     )
                     HorizontalDivider(
                         modifier = Modifier.padding(horizontal = 16.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.5f)
                     )
                     SettingsItem(
                         title = "体脂秤型号与品牌",
                         subtitle = "${selectedScaleModel.displayName} · 点击切换型号偏好",
-                        icon = Icons.Default.Tune,
+                        icon = MiuixIcons.Tune,
                         onClick = { showModelDialog = true }
                     )
                     HorizontalDivider(
                         modifier = Modifier.padding(horizontal = 16.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.5f)
                     )
                     // ── 电阻抗估算模型切换入口 ──
                     SettingsItem(
@@ -484,7 +494,7 @@ fun ProfileContent(
                         } else {
                             "${selectedBiaModel.displayName} · 切换后自动重算历史记录"
                         },
-                        icon = Icons.Default.Calculate,
+                        icon = MiuixIcons.Tasks,
                         onClick = { showBiaModelDialog = true },
                         isLoading = recalcProgress != null
                     )
@@ -494,12 +504,12 @@ fun ProfileContent(
                     if (isLogViewerSupported) {
                         HorizontalDivider(
                             modifier = Modifier.padding(horizontal = 16.dp),
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                            color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.5f)
                         )
                         SettingsItem(
                             title = "查看运行日志",
                             subtitle = if (logEntries.isEmpty()) "暂无日志" else "共 ${logEntries.size} 条记录",
-                            icon = Icons.AutoMirrored.Filled.Article,
+                            icon = MiuixIcons.Notes,
                             onClick = { showLogDialog = true }
                         )
                     }
@@ -508,7 +518,7 @@ fun ProfileContent(
                     if (isBleCaptureSupported) {
                         HorizontalDivider(
                             modifier = Modifier.padding(horizontal = 16.dp),
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                            color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.5f)
                         )
                         SettingsItem(
                             title = "蓝牙协议抓包 (Debug)",
@@ -517,18 +527,18 @@ fun ProfileContent(
                             } else {
                                 "已捕获 ${bleCaptureEntries.size} 条报文 · 点击查看与导出"
                             },
-                            icon = Icons.Default.BluetoothSearching,
+                            icon = MiuixIcons.Scan,
                             onClick = { showBleCaptureDialog = true }
                         )
                     }
                     HorizontalDivider(
                         modifier = Modifier.padding(horizontal = 16.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.5f)
                     )
                     SettingsItem(
                         title = "关于软件",
                         subtitle = "版本 1.4.1",
-                        icon = Icons.Default.Info,
+                        icon = MiuixIcons.Info,
                         onClick = { }
                     )
                 }
@@ -573,65 +583,69 @@ fun ProfileContent(
 
     if (memberToDelete != null) {
         val target = memberToDelete!!
-        AlertDialog(
-            onDismissRequest = { memberToDelete = null },
-            title = { Text("确认删除成员", fontWeight = FontWeight.Bold) },
-            text = {
-                Text("确定要删除成员「${target.name}」吗？\n删除后该成员的历史测量记录将保留，但不再关联到此成员。")
-            },
-            confirmButton = {
+        OverlayDialog(
+            show = true,
+            title = "确认删除成员",
+            summary = "确定要删除成员「${target.name}」吗？\n删除后该成员的历史测量记录将保留，但不再关联到此成员。",
+            onDismissRequest = { memberToDelete = null }
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 TextButton(
+                    text = "取消",
+                    onClick = { memberToDelete = null },
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(
+                    text = "删除",
                     onClick = {
                         onDeleteMember(target)
                         memberToDelete = null
                     },
                     colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text("删除", fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { memberToDelete = null }) {
-                    Text("取消")
-                }
+                        textColor = MiuixTheme.colorScheme.error
+                    ),
+                    modifier = Modifier.weight(1f)
+                )
             }
-        )
+        }
     }
 
     val scalePendingRemovalTarget = scalePendingRemoval
     if (scalePendingRemovalTarget != null) {
-        AlertDialog(
-            onDismissRequest = { scalePendingRemoval = null },
-            title = { Text("移除这台体脂秤？", fontWeight = FontWeight.Bold) },
-            text = {
-                Text(
-                    "确定要从已记住的列表中移除「${scalePendingRemovalTarget.name}」吗？\n\n" +
-                        "当前共记住 ${rememberedScales.size} 台体脂秤，移除后其余设备仍可自动连接；" +
-                        "若全部移除，App 将暂停自动连接，直到您重新手动搜索并绑定设备。"
-                )
-            },
-            confirmButton = {
+        OverlayDialog(
+            show = true,
+            title = "移除这台体脂秤？",
+            summary = "确定要从已记住的列表中移除「${scalePendingRemovalTarget.name}」吗？\n\n" +
+                "当前共记住 ${rememberedScales.size} 台体脂秤，移除后其余设备仍可自动连接；" +
+                "若全部移除，App 将暂停自动连接，直到您重新手动搜索并绑定设备。",
+            onDismissRequest = { scalePendingRemoval = null }
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 TextButton(
+                    text = "取消",
+                    onClick = { scalePendingRemoval = null },
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(
+                    text = "移除",
                     onClick = {
                         val mac = scalePendingRemovalTarget.mac
                         scalePendingRemoval = null
                         onRemoveScale(mac)
                     },
                     colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text("移除", fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { scalePendingRemoval = null }) {
-                    Text("取消")
-                }
+                        textColor = MiuixTheme.colorScheme.error
+                    ),
+                    modifier = Modifier.weight(1f)
+                )
             }
-        )
+        }
     }
 
     if (showWebdavDialog) {
@@ -674,7 +688,6 @@ fun ProfileContent(
  * 整行可点击 → 切换为当前使用设备；右侧删除按钮 → 从已记住列表中移除该台。
  * 当前使用中的设备以实心图标 + 「使用中」标签高亮。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RememberedScaleItem(
     scale: RememberedScale,
@@ -696,19 +709,19 @@ private fun RememberedScaleItem(
                     .size(40.dp)
                     .clip(CircleShape)
                     .background(
-                        if (isActive) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.primaryContainer
+                        if (isActive) MiuixTheme.colorScheme.primary
+                        else MiuixTheme.colorScheme.primaryContainer
                     ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    Icons.Default.Bluetooth,
+                    imageVector = MiuixIcons.SearchDevice,
                     contentDescription = null,
                     modifier = Modifier.size(20.dp),
                     tint = if (isActive) {
-                        MaterialTheme.colorScheme.onPrimary
+                        MiuixTheme.colorScheme.onPrimary
                     } else {
-                        MaterialTheme.colorScheme.onPrimaryContainer
+                        MiuixTheme.colorScheme.onPrimaryContainer
                     }
                 )
             }
@@ -717,22 +730,22 @@ private fun RememberedScaleItem(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = scale.name,
-                        style = MaterialTheme.typography.bodyLarge,
+                        style = MiuixTheme.textStyles.body1,
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false)
                     )
                     if (isActive) {
                         Spacer(modifier = Modifier.width(6.dp))
                         Surface(
                             shape = RoundedCornerShape(4.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer
+                            color = MiuixTheme.colorScheme.primaryContainer
                         ) {
                             Text(
                                 text = "使用中",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                style = MiuixTheme.textStyles.footnote2,
+                                color = MiuixTheme.colorScheme.onPrimaryContainer,
                                 modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                             )
                         }
@@ -743,16 +756,16 @@ private fun RememberedScaleItem(
                         scale.detail.takeIf { it.isNotBlank() },
                         scale.mac
                     ).joinToString(" · "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceSecondary
                 )
             }
             IconButton(onClick = onRemove) {
                 Icon(
-                    Icons.Default.Delete,
+                    imageVector = MiuixIcons.Delete,
                     contentDescription = "移除 ${scale.name}",
                     modifier = Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.outline
+                    tint = MiuixTheme.colorScheme.outline
                 )
             }
         }
@@ -767,60 +780,42 @@ fun SettingsItem(
     onClick: () -> Unit,
     isLoading: Boolean = false
 ) {
-    Surface(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        color = androidx.compose.ui.graphics.Color.Transparent,
-        enabled = !isLoading
-    ) {
-        Row(
-            modifier = Modifier.padding(20.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+    ArrowPreference(
+        title = title,
+        summary = subtitle,
+        startAction = {
             Box(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer),
+                    .background(MiuixTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center
             ) {
                 if (isLoading) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(20.dp),
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        colors = ProgressIndicatorDefaults.progressIndicatorColors(
+                            foregroundColor = MiuixTheme.colorScheme.onPrimaryContainer,
+                            backgroundColor = Color.Transparent
+                        ),
                         strokeWidth = 2.dp
                     )
                 } else {
                     Icon(
-                        icon,
+                        imageVector = icon,
                         contentDescription = null,
                         modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        tint = MiuixTheme.colorScheme.onPrimaryContainer
                     )
                 }
             }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(text = title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                if (subtitle != null) {
-                    Text(
-                        text = subtitle,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-            Icon(
-                Icons.AutoMirrored.Filled.ArrowForward,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.outline
-            )
-        }
-    }
+        },
+        insideMargin = PaddingValues(20.dp),
+        onClick = onClick,
+        enabled = !isLoading
+    )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LogViewerDialog(
     entries: List<AppLogger.LogEntry>,
@@ -841,89 +836,87 @@ fun LogViewerDialog(
         }
     }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+    OverlayDialog(
+        show = true,
+        title = "运行日志",
+        summary = "${entries.size} 条记录",
+        onDismissRequest = onDismiss
     ) {
-        Scaffold(
+        Column(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(top = 32.dp),
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Column {
-                            Text("运行日志", fontWeight = FontWeight.Bold)
-                            Text(
-                                "${entries.size} 条记录",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.Default.Close, contentDescription = "关闭")
-                        }
-                    },
-                    actions = {
-                        IconButton(onClick = {
-                            val text = AppLogger.exportText()
-                            clipboardManager.setText(AnnotatedString(text))
-                            Toast.makeText(context, "已复制全部日志", Toast.LENGTH_SHORT).show()
-                        }) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = "复制")
-                        }
-                        IconButton(onClick = {
-                            val text = AppLogger.exportText()
-                            val intent = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_TEXT, text)
-                                putExtra(Intent.EXTRA_SUBJECT, "AppLog")
-                            }
-                            context.startActivity(Intent.createChooser(intent, "分享日志"))
-                        }) {
-                            Icon(Icons.Default.Share, contentDescription = "分享")
-                        }
-                        IconButton(onClick = onClear) {
-                            Icon(Icons.Default.Delete, contentDescription = "清空")
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface
+                .fillMaxWidth()
+                .heightIn(max = 420.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        imageVector = MiuixIcons.Basic.Close,
+                        contentDescription = "关闭"
                     )
-                )
-            }
-        ) { innerPadding ->
-            if (entries.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.Article,
-                            contentDescription = null,
-                            modifier = Modifier.size(48.dp),
-                            tint = MaterialTheme.colorScheme.outlineVariant
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            "暂无日志",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                }
+                Spacer(modifier = Modifier.weight(1f))
+                IconButton(onClick = {
+                    val text = AppLogger.exportText()
+                    clipboardManager.setText(AnnotatedString(text))
+                    Toast.makeText(context, "已复制全部日志", Toast.LENGTH_SHORT).show()
+                }) {
+                    Icon(
+                        imageVector = MiuixIcons.Copy,
+                        contentDescription = "复制"
+                    )
+                }
+                IconButton(onClick = {
+                    val text = AppLogger.exportText()
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, text)
+                        putExtra(Intent.EXTRA_SUBJECT, "AppLog")
                     }
+                    context.startActivity(Intent.createChooser(intent, "分享日志"))
+                }) {
+                    Icon(
+                        imageVector = MiuixIcons.Share,
+                        contentDescription = "分享"
+                    )
+                }
+                IconButton(onClick = onClear) {
+                    Icon(
+                        imageVector = MiuixIcons.Delete,
+                        contentDescription = "清空"
+                    )
+                }
+            }
+            if (entries.isEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = MiuixIcons.Notes,
+                        contentDescription = null,
+                        modifier = Modifier.size(48.dp),
+                        tint = MiuixTheme.colorScheme.dividerLine
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        "暂无日志",
+                        style = MiuixTheme.textStyles.body2,
+                        color = MiuixTheme.colorScheme.onSurfaceSecondary
+                    )
                 }
             } else {
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
-                        .background(MaterialTheme.colorScheme.surface),
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .background(MiuixTheme.colorScheme.surface),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
@@ -942,10 +935,10 @@ private fun LogEntryRow(
     timeFmt: SimpleDateFormat
 ) {
     val (levelColor, levelBg) = when (entry.level) {
-        AppLogger.Level.DEBUG -> MaterialTheme.colorScheme.onSurfaceVariant to Color.Transparent
+        AppLogger.Level.DEBUG -> MiuixTheme.colorScheme.onSurfaceSecondary to Color.Transparent
         AppLogger.Level.INFO  -> Color(0xFF2196F3) to Color(0xFF2196F3).copy(alpha = 0.07f)
         AppLogger.Level.WARN  -> Color(0xFFFF9800) to Color(0xFFFF9800).copy(alpha = 0.07f)
-        AppLogger.Level.ERROR -> MaterialTheme.colorScheme.error to MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.15f)
+        AppLogger.Level.ERROR -> MiuixTheme.colorScheme.error to MiuixTheme.colorScheme.errorContainer.copy(alpha = 0.15f)
     }
 
     Row(
@@ -960,7 +953,7 @@ private fun LogEntryRow(
             text = timeFmt.format(Date(entry.timestamp)),
             fontSize = 10.sp,
             fontFamily = FontFamily.Monospace,
-            color = MaterialTheme.colorScheme.outline,
+            color = MiuixTheme.colorScheme.outline,
             modifier = Modifier.padding(top = 1.dp)
         )
         Spacer(modifier = Modifier.width(6.dp))
@@ -978,9 +971,9 @@ private fun LogEntryRow(
             fontSize = 11.sp,
             fontFamily = FontFamily.Monospace,
             color = if (entry.level == AppLogger.Level.DEBUG)
-                MaterialTheme.colorScheme.onSurfaceVariant
+                MiuixTheme.colorScheme.onSurfaceSecondary
             else
-                MaterialTheme.colorScheme.onSurface,
+                MiuixTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f)
         )
     }
@@ -996,7 +989,6 @@ private fun LogEntryRow(
  *
  * 全部导出内容均来自 [BleProtocolRecorder]，与 AppLogger 的日志缓冲相互独立，不会被日志刷掉。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun BleProtocolCaptureDialog(
     entries: List<BleProtocolRecorder.Entry>,
@@ -1020,115 +1012,118 @@ private fun BleProtocolCaptureDialog(
         }
     }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+    OverlayDialog(
+        show = true,
+        title = "蓝牙协议抓包",
+        summary = "${entries.size} 条报文 · Debug 专用",
+        onDismissRequest = onDismiss
     ) {
-        Scaffold(
+        Column(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(top = 32.dp),
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Column {
-                            Text("蓝牙协议抓包", fontWeight = FontWeight.Bold)
-                            Text(
-                                "${entries.size} 条报文 · Debug 专用",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.Default.Close, contentDescription = "关闭")
-                        }
-                    },
-                    actions = {
-                        // 1) 导出为文件并分享（推荐：完整、可离线分析）
-                        IconButton(
-                            enabled = entries.isNotEmpty() && !isExporting,
-                            onClick = {
-                                scope.launch {
-                                    isExporting = true
-                                    val intent = onShareFile()
-                                    isExporting = false
-                                    // 失败原因由 ViewModel 通过 statusMessage 统一提示，此处仅在成功时拉起分享面板
-                                    if (intent != null) {
-                                        context.startActivity(Intent.createChooser(intent, "分享蓝牙协议抓包"))
-                                    }
-                                }
-                            }
-                        ) {
-                            if (isExporting) {
-                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                            } else {
-                                Icon(Icons.Default.Share, contentDescription = "导出文件并分享")
-                            }
-                        }
-                        // 2) 复制 JSON Lines
-                        IconButton(
-                            enabled = entries.isNotEmpty(),
-                            onClick = {
-                                clipboardManager.setText(AnnotatedString(onExportJson()))
-                                Toast.makeText(context, "已复制抓包 (JSON Lines)", Toast.LENGTH_SHORT).show()
-                            }
-                        ) {
-                            Icon(Icons.Default.DataObject, contentDescription = "复制 JSONL")
-                        }
-                        // 3) 复制人类可读文本
-                        IconButton(
-                            enabled = entries.isNotEmpty(),
-                            onClick = {
-                                clipboardManager.setText(AnnotatedString(onExportText()))
-                                Toast.makeText(context, "已复制抓包 (文本)", Toast.LENGTH_SHORT).show()
-                            }
-                        ) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = "复制文本")
-                        }
-                        IconButton(
-                            enabled = entries.isNotEmpty(),
-                            onClick = onClear
-                        ) {
-                            Icon(Icons.Default.Delete, contentDescription = "清空")
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface
+                .fillMaxWidth()
+                .heightIn(max = 420.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        imageVector = MiuixIcons.Basic.Close,
+                        contentDescription = "关闭"
                     )
-                )
+                }
+                Spacer(modifier = Modifier.weight(1f))
+                // 1) 导出为文件并分享（推荐：完整、可离线分析）
+                IconButton(
+                    enabled = entries.isNotEmpty() && !isExporting,
+                    onClick = {
+                        scope.launch {
+                            isExporting = true
+                            val intent = onShareFile()
+                            isExporting = false
+                            // 失败原因由 ViewModel 通过 statusMessage 统一提示，此处仅在成功时拉起分享面板
+                            if (intent != null) {
+                                context.startActivity(Intent.createChooser(intent, "分享蓝牙协议抓包"))
+                            }
+                        }
+                    }
+                ) {
+                    if (isExporting) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(
+                            imageVector = MiuixIcons.Share,
+                            contentDescription = "导出文件并分享"
+                        )
+                    }
+                }
+                // 2) 复制 JSON Lines
+                IconButton(
+                    enabled = entries.isNotEmpty(),
+                    onClick = {
+                        clipboardManager.setText(AnnotatedString(onExportJson()))
+                        Toast.makeText(context, "已复制抓包 (JSON Lines)", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Icon(
+                        imageVector = MiuixIcons.File,
+                        contentDescription = "复制 JSONL"
+                    )
+                }
+                // 3) 复制人类可读文本
+                IconButton(
+                    enabled = entries.isNotEmpty(),
+                    onClick = {
+                        clipboardManager.setText(AnnotatedString(onExportText()))
+                        Toast.makeText(context, "已复制抓包 (文本)", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Icon(
+                        imageVector = MiuixIcons.Copy,
+                        contentDescription = "复制文本"
+                    )
+                }
+                IconButton(
+                    enabled = entries.isNotEmpty(),
+                    onClick = onClear
+                ) {
+                    Icon(
+                        imageVector = MiuixIcons.Delete,
+                        contentDescription = "清空"
+                    )
+                }
             }
-        ) { innerPadding ->
             if (entries.isEmpty()) {
-                Box(
+                Column(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding),
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.padding(horizontal = 32.dp)
                     ) {
                         Icon(
-                            Icons.Default.BluetoothSearching,
+                            imageVector = MiuixIcons.Scan,
                             contentDescription = null,
                             modifier = Modifier.size(48.dp),
-                            tint = MaterialTheme.colorScheme.outlineVariant
+                            tint = MiuixTheme.colorScheme.dividerLine
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
                             "暂无蓝牙协议报文",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.onSurfaceSecondary
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
                             "返回「测量」页，点亮体脂秤并完成一次称重，这里会自动记录扫描广播、" +
                                 "GATT 连接、特征订阅、握手包与体重/阻抗通知的完整原始字节。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline,
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.outline,
                             textAlign = TextAlign.Center
                         )
                     }
@@ -1137,9 +1132,9 @@ private fun BleProtocolCaptureDialog(
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
-                        .background(MaterialTheme.colorScheme.surface),
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .background(MiuixTheme.colorScheme.surface),
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
@@ -1149,8 +1144,8 @@ private fun BleProtocolCaptureDialog(
                             text = "SCAN=广播  IN=秤→手机  OUT=手机→秤  EVENT=连接/订阅状态机   " +
                                 "容量 ${BleProtocolRecorder.MAX_ENTRIES} 条" +
                                 if (BleProtocolRecorder.dropped() > 0) "（已滚出 ${BleProtocolRecorder.dropped()} 条）" else "",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MiuixTheme.textStyles.footnote2,
+                            color = MiuixTheme.colorScheme.onSurfaceSecondary,
                             fontFamily = FontFamily.Monospace,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
                         )
@@ -1171,7 +1166,7 @@ private fun BleCaptureEntryRow(index: Int, entry: BleProtocolRecorder.Entry) {
         "IN" -> Color(0xFF2196F3)     // 秤 → 手机
         "OUT" -> Color(0xFFFF9800)    // 手机 → 秤
         "SCAN" -> Color(0xFF9C27B0)   // 广播
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
+        else -> MiuixTheme.colorScheme.onSurfaceSecondary
     }
 
     Column(
@@ -1189,7 +1184,7 @@ private fun BleCaptureEntryRow(index: Int, entry: BleProtocolRecorder.Entry) {
                 text = index.toString().padStart(4, '0'),
                 fontSize = 10.sp,
                 fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.outline
+                color = MiuixTheme.colorScheme.outline
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
@@ -1205,7 +1200,7 @@ private fun BleCaptureEntryRow(index: Int, entry: BleProtocolRecorder.Entry) {
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = MiuixTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f)
             )
             Text(
@@ -1216,7 +1211,7 @@ private fun BleCaptureEntryRow(index: Int, entry: BleProtocolRecorder.Entry) {
                 },
                 fontSize = 10.sp,
                 fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.outline
+                color = MiuixTheme.colorScheme.outline
             )
         }
 
@@ -1228,7 +1223,7 @@ private fun BleCaptureEntryRow(index: Int, entry: BleProtocolRecorder.Entry) {
                 },
                 fontSize = 10.sp,
                 fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MiuixTheme.colorScheme.onSurfaceSecondary,
                 modifier = Modifier.padding(start = 26.dp)
             )
         }
@@ -1238,14 +1233,14 @@ private fun BleCaptureEntryRow(index: Int, entry: BleProtocolRecorder.Entry) {
                 text = entry.payloadHex,
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = MiuixTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(start = 26.dp)
             )
             Text(
                 text = BleProtocolRecorder.toAscii(BleProtocolRecorder.hexToBytes(entry.payloadHex)),
                 fontSize = 10.sp,
                 fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.outline,
+                color = MiuixTheme.colorScheme.outline,
                 modifier = Modifier.padding(start = 26.dp)
             )
         }
@@ -1266,54 +1261,43 @@ fun WebDavConfigDialog(
     var username by remember { mutableStateOf(initialUsername) }
     var password by remember { mutableStateOf(initialPassword) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("配置 WebDAV 云同步") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    "支持坚果云、Nextcloud、OwnCloud、NAS 等任意标准 WebDAV 服务。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                OutlinedTextField(
-                    value = url,
-                    onValueChange = { url = it },
-                    label = { Text("服务器 URL (如 https://dav.jianguoyun.com/dav/)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.medium
-                )
-                OutlinedTextField(
-                    value = username,
-                    onValueChange = { username = it },
-                    label = { Text("账号 / 用户名") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.medium
-                )
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text("密码 / 应用授权码") },
-                    visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.medium
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = { onSave(url, username, password) },
-                shape = MaterialTheme.shapes.medium
+    OverlayDialog(
+        show = true,
+        title = "配置 WebDAV 云同步",
+        summary = "支持坚果云、Nextcloud、OwnCloud、NAS 等任意标准 WebDAV 服务。",
+        onDismissRequest = onDismiss
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            TextField(
+                value = url,
+                onValueChange = { url = it },
+                label = "服务器 URL (如 https://dav.jianguoyun.com/dav/)",
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+            TextField(
+                value = username,
+                onValueChange = { username = it },
+                label = "账号 / 用户名",
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+            TextField(
+                value = password,
+                onValueChange = { password = it },
+                label = "密码 / 应用授权码",
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("保存")
-            }
-        },
-        dismissButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
+                Button(
                     onClick = { onTest(url, username, password) },
                     enabled = !isOperating,
-                    shape = MaterialTheme.shapes.medium
+                    modifier = Modifier.weight(1f)
                 ) {
                     if (isOperating) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
@@ -1321,21 +1305,30 @@ fun WebDavConfigDialog(
                         Text("测试连接")
                     }
                 }
-                TextButton(onClick = onDismiss) {
-                    Text("取消")
+                TextButton(
+                    text = "取消",
+                    onClick = onDismiss,
+                    modifier = Modifier.weight(1f)
+                )
+                Button(
+                    onClick = { onSave(url, username, password) },
+                    colors = ButtonDefaults.buttonColorsPrimary(),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("保存")
                 }
             }
         }
-    )
+    }
 }
 
 @Composable
 fun MemberCard(member: FamilyMember, onDelete: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
+        cornerRadius = 8.dp,
+        colors = CardDefaults.defaultColors(
+            color = MiuixTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
         )
     ) {
         Row(
@@ -1346,33 +1339,39 @@ fun MemberCard(member: FamilyMember, onDelete: () -> Unit) {
                 modifier = Modifier
                     .size(56.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.secondaryContainer),
+                    .background(MiuixTheme.colorScheme.secondaryContainer),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    Icons.Default.Person,
+                    imageVector = MiuixIcons.Contacts,
                     contentDescription = null,
                     modifier = Modifier.size(32.dp),
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer
+                    tint = MiuixTheme.colorScheme.onSecondaryContainer
                 )
             }
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = member.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(
+                    text = member.name,
+                    style = MiuixTheme.textStyles.title1,
+                    fontWeight = FontWeight.Bold
+                )
                 Text(
                     text = "${if (member.sex == Sex.MALE) "男" else "女"} · ${member.heightCm.toInt()}cm",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceSecondary
                 )
             }
             IconButton(
                 onClick = onDelete,
-                colors = IconButtonDefaults.iconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f),
-                    contentColor = MaterialTheme.colorScheme.error
-                )
+                backgroundColor = MiuixTheme.colorScheme.errorContainer.copy(alpha = 0.2f)
             ) {
-                Icon(Icons.Default.Delete, contentDescription = "删除", modifier = Modifier.size(20.dp))
+                Icon(
+                    imageVector = MiuixIcons.Delete,
+                    contentDescription = "删除",
+                    modifier = Modifier.size(20.dp),
+                    tint = MiuixTheme.colorScheme.error
+                )
             }
         }
     }
@@ -1387,71 +1386,90 @@ fun AddMemberDialog(
     var sex by remember { mutableStateOf(Sex.MALE) }
     var height by remember { mutableStateOf("170") }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("添加新成员") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("姓名") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.medium
-                )
+    OverlayDialog(
+        show = true,
+        title = "添加新成员",
+        onDismissRequest = onDismiss
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            TextField(
+                value = name,
+                onValueChange = { name = it },
+                label = "姓名",
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
 
-                Text("性别", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    FilterChip(
-                        selected = sex == Sex.MALE,
-                        onClick = { sex = Sex.MALE },
-                        label = { Text("男生") },
-                        leadingIcon = if (sex == Sex.MALE) { { Icon(Icons.Default.Check, null) } } else null
-                    )
-                    FilterChip(
-                        selected = sex == Sex.FEMALE,
-                        onClick = { sex = Sex.FEMALE },
-                        label = { Text("女生") },
-                        leadingIcon = if (sex == Sex.FEMALE) { { Icon(Icons.Default.Check, null) } } else null
-                    )
-                }
-
-                OutlinedTextField(
-                    value = height,
-                    onValueChange = { height = it },
-                    label = { Text("身高 (cm)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.medium
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    val finalName = if (name.isBlank()) "新成员" else name.trim()
-                    onConfirm(
-                        finalName,
-                        sex,
-                        height.toDoubleOrNull() ?: 170.0,
-                        System.currentTimeMillis() - (1000L * 60 * 60 * 24 * 365 * 25),
-                        0.0
-                    )
-                    onDismiss()
-                },
-                shape = MaterialTheme.shapes.medium
+            Text(
+                text = "性别",
+                style = MiuixTheme.textStyles.button,
+                color = MiuixTheme.colorScheme.primary
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Text("确定")
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable { sex = Sex.MALE }
+                ) {
+                    RadioButton(
+                        selected = sex == Sex.MALE,
+                        onClick = null
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(text = "男生", style = MiuixTheme.textStyles.body1)
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable { sex = Sex.FEMALE }
+                ) {
+                    RadioButton(
+                        selected = sex == Sex.FEMALE,
+                        onClick = null
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(text = "女生", style = MiuixTheme.textStyles.body1)
+                }
             }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消")
+
+            TextField(
+                value = height,
+                onValueChange = { height = it },
+                label = "身高 (cm)",
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                TextButton(
+                    text = "取消",
+                    onClick = onDismiss,
+                    modifier = Modifier.weight(1f)
+                )
+                Button(
+                    onClick = {
+                        val finalName = if (name.isBlank()) "新成员" else name.trim()
+                        onConfirm(
+                            finalName,
+                            sex,
+                            height.toDoubleOrNull() ?: 170.0,
+                            System.currentTimeMillis() - (1000L * 60 * 60 * 24 * 365 * 25),
+                            0.0
+                        )
+                        onDismiss()
+                    },
+                    colors = ButtonDefaults.buttonColorsPrimary(),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("确定")
+                }
             }
         }
-    )
+    }
 }
 
 @Composable
@@ -1575,4 +1593,3 @@ fun ProfileScreen(
         modifier = modifier
     )
 }
-

@@ -7,10 +7,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,6 +26,21 @@ import com.example.dianzicheng.domain.BodyMeasurement
 import com.example.dianzicheng.domain.FamilyMember
 import com.example.dianzicheng.domain.Sex
 import com.example.dianzicheng.ui.theme.电子秤Theme
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.SmallTopAppBar
+import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Back
+import top.yukonga.miuix.kmp.icon.extended.Delete
+import top.yukonga.miuix.kmp.overlay.OverlayDialog
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -46,7 +57,6 @@ import java.util.Locale
  * 无 BIA 数据（未赤脚称重）的记录中，体脂率等指标值为 0，构建统计序列时直接过滤，
  * 不参与计算，对应卡片显示「暂无有效数据」。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryDataScreen(
     history: List<BodyMeasurement>,
@@ -83,11 +93,11 @@ fun HistoryDataScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("历史数据", fontWeight = FontWeight.Bold) },
+            SmallTopAppBar(
+                title = "历史数据",
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(MiuixIcons.Back, contentDescription = "返回")
                     }
                 }
             )
@@ -97,8 +107,8 @@ fun HistoryDataScreen(
             Box(Modifier.fillMaxSize().padding(innerPadding), contentAlignment = Alignment.Center) {
                 Text(
                     "暂无历史数据",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.outline
+                    style = MiuixTheme.textStyles.body1,
+                    color = MiuixTheme.colorScheme.outline
                 )
             }
             return@Scaffold
@@ -130,9 +140,9 @@ fun HistoryDataScreen(
             item(key = "summary_header") {
                 Text(
                     text = "指标数据",
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MiuixTheme.textStyles.title3.copy(fontSize = 14.sp),
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = MiuixTheme.colorScheme.primary,
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
@@ -145,9 +155,9 @@ fun HistoryDataScreen(
             item(key = "list_header") {
                 Text(
                     text = "全部记录（${sorted.size} 次）",
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MiuixTheme.textStyles.title3.copy(fontSize = 14.sp),
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = MiuixTheme.colorScheme.primary,
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
@@ -172,31 +182,39 @@ fun HistoryDataScreen(
     // history Flow 自动推送更新，本页概览与数据卡随之刷新
     val deleteTarget = measurementToDelete
     if (deleteTarget != null) {
-        AlertDialog(
-            onDismissRequest = { measurementToDelete = null },
-            title = { Text("确认删除", fontWeight = FontWeight.Bold) },
-            text = {
-                Text(
-                    "确定要删除 ${dateFormat.format(Date(deleteTarget.measuredAtEpochMs))} 的 " +
-                        "${String.format("%.2f", deleteTarget.weightKg)} kg 测量记录吗？此操作无法撤销。"
-                )
-            },
-            confirmButton = {
+        OverlayDialog(
+            show = true,
+            title = "确认删除",
+            summary = "确定要删除 ${dateFormat.format(Date(deleteTarget.measuredAtEpochMs))} 的 " +
+                "${String.format("%.2f", deleteTarget.weightKg)} kg 测量记录吗？此操作无法撤销。",
+            summaryColor = MiuixTheme.colorScheme.onSurface,
+            onDismissRequest = { measurementToDelete = null }
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
                 TextButton(
+                    text = "取消",
+                    onClick = { measurementToDelete = null },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(20.dp))
+                TextButton(
+                    text = "删除",
                     onClick = {
                         onDelete(deleteTarget)
                         measurementToDelete = null
-                    }
-                ) {
-                    Text("删除", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { measurementToDelete = null }) {
-                    Text("取消")
-                }
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColors(
+                        color = MiuixTheme.colorScheme.error,
+                        textColor = MiuixTheme.colorScheme.onError
+                    ),
+                    textStyle = MiuixTheme.textStyles.button.copy(fontWeight = FontWeight.Bold)
+                )
             }
-        )
+        }
     }
 }
 
@@ -208,9 +226,8 @@ data class HistorySummaryItem(val label: String, val value: String)
 fun HistorySummaryCard(items: List<HistorySummaryItem>, modifier: Modifier = Modifier) {
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        cornerRadius = 16.dp,
+        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surface)
     ) {
         Row(
             modifier = Modifier
@@ -222,13 +239,13 @@ fun HistorySummaryCard(items: List<HistorySummaryItem>, modifier: Modifier = Mod
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         text = item.label,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.outline
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = item.value,
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MiuixTheme.textStyles.title2.copy(fontSize = 16.sp),
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -271,15 +288,14 @@ fun MetricDataCard(summary: MetricSummary, modifier: Modifier = Modifier) {
 
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        cornerRadius = 16.dp,
+        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surface)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = summary.label,
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MiuixTheme.textStyles.title3.copy(fontSize = 14.sp),
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f)
                 )
@@ -287,7 +303,7 @@ fun MetricDataCard(summary: MetricSummary, modifier: Modifier = Modifier) {
                     text = if (latest != null) String.format(fmt, latest) + summary.unit else "--",
                     fontSize = 22.sp,
                     fontWeight = FontWeight.Black,
-                    color = if (latest != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                    color = if (latest != null) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.outline
                 )
             }
 
@@ -296,8 +312,8 @@ fun MetricDataCard(summary: MetricSummary, modifier: Modifier = Modifier) {
             if (summary.values.isEmpty()) {
                 Text(
                     text = "暂无有效数据（需赤脚称重）",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.outline
                 )
             } else {
                 Row(modifier = Modifier.fillMaxWidth()) {
@@ -317,14 +333,14 @@ fun MetricStatCell(label: String, value: String, modifier: Modifier = Modifier) 
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.outline,
+            style = MiuixTheme.textStyles.footnote2,
+            color = MiuixTheme.colorScheme.outline,
             maxLines = 1
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = value,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MiuixTheme.textStyles.body2,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -348,26 +364,27 @@ fun HistoryMetricCard(
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(10.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+            .background(MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
             .padding(vertical = 10.dp, horizontal = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
             text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.outline,
+            style = MiuixTheme.textStyles.footnote2,
+            color = MiuixTheme.colorScheme.outline,
             maxLines = 1
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = value,
-            style = MaterialTheme.typography.bodyLarge,
+            style = MiuixTheme.textStyles.body1,
             fontWeight = FontWeight.Bold,
-            color = if (value == "--") MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface,
+            color = if (value == "--") MiuixTheme.colorScheme.outline else MiuixTheme.colorScheme.onSurface,
             maxLines = 1
         )
         if (status != null) {
-            val statusColor = if (status == "标准") Color(0xFF4CAF50) else MaterialTheme.colorScheme.error
+            // 「标准」绿为应用自有的健康区间语义色（非主题 token），保持原值不变
+            val statusColor = if (status == "标准") Color(0xFF4CAF50) else MiuixTheme.colorScheme.error
             Surface(
                 color = statusColor.copy(alpha = 0.1f),
                 shape = CircleShape,
@@ -376,7 +393,7 @@ fun HistoryMetricCard(
                 Text(
                     text = status,
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MiuixTheme.textStyles.footnote2,
                     fontSize = 10.sp,
                     color = statusColor
                 )
@@ -398,11 +415,10 @@ fun ModernMeasurementCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onNavigateToDetail(measurement.id) },
-        shape = RoundedCornerShape(8.dp), // Using a clean, slightly rounded card design instead of extraLarge
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        cornerRadius = 8.dp, // Using a clean, slightly rounded card design instead of extraLarge
+        colors = CardDefaults.defaultColors(
+            color = MiuixTheme.colorScheme.surface
+        )
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
             // 头部：左侧日期 + 成员标签，右侧删除按钮；体重由下方六指标卡片统一呈现
@@ -412,32 +428,32 @@ fun ModernMeasurementCard(
             ) {
                 Text(
                     text = dateStr,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
+                    style = MiuixTheme.textStyles.footnote2.copy(fontSize = 12.sp),
+                    color = MiuixTheme.colorScheme.primary,
                     modifier = Modifier.weight(1f)
                 )
 
-                IconButton(
-                    onClick = onDelete,
-                    colors = IconButtonDefaults.iconButtonColors(
-                        contentColor = MaterialTheme.colorScheme.outlineVariant
+                IconButton(onClick = onDelete) {
+                    Icon(
+                        MiuixIcons.Delete,
+                        contentDescription = "删除",
+                        modifier = Modifier.size(20.dp),
+                        tint = MiuixTheme.colorScheme.outline
                     )
-                ) {
-                    Icon(Icons.Default.Delete, contentDescription = "删除", modifier = Modifier.size(20.dp))
                 }
             }
 
             // Member Name tag if present
             if (measurement.memberNameSnapshot != null) {
                 Surface(
-                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                    color = MiuixTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
                     shape = RoundedCornerShape(4.dp)
                 ) {
                     Text(
                         text = measurement.memberNameSnapshot,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.onSecondaryContainer
                     )
                 }
                 Spacer(modifier = Modifier.height(12.dp))
@@ -455,14 +471,14 @@ fun ModernMeasurementCard(
                     modifier = Modifier
                         .weight(1.1f)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f))
+                        .background(MiuixTheme.colorScheme.primaryContainer.copy(alpha = 0.4f))
                         .padding(vertical = 10.dp, horizontal = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
                         text = "体重",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.onSurfaceSecondary,
                         maxLines = 1
                     )
                     Spacer(modifier = Modifier.height(4.dp))
@@ -470,13 +486,13 @@ fun ModernMeasurementCard(
                         text = String.format("%.2f", measurement.weightKg),
                         fontSize = 26.sp,
                         fontWeight = FontWeight.Black,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = MiuixTheme.colorScheme.primary,
                         maxLines = 1
                     )
                     Text(
                         text = "kg",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline,
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.outline,
                         maxLines = 1
                     )
                 }
@@ -523,8 +539,8 @@ fun ModernMeasurementCard(
 
             Text(
                 text = "点击查看详情 ›",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
+                style = MiuixTheme.textStyles.footnote2,
+                color = MiuixTheme.colorScheme.primary,
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = TextAlign.End
             )

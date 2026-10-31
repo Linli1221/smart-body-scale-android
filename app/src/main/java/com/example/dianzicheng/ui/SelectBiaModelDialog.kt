@@ -1,13 +1,10 @@
 package com.example.dianzicheng.ui
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material3.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -16,6 +13,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.dianzicheng.domain.BiaModel
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.RadioButton
+import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.basic.Check
+import top.yukonga.miuix.kmp.icon.extended.Info
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.window.WindowDialog
 
 /**
  * 选择电阻抗（BIA）体成分估算模型的对话框。
@@ -37,24 +46,13 @@ fun SelectBiaModelDialog(
     var selected by remember { mutableStateOf(currentModel) }
     val categories = remember { BiaModel.grouped() }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Column {
-                Text(
-                    text = "选择体脂估算模型",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "切换后自动用新公式重算全部历史记录，历史曲线保持同一口径",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        },
-        text = {
+    WindowDialog(
+        show = true,
+        title = "选择体脂估算模型",
+        summary = "切换后自动用新公式重算全部历史记录，历史曲线保持同一口径",
+        onDismissRequest = onDismiss
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -65,8 +63,8 @@ fun SelectBiaModelDialog(
                     item(key = "header_$categoryName") {
                         Text(
                             text = categoryName,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
+                            style = MiuixTheme.textStyles.footnote2,
+                            color = MiuixTheme.colorScheme.primary,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
                         )
@@ -75,19 +73,18 @@ fun SelectBiaModelDialog(
                     items(models, key = { it.id }) { model ->
                         val isSelected = model == selected
                         Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { selected = model },
-                            shape = MaterialTheme.shapes.medium,
+                            onClick = { selected = model },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
                             color = if (isSelected) {
-                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                                MiuixTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
                             } else {
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+                                MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.25f)
                             },
                             border = if (isSelected) {
-                                androidx.compose.foundation.BorderStroke(
+                                BorderStroke(
                                     1.5.dp,
-                                    MaterialTheme.colorScheme.primary
+                                    MiuixTheme.colorScheme.primary
                                 )
                             } else null
                         ) {
@@ -106,19 +103,19 @@ fun SelectBiaModelDialog(
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Text(
                                                 text = model.displayName,
-                                                style = MaterialTheme.typography.bodyMedium,
+                                                style = MiuixTheme.textStyles.body2,
                                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                             )
                                             if (model == BiaModel.DEFAULT) {
                                                 Spacer(modifier = Modifier.width(6.dp))
                                                 Surface(
-                                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                                    shape = MaterialTheme.shapes.extraSmall
+                                                    color = MiuixTheme.colorScheme.primaryContainer,
+                                                    shape = RoundedCornerShape(4.dp)
                                                 ) {
                                                     Text(
                                                         text = "推荐",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.primary,
+                                                        style = MiuixTheme.textStyles.footnote2,
+                                                        color = MiuixTheme.colorScheme.primary,
                                                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                                                     )
                                                 }
@@ -127,8 +124,8 @@ fun SelectBiaModelDialog(
                                         Spacer(modifier = Modifier.height(2.dp))
                                         Text(
                                             text = model.description,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            style = MiuixTheme.textStyles.footnote1,
+                                            color = MiuixTheme.colorScheme.onSurfaceSecondary
                                         )
                                     }
                                 }
@@ -137,16 +134,16 @@ fun SelectBiaModelDialog(
                                 if (isSelected) {
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Surface(
-                                        shape = MaterialTheme.shapes.small,
-                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.6f),
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Column(modifier = Modifier.padding(8.dp)) {
                                             Row(verticalAlignment = Alignment.Top) {
                                                 Icon(
-                                                    imageVector = Icons.Default.Info,
+                                                    imageVector = MiuixIcons.Info,
                                                     contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    tint = MiuixTheme.colorScheme.primary,
                                                     modifier = Modifier
                                                         .size(16.dp)
                                                         .padding(top = 2.dp)
@@ -155,22 +152,22 @@ fun SelectBiaModelDialog(
                                                 Column {
                                                     Text(
                                                         text = "适用人群：${model.brand}",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        style = MiuixTheme.textStyles.footnote2,
+                                                        color = MiuixTheme.colorScheme.onSurfaceSecondary
                                                     )
                                                     Spacer(modifier = Modifier.height(4.dp))
                                                     Text(
                                                         text = model.formulaText,
-                                                        style = MaterialTheme.typography.labelSmall,
+                                                        style = MiuixTheme.textStyles.footnote2,
                                                         fontFamily = FontFamily.Monospace,
-                                                        color = MaterialTheme.colorScheme.onSurface,
+                                                        color = MiuixTheme.colorScheme.onSurface,
                                                         lineHeight = 16.sp
                                                     )
                                                     Spacer(modifier = Modifier.height(4.dp))
                                                     Text(
                                                         text = "来源：${model.source}",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        style = MiuixTheme.textStyles.footnote2,
+                                                        color = MiuixTheme.colorScheme.onSurfaceSecondary
                                                     )
                                                 }
                                             }
@@ -182,23 +179,30 @@ fun SelectBiaModelDialog(
                     }
                 }
             }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    onModelSelected(selected)
-                    onDismiss()
-                }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("使用此模型")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消")
+                TextButton(
+                    text = "取消",
+                    onClick = onDismiss
+                )
+                Button(
+                    onClick = {
+                        onModelSelected(selected)
+                        onDismiss()
+                    },
+                    colors = ButtonDefaults.buttonColorsPrimary()
+                ) {
+                    Icon(MiuixIcons.Basic.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("使用此模型", style = MiuixTheme.textStyles.button)
+                }
             }
         }
-    )
+    }
 }

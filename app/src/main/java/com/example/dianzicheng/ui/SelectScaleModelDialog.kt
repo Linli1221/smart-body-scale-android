@@ -1,13 +1,10 @@
 package com.example.dianzicheng.ui
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material3.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -15,6 +12,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.dianzicheng.domain.ScaleModel
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.RadioButton
+import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.basic.Check
+import top.yukonga.miuix.kmp.icon.extended.Info
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.window.WindowDialog
 
 /**
  * 手动选择体脂秤型号的对话框。
@@ -31,24 +40,13 @@ fun SelectScaleModelDialog(
     var selected by remember { mutableStateOf(currentModel) }
     val categories = remember { ScaleModel.grouped() }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Column {
-                Text(
-                    text = "选择体脂秤型号与品牌",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "选择特定型号可优先匹配专有协议并提高识别成功率",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        },
-        text = {
+    WindowDialog(
+        show = true,
+        title = "选择体脂秤型号与品牌",
+        summary = "选择特定型号可优先匹配专有协议并提高识别成功率",
+        onDismissRequest = onDismiss
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -59,8 +57,8 @@ fun SelectScaleModelDialog(
                     item(key = "header_$categoryName") {
                         Text(
                             text = categoryName,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
+                            style = MiuixTheme.textStyles.footnote2,
+                            color = MiuixTheme.colorScheme.primary,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
                         )
@@ -69,19 +67,18 @@ fun SelectScaleModelDialog(
                     items(models, key = { it.id }) { model ->
                         val isSelected = model == selected
                         Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { selected = model },
-                            shape = MaterialTheme.shapes.medium,
+                            onClick = { selected = model },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
                             color = if (isSelected) {
-                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                                MiuixTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
                             } else {
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+                                MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.25f)
                             },
                             border = if (isSelected) {
-                                androidx.compose.foundation.BorderStroke(
+                                BorderStroke(
                                     1.5.dp,
-                                    MaterialTheme.colorScheme.primary
+                                    MiuixTheme.colorScheme.primary
                                 )
                             } else null
                         ) {
@@ -100,19 +97,19 @@ fun SelectScaleModelDialog(
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Text(
                                                 text = model.displayName,
-                                                style = MaterialTheme.typography.bodyMedium,
+                                                style = MiuixTheme.textStyles.body2,
                                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                             )
                                             if (model == ScaleModel.AUTO) {
                                                 Spacer(modifier = Modifier.width(6.dp))
                                                 Surface(
-                                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                                    shape = MaterialTheme.shapes.extraSmall
+                                                    color = MiuixTheme.colorScheme.primaryContainer,
+                                                    shape = RoundedCornerShape(4.dp)
                                                 ) {
                                                     Text(
                                                         text = "推荐",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.primary,
+                                                        style = MiuixTheme.textStyles.footnote2,
+                                                        color = MiuixTheme.colorScheme.primary,
                                                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                                                     )
                                                 }
@@ -121,8 +118,8 @@ fun SelectScaleModelDialog(
                                         Spacer(modifier = Modifier.height(2.dp))
                                         Text(
                                             text = model.description,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            style = MiuixTheme.textStyles.footnote1,
+                                            color = MiuixTheme.colorScheme.onSurfaceSecondary
                                         )
                                     }
                                 }
@@ -131,8 +128,8 @@ fun SelectScaleModelDialog(
                                 if (isSelected && model.wakeGuidance.isNotBlank()) {
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Surface(
-                                        shape = MaterialTheme.shapes.small,
-                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.6f),
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Row(
@@ -140,9 +137,9 @@ fun SelectScaleModelDialog(
                                             verticalAlignment = Alignment.Top
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Default.Info,
+                                                imageVector = MiuixIcons.Info,
                                                 contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.primary,
+                                                tint = MiuixTheme.colorScheme.primary,
                                                 modifier = Modifier
                                                     .size(16.dp)
                                                     .padding(top = 2.dp)
@@ -150,8 +147,8 @@ fun SelectScaleModelDialog(
                                             Spacer(modifier = Modifier.width(6.dp))
                                             Text(
                                                 text = model.wakeGuidance,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                style = MiuixTheme.textStyles.footnote2,
+                                                color = MiuixTheme.colorScheme.onSurfaceSecondary,
                                                 lineHeight = 16.sp
                                             )
                                         }
@@ -162,23 +159,30 @@ fun SelectScaleModelDialog(
                     }
                 }
             }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    onModelSelected(selected)
-                    onDismiss()
-                }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("确定使用此型号")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消")
+                TextButton(
+                    text = "取消",
+                    onClick = onDismiss
+                )
+                Button(
+                    onClick = {
+                        onModelSelected(selected)
+                        onDismiss()
+                    },
+                    colors = ButtonDefaults.buttonColorsPrimary()
+                ) {
+                    Icon(MiuixIcons.Basic.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("确定使用此型号", style = MiuixTheme.textStyles.button)
+                }
             }
         }
-    )
+    }
 }

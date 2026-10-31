@@ -1,12 +1,8 @@
 package com.example.dianzicheng.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.NavHost
@@ -15,6 +11,15 @@ import androidx.navigation.compose.rememberNavController
 
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.NavGraph.Companion.findStartDestination
+
+import top.yukonga.miuix.kmp.basic.NavigationBar
+import top.yukonga.miuix.kmp.basic.NavigationBarItem
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Contacts
+import top.yukonga.miuix.kmp.icon.extended.Home
+import top.yukonga.miuix.kmp.icon.extended.Recent
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
 fun MainScreen(
@@ -31,13 +36,15 @@ fun MainScreen(
     // 常量列表缓存一次，避免每次重组重新分配
     val items = remember { listOf("测量", "历史", "我的") }
     val routes = remember { listOf("dashboard", "history", "profile") }
-    val icons = remember { listOf(Icons.Default.Home, Icons.Default.DateRange, Icons.Default.Person) }
+    val icons = remember { listOf(MiuixIcons.Home, MiuixIcons.Recent, MiuixIcons.Contacts) }
 
     if (isPairingComplete == null) {
         // DataStore 异步读取中，渲染空背景，杜绝因初值 false 瞬时挂载 PairingScreen 并误触发 startPairingScan()
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = MaterialTheme.colorScheme.background
+        // （Miuix：根 Scaffold 尚未建立，这里只需一块纯背景）
+        androidx.compose.foundation.layout.Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MiuixTheme.colorScheme.background)
         ) {}
         return
     }
@@ -63,8 +70,6 @@ fun MainScreen(
                         val route = routes[index]
                         val isSelected = currentRoute == route
                         NavigationBarItem(
-                            icon = { Icon(icons[index], contentDescription = item) },
-                            label = { Text(item) },
                             selected = isSelected,
                             onClick = {
                                 if (currentRoute != route) {
@@ -76,7 +81,9 @@ fun MainScreen(
                                         restoreState = true
                                     }
                                 }
-                            }
+                            },
+                            icon = icons[index],
+                            label = item
                         )
                     }
                 }
