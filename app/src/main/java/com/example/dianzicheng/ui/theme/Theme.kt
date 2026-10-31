@@ -9,12 +9,12 @@ import top.yukonga.miuix.kmp.theme.ThemeController
 /**
  * 应用根主题（Miuix / HyperOS 设计）。
  *
- * - 明暗模式始终跟随系统（ThemeController 内部使用 isSystemInDarkTheme）。
- * - Android 12+ 使用系统动态取色（Monet），低版本回落到 Miuix 默认配色。
+ * - 明暗模式始终跟随系统（ThemeController 内部使用 isSystemInDarkTheme）；
+ * - Android 12+ 使用系统动态取色（Monet），低版本回落到 Miuix 默认配色；
  * - 全应用只应在此处创建一次 MiuixTheme，页面内不要再嵌套主题。
  */
 @Composable
-fun 电子秤Theme(
+fun AppTheme(
     content: @Composable () -> Unit
 ) {
     val controller = remember { ThemeController(ColorSchemeMode.MonetSystem) }
