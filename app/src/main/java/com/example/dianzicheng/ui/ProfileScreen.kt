@@ -23,12 +23,10 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.dianzicheng.data.ble.BleProtocolRecorder
 import com.example.dianzicheng.data.local.AppLogger
 import com.example.dianzicheng.domain.BiaModel
@@ -40,7 +38,6 @@ import com.example.dianzicheng.domain.sameMacAddress
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
@@ -49,6 +46,7 @@ import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
 import top.yukonga.miuix.kmp.basic.RadioButton
 import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
@@ -85,6 +83,20 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+// ── 应用自有语义色（MIUIX_STYLE §2）：主题 token 无法表达的品牌/调试语义色，收敛为命名常量 ──
+
+/** 小米健康品牌橙（应用自有语义色：品牌识别色，主题 token 无法表达） */
+private val MiHealthBrandColor = Color(0xFFFF6900)
+
+/** 运行日志 INFO 级别色（应用自有语义色：日志级别语义，无对应主题 token） */
+private val LogInfoColor = Color(0xFF2196F3)
+
+/** 运行日志 WARN 级别色（应用自有语义色：非错误的警示状态，Miuix 无 warning token，不借用 error） */
+private val LogWarnColor = Color(0xFFFF9800)
+
+/** 抓包 SCAN 广播方向色（应用自有语义色：调试工具方向语义） */
+private val CaptureScanColor = Color(0xFF9C27B0)
 
 @Composable
 fun ProfileContent(
@@ -175,27 +187,19 @@ fun ProfileContent(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+            // HyperOS 分组版式（SettingsPage/DialogSection 组合证据）：卡外水平 12dp；
+            // SmallTitle 自带 28dp 标题缩进（SmallTitleDefaults.InsideMargin），组间由 spacedBy + 标题自带留白形成节奏
+            contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Member Section
+            // ── 成员管理：SmallTitle（卡外）+ 成员卡 ──
             item {
-                Text(
-                    text = "成员管理",
-                    style = MiuixTheme.textStyles.title2,
-                    color = MiuixTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold
-                )
+                SmallTitle(text = "成员管理")
             }
 
             if (members.isEmpty()) {
                 item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.defaultColors(
-                            color = MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                        )
-                    ) {
+                    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                         Text(
                             "暂无成员，点击右上角图标添加",
                             modifier = Modifier.padding(24.dp),
@@ -206,60 +210,31 @@ fun ProfileContent(
                 }
             } else {
                 items(members) { member ->
-                    MemberCard(
-                        member = member,
-                        onDelete = { memberToDelete = member }
-                    )
+                    // 成员卡自带 Card；12dp 水平留白与各分组卡片对齐（Example 卡外 12dp 模式）
+                    Box(modifier = Modifier.padding(horizontal = 12.dp)) {
+                        MemberCard(
+                            member = member,
+                            onDelete = { memberToDelete = member }
+                        )
+                    }
                 }
             }
 
-            // System Health Section
+            // ── 系统健康同步（Health Connect）：SmallTitle + 一张 Card（相关 Preference 行同卡）──
             item {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "系统健康同步 (Health Connect)",
-                    style = MiuixTheme.textStyles.title2,
-                    color = MiuixTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-                ) {
+                SmallTitle(text = "系统健康同步 (Health Connect)")
+                Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                     SwitchPreference(
                         checked = healthConnectEnabled,
                         onCheckedChange = onToggleHealthConnect,
                         title = "同步至系统健康",
                         summary = "将体重与体脂数据同步至系统 Health Connect",
                         startAction = {
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(MiuixTheme.colorScheme.primaryContainer),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = MiuixIcons.FavoritesFill,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(20.dp),
-                                    tint = MiuixTheme.colorScheme.onPrimaryContainer
-                                )
-                            }
-                        },
-                        insideMargin = PaddingValues(horizontal = 20.dp, vertical = 16.dp)
+                            SettingsIconTile(icon = MiuixIcons.FavoritesFill)
+                        }
                     )
 
                     if (healthConnectEnabled) {
-                        HorizontalDivider(
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                            color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.5f)
-                        )
                         SettingsItem(
                             title = "申请健康中心读写权限",
                             icon = MiuixIcons.Lock,
@@ -269,51 +244,29 @@ fun ProfileContent(
                 }
             }
 
-            // Xiaomi Health Section
+            // ── 导入小米健康 (Mi Health)：SmallTitle + 一张 Card ──
             item {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "导入小米健康 (Mi Health)",
-                    style = MiuixTheme.textStyles.title2,
-                    color = MiuixTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-                ) {
-                    // 说明栏
+                SmallTitle(text = "导入小米健康 (Mi Health)")
+                Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+                    // 说明栏（自定义行：组件无对应 Preference 形态）。
+                    // 行内几何对齐 BasicComponent：16dp 边距（BasicComponentDefaults.InsideMargin）、8dp 图文间距
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 14.dp),
+                            .padding(16.dp),
                         verticalAlignment = Alignment.Top
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFFFF6900).copy(alpha = 0.15f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = MiuixIcons.Favorites,
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp),
-                                tint = Color(0xFFFF6900)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(16.dp))
+                        SettingsIconTile(
+                            icon = MiuixIcons.Favorites,
+                            // 品牌色淡底：真实透明度需求（渐淡底色），非层次伪造
+                            containerColor = MiHealthBrandColor.copy(alpha = 0.15f),
+                            contentColor = MiHealthBrandColor
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = "同步历史数据到小米健康",
-                                style = MiuixTheme.textStyles.body1,
-                                fontWeight = FontWeight.Medium
+                                style = MiuixTheme.textStyles.body1
                             )
                             Text(
                                 text = "小米健康通过 Health Connect 读取数据。请先开启上方\"同步至系统健康\"并授权，再点击\"立即同步\"将全部历史记录一键导入小米健康。",
@@ -332,10 +285,6 @@ fun ProfileContent(
                             }
                         }
                     }
-                    HorizontalDivider(
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.5f)
-                    )
                     SettingsItem(
                         title = "立即同步全部历史数据",
                         subtitle = "体重与体脂写入 Health Connect，小米健康可直接读取",
@@ -343,19 +292,11 @@ fun ProfileContent(
                         onClick = onBatchSyncToHealthConnect,
                         isLoading = syncProgress != null
                     )
-                    HorizontalDivider(
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.5f)
-                    )
                     SettingsItem(
                         title = if (isMiHealthInstalled) "打开小米健康" else "安装小米健康",
                         subtitle = "在小米健康 > 设置 > 数据来源 中启用 Health Connect",
                         icon = MiuixIcons.Link,
                         onClick = onOpenMiHealth
-                    )
-                    HorizontalDivider(
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.5f)
                     )
                     SettingsItem(
                         title = "管理 Health Connect 权限",
@@ -365,32 +306,14 @@ fun ProfileContent(
                 }
             }
 
-            // WebDAV Backup Section
+            // ── WebDAV 云端备份：SmallTitle + 一张 Card ──
             item {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "WebDAV 云端备份",
-                    style = MiuixTheme.textStyles.title2,
-                    color = MiuixTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-                ) {
+                SmallTitle(text = "WebDAV 云端备份")
+                Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                     SettingsItem(
                         title = if (webdavUrl.isBlank()) "配置 WebDAV 服务器" else "WebDAV 已配置 (${if (webdavUrl.length > 24) webdavUrl.take(24) + "..." else webdavUrl})",
                         icon = MiuixIcons.CloudFill,
                         onClick = { showWebdavDialog = true }
-                    )
-                    HorizontalDivider(
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.5f)
                     )
                     SettingsItem(
                         title = "立即备份到 WebDAV",
@@ -398,10 +321,6 @@ fun ProfileContent(
                         icon = MiuixIcons.UploadCloud,
                         onClick = onBackupData,
                         isLoading = isOperating
-                    )
-                    HorizontalDivider(
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.5f)
                     )
                     SettingsItem(
                         title = "从 WebDAV 恢复数据",
@@ -412,36 +331,22 @@ fun ProfileContent(
                 }
             }
 
-            // Settings Section
+            // ── 应用设置：SmallTitle + 一张 Card（相关 Preference 行同卡）──
             item {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "应用设置",
-                    style = MiuixTheme.textStyles.title2,
-                    color = MiuixTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-                ) {
+                SmallTitle(text = "应用设置")
+                Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                     // ── 已记住的体脂秤列表（支持同时记住多台：点击切换当前使用设备，右侧按钮移除） ──
                     if (rememberedScales.isNotEmpty()) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 6.dp),
+                                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            // 卡内子分组标签沿用 SmallTitle 的 subtitle 字阶（自带层级，不再手写字号/字重）
                             Text(
                                 text = "已记住的体脂秤 (${rememberedScales.size})",
-                                style = MiuixTheme.textStyles.button,
-                                fontWeight = FontWeight.SemiBold,
+                                style = MiuixTheme.textStyles.subtitle,
                                 color = MiuixTheme.colorScheme.onSurfaceSecondary,
                                 modifier = Modifier.weight(1f)
                             )
@@ -452,10 +357,6 @@ fun ProfileContent(
                             )
                         }
                         rememberedScales.forEach { scale ->
-                            HorizontalDivider(
-                                modifier = Modifier.padding(horizontal = 16.dp),
-                                color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.5f)
-                            )
                             RememberedScaleItem(
                                 scale = scale,
                                 isActive = sameMacAddress(scale.mac, pairedMac),
@@ -463,11 +364,10 @@ fun ProfileContent(
                                 onRemove = { scalePendingRemoval = scale }
                             )
                         }
-                        // 分隔「已记住列表」与下方「添加新的体脂秤」入口；
+                        // 分隔「已记住列表」与下方「添加新的体脂秤」入口（分组边界，产品约定保留 Divider）；
                         // 必须放在分支内，否则列表为空时卡片顶部会出现一条多余的孤立分隔线
                         HorizontalDivider(
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                            color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.5f)
+                            modifier = Modifier.padding(horizontal = 16.dp)
                         )
                     }
                     SettingsItem(
@@ -480,19 +380,11 @@ fun ProfileContent(
                         icon = MiuixIcons.SearchDevice,
                         onClick = onNavigateToPairing
                     )
-                    HorizontalDivider(
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.5f)
-                    )
                     SettingsItem(
                         title = "体脂秤型号与品牌",
                         subtitle = "${selectedScaleModel.displayName} · 点击切换型号偏好",
                         icon = MiuixIcons.Tune,
                         onClick = { showModelDialog = true }
-                    )
-                    HorizontalDivider(
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.5f)
                     )
                     // ── 电阻抗估算模型切换入口 ──
                     SettingsItem(
@@ -508,12 +400,7 @@ fun ProfileContent(
                     )
                     // ── Debug 专用：运行日志查看器入口 ──
                     // isLogViewerSupported 来自 BuildConfig，Release 构建恒为 false。
-                    // 分隔线与入口一起放进 if 内，避免 Release 下出现两条相邻分隔线。
                     if (isLogViewerSupported) {
-                        HorizontalDivider(
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                            color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.5f)
-                        )
                         SettingsItem(
                             title = "查看运行日志",
                             subtitle = if (logEntries.isEmpty()) "暂无日志" else "共 ${logEntries.size} 条记录",
@@ -524,10 +411,6 @@ fun ProfileContent(
                     // ── Debug 专用：蓝牙协议完整抓包入口 ──
                     // isBleCaptureSupported 来自 BuildConfig，Release 构建恒为 false，此区块整体不渲染。
                     if (isBleCaptureSupported) {
-                        HorizontalDivider(
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                            color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.5f)
-                        )
                         SettingsItem(
                             title = "蓝牙协议抓包 (Debug)",
                             subtitle = if (bleCaptureEntries.isEmpty()) {
@@ -539,10 +422,6 @@ fun ProfileContent(
                             onClick = { showBleCaptureDialog = true }
                         )
                     }
-                    HorizontalDivider(
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.5f)
-                    )
                     SettingsItem(
                         title = "关于软件",
                         subtitle = "版本 1.4.1",
@@ -550,10 +429,6 @@ fun ProfileContent(
                         onClick = { }
                     )
                 }
-            }
-
-            item {
-                Spacer(modifier = Modifier.height(40.dp))
             }
         }
     }
@@ -597,15 +472,17 @@ fun ProfileContent(
             summary = "确定要删除成员「${target.name}」吗？\n删除后该成员的历史测量记录将保留，但不再关联到此成员。",
             onDismissRequest = { memberToDelete = null }
         ) {
+            // 弹窗操作行（DialogSection 按钮行模式）：取消=次操作、删除=破坏性（error 语义）
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 TextButton(
                     text = "取消",
                     onClick = { memberToDelete = null },
                     modifier = Modifier.weight(1f)
                 )
+                Spacer(modifier = Modifier.width(20.dp))
                 TextButton(
                     text = "删除",
                     onClick = {
@@ -631,15 +508,17 @@ fun ProfileContent(
                 "若全部移除，App 将暂停自动连接，直到您重新手动搜索并绑定设备。",
             onDismissRequest = { scalePendingRemoval = null }
         ) {
+            // 弹窗操作行（DialogSection 按钮行模式）：取消=次操作、移除=破坏性（error 语义）
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 TextButton(
                     text = "取消",
                     onClick = { scalePendingRemoval = null },
                     modifier = Modifier.weight(1f)
                 )
+                Spacer(modifier = Modifier.width(20.dp))
                 TextButton(
                     text = "移除",
                     onClick = {
@@ -708,46 +587,40 @@ private fun RememberedScaleItem(
         modifier = Modifier.fillMaxWidth(),
         color = Color.Transparent
     ) {
+        // 自定义行几何对齐 BasicComponent：16dp 边距、8dp 图文间距
         Row(
-            modifier = Modifier.padding(start = 20.dp, end = 8.dp, top = 14.dp, bottom = 14.dp),
+            modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 14.dp, bottom = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (isActive) MiuixTheme.colorScheme.primary
-                        else MiuixTheme.colorScheme.primaryContainer
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = MiuixIcons.SearchDevice,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                    tint = if (isActive) {
-                        MiuixTheme.colorScheme.onPrimary
-                    } else {
-                        MiuixTheme.colorScheme.onPrimaryContainer
-                    }
-                )
-            }
-            Spacer(modifier = Modifier.width(16.dp))
+            SettingsIconTile(
+                icon = MiuixIcons.SearchDevice,
+                containerColor = if (isActive) {
+                    MiuixTheme.colorScheme.primary
+                } else {
+                    MiuixTheme.colorScheme.primaryContainer
+                },
+                contentColor = if (isActive) {
+                    MiuixTheme.colorScheme.onPrimary
+                } else {
+                    MiuixTheme.colorScheme.onPrimaryContainer
+                }
+            )
+            Spacer(modifier = Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = scale.name,
                         style = MiuixTheme.textStyles.body1,
-                        fontWeight = FontWeight.Medium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false)
                     )
                     if (isActive) {
                         Spacer(modifier = Modifier.width(6.dp))
+                        // 「使用中」标签：自定义徽标 chip（Miuix Badge 是导航角标语义，不适合状态标签）；
+                        // 半径按小件/徽标档 8dp 靠拢，色对沿用 primaryContainer/onPrimaryContainer
                         Surface(
-                            shape = RoundedCornerShape(4.dp),
+                            shape = RoundedCornerShape(8.dp),
                             color = MiuixTheme.colorScheme.primaryContainer
                         ) {
                             Text(
@@ -773,9 +646,48 @@ private fun RememberedScaleItem(
                     imageVector = MiuixIcons.Delete,
                     contentDescription = "移除 ${scale.name}",
                     modifier = Modifier.size(18.dp),
-                    tint = MiuixTheme.colorScheme.outline
+                    // 行尾操作图标用动作角色 token
+                    tint = MiuixTheme.colorScheme.onSurfaceVariantActions
                 )
             }
+        }
+    }
+}
+
+/**
+ * 设置页图标圆底（自持件）：40dp 圆底 + 20dp 图标/加载环。
+ * 色对走主题 token（默认 primaryContainer/onPrimaryContainer）；加载环经 ProgressIndicatorDefaults 取色。
+ */
+@Composable
+private fun SettingsIconTile(
+    icon: ImageVector,
+    isLoading: Boolean = false,
+    containerColor: Color = MiuixTheme.colorScheme.primaryContainer,
+    contentColor: Color = MiuixTheme.colorScheme.onPrimaryContainer
+) {
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(containerColor),
+        contentAlignment = Alignment.Center
+    ) {
+        if (isLoading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                colors = ProgressIndicatorDefaults.progressIndicatorColors(
+                    foregroundColor = contentColor,
+                    backgroundColor = Color.Transparent
+                ),
+                strokeWidth = 2.dp
+            )
+        } else {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = contentColor
+            )
         }
     }
 }
@@ -792,33 +704,8 @@ fun SettingsItem(
         title = title,
         summary = subtitle,
         startAction = {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(MiuixTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        colors = ProgressIndicatorDefaults.progressIndicatorColors(
-                            foregroundColor = MiuixTheme.colorScheme.onPrimaryContainer,
-                            backgroundColor = Color.Transparent
-                        ),
-                        strokeWidth = 2.dp
-                    )
-                } else {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        tint = MiuixTheme.colorScheme.onPrimaryContainer
-                    )
-                }
-            }
+            SettingsIconTile(icon = icon, isLoading = isLoading)
         },
-        insideMargin = PaddingValues(20.dp),
         onClick = onClick,
         enabled = !isLoading
     )
@@ -893,7 +780,9 @@ fun LogViewerDialog(
                 IconButton(onClick = onClear) {
                     Icon(
                         imageVector = MiuixIcons.Delete,
-                        contentDescription = "清空"
+                        contentDescription = "清空",
+                        // 清空=破坏性操作（语义化着色）
+                        tint = MiuixTheme.colorScheme.error
                     )
                 }
             }
@@ -944,22 +833,24 @@ private fun LogEntryRow(
 ) {
     val (levelColor, levelBg) = when (entry.level) {
         AppLogger.Level.DEBUG -> MiuixTheme.colorScheme.onSurfaceSecondary to Color.Transparent
-        AppLogger.Level.INFO  -> Color(0xFF2196F3) to Color(0xFF2196F3).copy(alpha = 0.07f)
-        AppLogger.Level.WARN  -> Color(0xFFFF9800) to Color(0xFFFF9800).copy(alpha = 0.07f)
-        AppLogger.Level.ERROR -> MiuixTheme.colorScheme.error to MiuixTheme.colorScheme.errorContainer.copy(alpha = 0.15f)
+        AppLogger.Level.INFO  -> LogInfoColor to LogInfoColor.copy(alpha = 0.07f) // 级别淡底：真实透明度需求
+        AppLogger.Level.WARN  -> LogWarnColor to LogWarnColor.copy(alpha = 0.07f) // 级别淡底：真实透明度需求
+        AppLogger.Level.ERROR -> MiuixTheme.colorScheme.error to MiuixTheme.colorScheme.errorContainer.copy(alpha = 0.15f) // 级别淡底：真实透明度需求
     }
 
+    // 字阶归位：行内容 footnote1、元信息 footnote2（替代裸 fontSize 10/11sp）；
+    // 等宽字体为日志对齐排版需要，保留为日志排版约定
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(4.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(levelBg)
             .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.Top
     ) {
         Text(
             text = timeFmt.format(Date(entry.timestamp)),
-            fontSize = 10.sp,
+            style = MiuixTheme.textStyles.footnote2,
             fontFamily = FontFamily.Monospace,
             color = MiuixTheme.colorScheme.outline,
             modifier = Modifier.padding(top = 1.dp)
@@ -967,16 +858,15 @@ private fun LogEntryRow(
         Spacer(modifier = Modifier.width(6.dp))
         Text(
             text = entry.level.name.take(1),
-            fontSize = 10.sp,
+            style = MiuixTheme.textStyles.footnote2,
             fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold,
             color = levelColor,
             modifier = Modifier.padding(top = 1.dp)
         )
         Spacer(modifier = Modifier.width(6.dp))
         Text(
             text = "[${entry.tag}] ${entry.message}",
-            fontSize = 11.sp,
+            style = MiuixTheme.textStyles.footnote1,
             fontFamily = FontFamily.Monospace,
             color = if (entry.level == AppLogger.Level.DEBUG)
                 MiuixTheme.colorScheme.onSurfaceSecondary
@@ -1098,7 +988,9 @@ private fun BleProtocolCaptureDialog(
                 ) {
                     Icon(
                         imageVector = MiuixIcons.Delete,
-                        contentDescription = "清空"
+                        contentDescription = "清空",
+                        // 清空=破坏性操作（语义化着色）
+                        tint = MiuixTheme.colorScheme.error
                     )
                 }
             }
@@ -1171,18 +1063,20 @@ private fun BleProtocolCaptureDialog(
 @Composable
 private fun BleCaptureEntryRow(index: Int, entry: BleProtocolRecorder.Entry) {
     val dirColor = when (entry.direction) {
-        "IN" -> Color(0xFF2196F3)     // 秤 → 手机
-        "OUT" -> Color(0xFFFF9800)    // 手机 → 秤
-        "SCAN" -> Color(0xFF9C27B0)   // 广播
+        "IN" -> LogInfoColor       // 秤 → 手机
+        "OUT" -> LogWarnColor      // 手机 → 秤
+        "SCAN" -> CaptureScanColor // 广播
         else -> MiuixTheme.colorScheme.onSurfaceSecondary
     }
 
+    // 字阶归位：抓包行为高密度调试数据，统一 footnote2（替代裸 fontSize 10/11sp）；
+    // 等宽字体为十六进制对齐排版需要，保留为日志排版约定
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(4.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(
-                if (entry.direction == "IN" || entry.direction == "OUT") dirColor.copy(alpha = 0.06f)
+                if (entry.direction == "IN" || entry.direction == "OUT") dirColor.copy(alpha = 0.06f) // 方向淡底：真实透明度需求
                 else Color.Transparent
             )
             .padding(horizontal = 6.dp, vertical = 4.dp)
@@ -1190,24 +1084,22 @@ private fun BleCaptureEntryRow(index: Int, entry: BleProtocolRecorder.Entry) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = index.toString().padStart(4, '0'),
-                fontSize = 10.sp,
+                style = MiuixTheme.textStyles.footnote2,
                 fontFamily = FontFamily.Monospace,
                 color = MiuixTheme.colorScheme.outline
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
                 text = entry.direction,
-                fontSize = 10.sp,
+                style = MiuixTheme.textStyles.footnote2,
                 fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
                 color = dirColor
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
                 text = entry.event,
-                fontSize = 11.sp,
+                style = MiuixTheme.textStyles.footnote2,
                 fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.SemiBold,
                 color = MiuixTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f)
             )
@@ -1217,7 +1109,7 @@ private fun BleCaptureEntryRow(index: Int, entry: BleProtocolRecorder.Entry) {
                 } else {
                     "${entry.payloadHex.split(' ').size}B +${entry.offsetMs}ms"
                 },
-                fontSize = 10.sp,
+                style = MiuixTheme.textStyles.footnote2,
                 fontFamily = FontFamily.Monospace,
                 color = MiuixTheme.colorScheme.outline
             )
@@ -1229,7 +1121,7 @@ private fun BleCaptureEntryRow(index: Int, entry: BleProtocolRecorder.Entry) {
                     append(entry.address)
                     if (entry.name.isNotEmpty()) append("  ").append(entry.name)
                 },
-                fontSize = 10.sp,
+                style = MiuixTheme.textStyles.footnote2,
                 fontFamily = FontFamily.Monospace,
                 color = MiuixTheme.colorScheme.onSurfaceSecondary,
                 modifier = Modifier.padding(start = 26.dp)
@@ -1239,14 +1131,14 @@ private fun BleCaptureEntryRow(index: Int, entry: BleProtocolRecorder.Entry) {
         if (entry.payloadHex.isNotEmpty()) {
             Text(
                 text = entry.payloadHex,
-                fontSize = 11.sp,
+                style = MiuixTheme.textStyles.footnote2,
                 fontFamily = FontFamily.Monospace,
                 color = MiuixTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(start = 26.dp)
             )
             Text(
                 text = BleProtocolRecorder.toAscii(BleProtocolRecorder.hexToBytes(entry.payloadHex)),
-                fontSize = 10.sp,
+                style = MiuixTheme.textStyles.footnote2,
                 fontFamily = FontFamily.Monospace,
                 color = MiuixTheme.colorScheme.outline,
                 modifier = Modifier.padding(start = 26.dp)
@@ -1298,9 +1190,11 @@ fun WebDavConfigDialog(
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
+            // 弹窗操作行（DialogSection 按钮行模式：等宽槽位 + 20dp 间隔）：
+            // 测试连接=次操作（Button 内容槽承载加载环）、取消=次操作、保存=主操作（主色）
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Button(
                     onClick = { onTest(url, username, password) },
@@ -1313,11 +1207,13 @@ fun WebDavConfigDialog(
                         Text("测试连接")
                     }
                 }
+                Spacer(modifier = Modifier.width(20.dp))
                 TextButton(
                     text = "取消",
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f)
                 )
+                Spacer(modifier = Modifier.width(20.dp))
                 Button(
                     onClick = { onSave(url, username, password) },
                     colors = ButtonDefaults.buttonColorsPrimary(),
@@ -1332,13 +1228,8 @@ fun WebDavConfigDialog(
 
 @Composable
 fun MemberCard(member: FamilyMember, onDelete: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        cornerRadius = 8.dp,
-        colors = CardDefaults.defaultColors(
-            color = MiuixTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
-        )
-    ) {
+    // 卡片用组件默认形态（16dp squircle + surfaceContainer 底色），不自定 cornerRadius/底色
+    Card(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.padding(20.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -1359,10 +1250,10 @@ fun MemberCard(member: FamilyMember, onDelete: () -> Unit) {
             }
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
+                // 字阶归位：成员名是卡片主标题，title3（20sp）就近原 titleLarge 视觉层级，字重由字阶承担
                 Text(
                     text = member.name,
-                    style = MiuixTheme.textStyles.title1,
-                    fontWeight = FontWeight.Bold
+                    style = MiuixTheme.textStyles.title3
                 )
                 Text(
                     text = "${if (member.sex == Sex.MALE) "男" else "女"} · ${member.heightCm.toInt()}cm",
@@ -1370,15 +1261,16 @@ fun MemberCard(member: FamilyMember, onDelete: () -> Unit) {
                     color = MiuixTheme.colorScheme.onSurfaceSecondary
                 )
             }
+            // 删除=破坏性语义：errorContainer/onErrorContainer 语义色对（不以 alpha 淡底伪造层次）
             IconButton(
                 onClick = onDelete,
-                backgroundColor = MiuixTheme.colorScheme.errorContainer.copy(alpha = 0.2f)
+                backgroundColor = MiuixTheme.colorScheme.errorContainer
             ) {
                 Icon(
                     imageVector = MiuixIcons.Delete,
                     contentDescription = "删除",
                     modifier = Modifier.size(20.dp),
-                    tint = MiuixTheme.colorScheme.error
+                    tint = MiuixTheme.colorScheme.onErrorContainer
                 )
             }
         }
@@ -1408,10 +1300,11 @@ fun AddMemberDialog(
                 singleLine = true
             )
 
+            // 表单分组标签：body2 字阶 + 次要文字 token（不再用按钮字阶/主色强调）
             Text(
                 text = "性别",
-                style = MiuixTheme.textStyles.button,
-                color = MiuixTheme.colorScheme.primary
+                style = MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.onSurfaceSecondary
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1449,15 +1342,17 @@ fun AddMemberDialog(
                 singleLine = true
             )
 
+            // 弹窗操作行（DialogSection 按钮行模式）：取消=次操作、确定=主操作（主色）
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 TextButton(
                     text = "取消",
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f)
                 )
+                Spacer(modifier = Modifier.width(20.dp))
                 Button(
                     onClick = {
                         val finalName = if (name.isBlank()) "新成员" else name.trim()
@@ -1479,6 +1374,7 @@ fun AddMemberDialog(
         }
     }
 }
+
 
 @Composable
 fun ProfileScreen(

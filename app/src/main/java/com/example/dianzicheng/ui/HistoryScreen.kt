@@ -2,7 +2,6 @@ package com.example.dianzicheng.ui
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -20,7 +19,6 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -29,7 +27,6 @@ import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -42,10 +39,10 @@ import com.example.dianzicheng.ui.theme.电子秤Theme
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -153,20 +150,21 @@ fun HistoryContent(
         if (history.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(innerPadding), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    // 自定义容器（空态占位插画圆），保留 CircleShape
                     Surface(
                         modifier = Modifier.size(80.dp),
                         shape = CircleShape,
                         color = MiuixTheme.colorScheme.surfaceVariant
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Text("暂无", style = MiuixTheme.textStyles.footnote1.copy(fontSize = 12.sp), color = MiuixTheme.colorScheme.outline)
+                            Text("暂无", style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.onSurfaceSecondary)
                         }
                     }
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        "暂无历史记录", 
+                        "暂无历史记录",
                         style = MiuixTheme.textStyles.body1,
-                        color = MiuixTheme.colorScheme.outline
+                        color = MiuixTheme.colorScheme.onSurfaceSecondary
                     )
                 }
             }
@@ -179,7 +177,7 @@ fun HistoryContent(
                 if (members.size > 1) {
                     item(key = "member_filter") {
                         LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             item {
@@ -208,28 +206,18 @@ fun HistoryContent(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                            .padding(end = 12.dp, top = 4.dp, bottom = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
+                        // 分组标签用 SmallTitle（自带 subtitle 字阶与标签内边距）
+                        SmallTitle(
                             text = "指标走势",
-                            style = MiuixTheme.textStyles.title3.copy(fontSize = 14.sp),
-                            fontWeight = FontWeight.Bold,
-                            color = MiuixTheme.colorScheme.primary,
                             modifier = Modifier.weight(1f)
                         )
-                        // Miuix TextButton 仅支持 text:String 无法承载图标；
-                        // 用 Button 内容槽 + 透明底复刻原文本按钮（32dp 高、primary 文字、内含排序图标）
+                        // 次操作用默认 Button（MIUIX_STYLE §5）；TextButton 仅支持 text:String，
+                        // 排序图标为原产品约定，故保留 Button 内容槽承载图标+文字
                         Button(
-                            onClick = { showMetricOrderDialog = true },
-                            modifier = Modifier.height(32.dp),
-                            minWidth = 0.dp,
-                            minHeight = 32.dp,
-                            colors = ButtonDefaults.buttonColors(
-                                color = Color.Transparent,
-                                contentColor = MiuixTheme.colorScheme.primary
-                            ),
-                            insideMargin = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                            onClick = { showMetricOrderDialog = true }
                         ) {
                             Icon(
                                 MiuixIcons.Sort,
@@ -237,7 +225,7 @@ fun HistoryContent(
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("调整顺序", fontSize = 12.sp)
+                            Text("调整顺序", style = MiuixTheme.textStyles.button)
                         }
                     }
                 }
@@ -252,7 +240,7 @@ fun HistoryContent(
                             .map { it.first to it.second!! }
                     }
                     if (series.size >= 2) {
-                        Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                        Box(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
                             // 拆出 values / timestamps 的派生列表跟随 series 缓存，
                             // 避免重组时为每个图表额外分配两个新 List
                             val chartValues = remember(series) { series.map { it.second } }
@@ -276,14 +264,14 @@ fun HistoryContent(
                                 .padding(32.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("该成员暂无历史记录", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.outline)
+                            Text("该成员暂无历史记录", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceSecondary)
                         }
                     }
                 }
                 // ── 列表最底部：「历史数据」入口，点击进入完整的历史数据统计 ──
                 if (filteredHistory.isNotEmpty()) {
                     item(key = "history_data_entry") {
-                        Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        Box(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                             HistoryDataEntryCard(onClick = onNavigateToHistoryData)
                         }
                     }
@@ -294,11 +282,12 @@ fun HistoryContent(
 }
 
 /**
- * 成员筛选 Chip。
+ * 成员筛选 Chip（应用自持）。
  *
- * Miuix 0.9.4 无 Chip/FilterChip 公开组件，按规范用基础组件 + 主题 token 组合（应用内自持）：
- * 选中态 = secondaryContainer / onSecondaryContainer，未选中态 = 透明底 + outline 描边，
- * 保持原 FilterChip 的选中/未选中视觉层级与 32dp 高度。
+ * Miuix 0.9.4 无 Chip/FilterChip 公开组件，按规范用基础组件 + 主题 token 组合：
+ * 选中态 = primaryContainer / onPrimaryContainer（强调→primary 系，container/on 成对），
+ * 未选中态 = secondaryVariant / onSecondaryVariant（组件默认中性面，HyperOS 灰底胶囊、无描边）。
+ * 半径 12dp 对齐「小件」档（MIUIX_STYLE §3）；32dp 高度保持原筛选条密度。
  */
 @Composable
 private fun MemberFilterChip(
@@ -309,10 +298,9 @@ private fun MemberFilterChip(
     Surface(
         onClick = onClick,
         modifier = Modifier.height(32.dp),
-        shape = RoundedCornerShape(16.dp),
-        color = if (selected) MiuixTheme.colorScheme.secondaryContainer else Color.Transparent,
-        contentColor = if (selected) MiuixTheme.colorScheme.onSecondaryContainer else MiuixTheme.colorScheme.onSurfaceSecondary,
-        border = if (selected) null else BorderStroke(1.dp, MiuixTheme.colorScheme.outline)
+        shape = RoundedCornerShape(12.dp),
+        color = if (selected) MiuixTheme.colorScheme.primaryContainer else MiuixTheme.colorScheme.secondaryVariant,
+        contentColor = if (selected) MiuixTheme.colorScheme.onPrimaryContainer else MiuixTheme.colorScheme.onSecondaryVariant
     ) {
         Box(
             modifier = Modifier
@@ -322,7 +310,7 @@ private fun MemberFilterChip(
         ) {
             Text(
                 text = label,
-                style = MiuixTheme.textStyles.button.copy(fontSize = 14.sp, fontWeight = FontWeight.Medium),
+                style = MiuixTheme.textStyles.body2,
                 maxLines = 1
             )
         }
@@ -334,11 +322,7 @@ fun HistoryDataEntryCard(onClick: () -> Unit, modifier: Modifier = Modifier) {
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .clickable { onClick() },
-        cornerRadius = 12.dp,
-        colors = CardDefaults.defaultColors(
-            color = MiuixTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f)
-        )
+            .clickable { onClick() }
     ) {
         Row(
             modifier = Modifier
@@ -346,6 +330,7 @@ fun HistoryDataEntryCard(onClick: () -> Unit, modifier: Modifier = Modifier) {
                 .padding(horizontal = 16.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // 自定义容器（圆形图标徽标），保留 CircleShape
             Box(
                 modifier = Modifier
                     .size(40.dp)
@@ -364,14 +349,13 @@ fun HistoryDataEntryCard(onClick: () -> Unit, modifier: Modifier = Modifier) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "历史数据",
-                    style = MiuixTheme.textStyles.title3.copy(fontSize = 14.sp),
-                    fontWeight = FontWeight.Bold,
+                    style = MiuixTheme.textStyles.body1,
                     color = MiuixTheme.colorScheme.onSurface
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = "查看 BMI、体脂率、肌肉量等指标的完整历史数据",
-                    style = MiuixTheme.textStyles.footnote1.copy(fontSize = 12.sp),
+                    style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.onSurfaceSecondary,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
@@ -382,7 +366,7 @@ fun HistoryDataEntryCard(onClick: () -> Unit, modifier: Modifier = Modifier) {
                 MiuixIcons.Forward,
                 contentDescription = null,
                 modifier = Modifier.size(18.dp),
-                tint = MiuixTheme.colorScheme.primary
+                tint = MiuixTheme.colorScheme.onSurfaceVariantActions
             )
         }
     }
@@ -406,7 +390,6 @@ fun MetricOrderDialog(
         show = true,
         title = "调整指标顺序",
         summary = "拖动或点击箭头调整趋势卡片的展示顺序",
-        summaryColor = MiuixTheme.colorScheme.onSurfaceSecondary,
         onDismissRequest = onDismiss
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -420,13 +403,12 @@ fun MetricOrderDialog(
                     Text(
                         text = "${index + 1}.",
                         style = MiuixTheme.textStyles.body2,
-                        color = MiuixTheme.colorScheme.outline,
+                        color = MiuixTheme.colorScheme.onSurfaceSecondary,
                         modifier = Modifier.width(28.dp)
                     )
                     Text(
                         text = metric.label,
                         style = MiuixTheme.textStyles.body1,
-                        fontWeight = FontWeight.Medium,
                         modifier = Modifier.weight(1f)
                     )
                     IconButton(
@@ -497,10 +479,14 @@ fun MetricTrendChart(
 ) {
     if (values.size < 2) return
 
+    // ── 图表绘制色：全部由主题 token 派生并命名，杜绝画布字面色 ──
     val primaryColor = MiuixTheme.colorScheme.primary
-    val surfaceVariant = MiuixTheme.colorScheme.surfaceVariant
-    val outlineColor = MiuixTheme.colorScheme.outline
-    val onSurface = MiuixTheme.colorScheme.onSurface
+    // 网格线：outline token 的透明度派生（真实透明度需求：淡网格）
+    val chartGridColor = MiuixTheme.colorScheme.outline.copy(alpha = 0.12f)
+    // 图表刻度：日期标注色与字号按图表绘制需要保留
+    val chartLabelColor = MiuixTheme.colorScheme.outline.copy(alpha = 0.7f)
+    // 高亮数据点内芯：用卡片底色 token 替代字面白色，深色模式下不穿帮
+    val chartPointCoreColor = MiuixTheme.colorScheme.surfaceContainer
     val density = LocalDensity.current
 
     // Animation progress
@@ -534,6 +520,7 @@ fun MetricTrendChart(
     }
 
     // 日期标签绘制用的 Paint 只创建一次（textSize 依赖 density）
+    // 图表刻度：坐标轴标注字号按图表绘制需要保留 10sp，不套用页面字阶
     val labelPaint = remember(density) {
         android.graphics.Paint().apply {
             isAntiAlias = true
@@ -542,9 +529,7 @@ fun MetricTrendChart(
     }
 
     Card(
-        modifier = modifier,
-        cornerRadius = 16.dp,
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surface)
+        modifier = modifier
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -554,13 +539,12 @@ fun MetricTrendChart(
             ) {
                 Text(
                     text = title,
-                    style = MiuixTheme.textStyles.title3.copy(fontSize = 14.sp),
-                    fontWeight = FontWeight.Bold
+                    style = MiuixTheme.textStyles.body1
                 )
                 Text(
                     text = "近${values.size}次",
                     style = MiuixTheme.textStyles.footnote2,
-                    color = MiuixTheme.colorScheme.outline
+                    color = MiuixTheme.colorScheme.onSurfaceSecondary
                 )
             }
             Spacer(modifier = Modifier.height(4.dp))
@@ -570,18 +554,18 @@ fun MetricTrendChart(
                     Text(
                         text = String.format("↓ " + fmt, minVal) + unit,
                         style = MiuixTheme.textStyles.footnote2,
-                        color = MiuixTheme.colorScheme.outline
+                        color = MiuixTheme.colorScheme.onSurfaceSecondary
                     )
                     Text(
                         text = String.format("↑ " + fmt, maxVal) + unit,
                         style = MiuixTheme.textStyles.footnote2,
-                        color = MiuixTheme.colorScheme.outline
+                        color = MiuixTheme.colorScheme.onSurfaceSecondary
                     )
                 } else {
                     Text(
                         text = String.format("均值: " + fmt, minVal) + unit,
                         style = MiuixTheme.textStyles.footnote2,
-                        color = MiuixTheme.colorScheme.outline
+                        color = MiuixTheme.colorScheme.onSurfaceSecondary
                     )
                 }
             }
@@ -618,10 +602,9 @@ fun MetricTrendChart(
                 fun yOf(value: Double) = paddingTop + chartH * (1.0 - (value - lowerBound) / valueRange).toFloat()
 
                 // Grid lines (3 horizontal)
-                val gridColor = outlineColor.copy(alpha = 0.12f)
                 for (gi in 0..2) {
                     val gy = paddingTop + chartH * gi / 2f
-                    drawLine(gridColor, Offset(paddingLeft, gy), Offset(paddingLeft + chartW, gy), strokeWidth = 1.dp.toPx())
+                    drawLine(chartGridColor, Offset(paddingLeft, gy), Offset(paddingLeft + chartW, gy), strokeWidth = 1.dp.toPx())
                 }
 
                 // 折线路径只在数据或尺寸变化时重建一次并缓存，
@@ -654,7 +637,7 @@ fun MetricTrendChart(
                         val px = xOf(i); val py = yOf(values[i])
                         val isHighlight = hasDiff && (i == maxIdx || i == minIdx || i == 0 || i == n - 1)
                         if (isHighlight) {
-                            drawCircle(Color.White, radius = 5.dp.toPx(), center = Offset(px, py))
+                            drawCircle(chartPointCoreColor, radius = 5.dp.toPx(), center = Offset(px, py))
                             drawCircle(primaryColor, radius = 4.dp.toPx(), center = Offset(px, py), style = Stroke(width = 2.dp.toPx()))
                         } else {
                             drawCircle(primaryColor.copy(alpha = 0.4f), radius = 2.5.dp.toPx(), center = Offset(px, py))
@@ -664,7 +647,7 @@ fun MetricTrendChart(
 
                 // Date labels: first and last（仅在提供了时间戳时绘制；Paint 与文本均已缓存）
                 if (timestamps.isNotEmpty()) {
-                    labelPaint.color = outlineColor.copy(alpha = 0.7f).toArgb()
+                    labelPaint.color = chartLabelColor.toArgb()
                     labelPaint.textAlign = android.graphics.Paint.Align.LEFT
                     val labelY = h - 4.dp.toPx()
                     drawContext.canvas.nativeCanvas.apply {

@@ -3,7 +3,6 @@ package com.example.dianzicheng.ui
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -16,7 +15,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -52,6 +50,9 @@ import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.icon.extended.SearchDevice
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+
+// 应用自有语义色：成功/标准绿（Miuix 0.9.4 无 success 语义 token，按 MIUIX_STYLE §2 收敛为命名常量）
+private val SuccessGreen = Color(0xFF4CAF50)
 
 @Composable
 fun DashboardContent(
@@ -104,10 +105,11 @@ fun DashboardContent(
         ) {
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Member Selector Chip
+            // Member Selector Chip（应用自持 chip：12dp 小件圆角）
             Surface(
                 onClick = { showMemberSelectDialog = true },
-                shape = CircleShape,
+                shape = RoundedCornerShape(12.dp),
+                // chip 淡底色/描边透明度：真实半透明需求（chip 层级轻于卡片）
                 color = MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                 border = androidx.compose.foundation.BorderStroke(
                     1.dp,
@@ -130,14 +132,13 @@ fun DashboardContent(
                             "绑定成员: ${it.name} (${if (it.sex == Sex.MALE) "男" else "女"} ${it.heightCm.toInt()}cm)"
                         } ?: "全员智能自动匹配",
                         style = MiuixTheme.textStyles.button,
-                        fontWeight = FontWeight.SemiBold,
                         color = MiuixTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Icon(
                         MiuixIcons.ExpandMore,
                         contentDescription = null,
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(18.dp),
                         tint = MiuixTheme.colorScheme.primary
                     )
                 }
@@ -190,11 +191,10 @@ fun DashboardContent(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 4.dp),
+                    // 引导卡淡底色：真实透明度需求（状态提示卡需区别于普通卡片）；形状/内容色用 Card 默认
                     colors = CardDefaults.defaultColors(
-                        color = MiuixTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
-                        contentColor = MiuixTheme.colorScheme.onSurface
-                    ),
-                    cornerRadius = 16.dp
+                        color = MiuixTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                    )
                 ) {
                     Column(
                         modifier = Modifier.padding(20.dp),
@@ -203,7 +203,6 @@ fun DashboardContent(
                         Text(
                             "未绑定体脂秤",
                             style = MiuixTheme.textStyles.title2,
-                            fontWeight = FontWeight.Bold,
                             color = MiuixTheme.colorScheme.primary
                         )
                         Spacer(modifier = Modifier.height(6.dp))
@@ -221,7 +220,7 @@ fun DashboardContent(
                         ) {
                             Icon(MiuixIcons.SearchDevice, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("搜索并绑定设备")
+                            Text("搜索并绑定设备", style = MiuixTheme.textStyles.button)
                         }
                     }
                 }
@@ -230,11 +229,10 @@ fun DashboardContent(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 4.dp),
+                    // 警示卡淡底色：真实透明度需求；形状/内容色用 Card 默认
                     colors = CardDefaults.defaultColors(
-                        color = MiuixTheme.colorScheme.errorContainer.copy(alpha = 0.35f),
-                        contentColor = MiuixTheme.colorScheme.onSurface
-                    ),
-                    cornerRadius = 16.dp
+                        color = MiuixTheme.colorScheme.errorContainer.copy(alpha = 0.35f)
+                    )
                 ) {
                     Column(
                         modifier = Modifier.padding(20.dp),
@@ -243,7 +241,6 @@ fun DashboardContent(
                         Text(
                             "手机蓝牙已关闭",
                             style = MiuixTheme.textStyles.title2,
-                            fontWeight = FontWeight.Bold,
                             color = MiuixTheme.colorScheme.error
                         )
                         Spacer(modifier = Modifier.height(6.dp))
@@ -259,6 +256,7 @@ fun DashboardContent(
                                 val intent = android.content.Intent(android.bluetooth.BluetoothAdapter.ACTION_REQUEST_ENABLE)
                                 context.startActivity(intent)
                             },
+                            // 警示操作保留 error 语义（Defaults 工厂 + token，非字面色）
                             colors = ButtonDefaults.buttonColors(
                                 color = MiuixTheme.colorScheme.error,
                                 contentColor = MiuixTheme.colorScheme.onError
@@ -267,21 +265,19 @@ fun DashboardContent(
                         ) {
                             Icon(MiuixIcons.SearchDevice, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("开启手机蓝牙")
+                            Text("开启手机蓝牙", style = MiuixTheme.textStyles.button)
                         }
                     }
                 }
             } else {
                 if (uiState.connection == BleScaleClient.ConnectionState.IDLE) {
                     // 原 FilledTonalButton：默认 buttonColors()（secondaryVariant 灰底）即 Miuix 的 tonal 层级按钮
+                    // 主操作用组件默认形态（默认胶囊圆角/高度），不覆写 cornerRadius/尺寸；按钮文字用 button 字阶
                     Button(
                         onClick = onStartScan,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp),
-                        cornerRadius = 16.dp
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("开始称重", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text("开始称重", style = MiuixTheme.textStyles.button)
                     }
                 } else if (uiState.connection == BleScaleClient.ConnectionState.SCANNING) {
                     Column(
@@ -289,9 +285,7 @@ fun DashboardContent(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         LinearProgressIndicator(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(CircleShape)
+                            modifier = Modifier.fillMaxWidth()
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         val rememberedCount = uiState.rememberedScales.size
@@ -367,9 +361,10 @@ fun ConnectionStatusChip(
     isBluetoothEnabled: Boolean = true
 ) {
     if (!isBluetoothEnabled) {
+        // 应用自持状态 chip：12dp 小件圆角；淡底/描边透明度为真实半透明需求
         Surface(
             color = MiuixTheme.colorScheme.errorContainer.copy(alpha = 0.25f),
-            shape = CircleShape,
+            shape = RoundedCornerShape(12.dp),
             border = androidx.compose.foundation.BorderStroke(1.dp, MiuixTheme.colorScheme.error.copy(alpha = 0.35f))
         ) {
             Row(
@@ -395,7 +390,7 @@ fun ConnectionStatusChip(
     if (!isDeviceRemembered) {
         Surface(
             color = MiuixTheme.colorScheme.errorContainer.copy(alpha = 0.25f),
-            shape = CircleShape,
+            shape = RoundedCornerShape(12.dp),
             border = androidx.compose.foundation.BorderStroke(1.dp, MiuixTheme.colorScheme.error.copy(alpha = 0.35f))
         ) {
             Row(
@@ -419,12 +414,13 @@ fun ConnectionStatusChip(
     }
 
     val color = when (state) {
+        // 待机中性灰：沿用 outline 灰角色（chip 状态色聚合到单一 token 驱动底/边/点/字）
         BleScaleClient.ConnectionState.IDLE       -> MiuixTheme.colorScheme.outline
         BleScaleClient.ConnectionState.SCANNING   -> MiuixTheme.colorScheme.primary
         // M3 tertiary 无同名 token，按语义就近取 secondary（保持与扫描中 primary 的视觉区分）
         BleScaleClient.ConnectionState.CONNECTING -> MiuixTheme.colorScheme.secondary
         BleScaleClient.ConnectionState.CONNECTED,
-        BleScaleClient.ConnectionState.MEASURING  -> Color(0xFF4CAF50)
+        BleScaleClient.ConnectionState.MEASURING  -> SuccessGreen
     }
 
     val label = when (state) {
@@ -437,7 +433,7 @@ fun ConnectionStatusChip(
 
     Surface(
         color = color.copy(alpha = 0.1f),
-        shape = CircleShape,
+        shape = RoundedCornerShape(12.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, color.copy(alpha = 0.2f))
     ) {
         Row(
@@ -486,6 +482,7 @@ fun WeightDisplay(weight: Double, isStable: Boolean, isCompact: Boolean = false)
         modifier = Modifier
             .size(size)
             .background(
+                // 读数光环渐变底：真实透明度需求（径向渐变淡出）
                 brush = Brush.radialGradient(
                     colors = listOf(
                         MiuixTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
@@ -498,14 +495,20 @@ fun WeightDisplay(weight: Double, isStable: Boolean, isCompact: Boolean = false)
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = String.format("%.2f", weight),
-                fontSize = fontSize,
+                // 产品核心读数：title1 起步 + 产品约定字号/超粗字重（体重读数是产品核心表达，保留视觉重量）
+                style = MiuixTheme.textStyles.title1.copy(fontSize = fontSize),
                 fontWeight = FontWeight.Black,
-                color = MiuixTheme.colorScheme.onBackground.copy(alpha = if (weight > 0) alpha else 0.3f)
+                // 0 读数空态用摘要灰 token 表达层次（不用 alpha 压灰）；闪烁透明度是动画真实需求
+                color = if (weight > 0) {
+                    MiuixTheme.colorScheme.onBackground.copy(alpha = alpha)
+                } else {
+                    MiuixTheme.colorScheme.onSurfaceVariantSummary
+                }
             )
             Text(
                 text = "kg",
-                fontSize = if (isCompact) 20.sp else 24.sp,
-                fontWeight = FontWeight.Medium,
+                // 单位标签按字号就近 title3(20sp)/title2(24sp)，不再裸写 fontSize+fontWeight
+                style = if (isCompact) MiuixTheme.textStyles.title3 else MiuixTheme.textStyles.title2,
                 color = MiuixTheme.colorScheme.primary
             )
         }
@@ -521,14 +524,8 @@ fun MeasurementResultCard(
 ) {
     var showBindDialog by remember { mutableStateOf(false) }
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        cornerRadius = 8.dp,
-        colors = CardDefaults.defaultColors(
-            color = MiuixTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f),
-            contentColor = MiuixTheme.colorScheme.onSurface
-        )
-    ) {
+    // 指标网格卡：Card 默认形态（surfaceContainer + 默认 squircle），不覆写形状与底色
+    Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(20.dp)) {
             // Member Binding Row
             Row(
@@ -540,36 +537,20 @@ fun MeasurementResultCard(
                     Icon(
                         MiuixIcons.ContactsCircle,
                         contentDescription = null,
-                        modifier = Modifier.size(22.dp),
+                        modifier = Modifier.size(18.dp),
                         tint = MiuixTheme.colorScheme.primary
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "数据所属: ${measurement.memberNameSnapshot ?: "未绑定成员"}",
-                        style = MiuixTheme.textStyles.body2,
-                        fontWeight = FontWeight.Bold,
-                        color = MiuixTheme.colorScheme.onSurface
+                        style = MiuixTheme.textStyles.body2
                     )
                 }
                 if (availableMembers.isNotEmpty()) {
-                    // 原 OutlinedButton：透明底 + outline 描边的小号次级按钮
+                    // 原 OutlinedButton 近似（描边）→ HyperOS 次操作语义：默认 TextButton（中性 tonal），组件默认形态
                     TextButton(
                         text = "重选/绑定成员",
-                        onClick = { showBindDialog = true },
-                        modifier = Modifier
-                            .height(32.dp)
-                            .border(
-                                1.dp,
-                                MiuixTheme.colorScheme.outline,
-                                RoundedCornerShape(12.dp)
-                            ),
-                        cornerRadius = 12.dp,
-                        colors = ButtonDefaults.textButtonColors(
-                            color = Color.Transparent,
-                            textColor = MiuixTheme.colorScheme.primary
-                        ),
-                        insideMargin = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                        textStyle = MiuixTheme.textStyles.button.copy(fontSize = 12.sp)
+                        onClick = { showBindDialog = true }
                     )
                 }
             }
@@ -631,7 +612,7 @@ fun MeasurementResultCard(
                 Text(
                     text = "估算模型：$biaModelName",
                     style = MiuixTheme.textStyles.footnote2,
-                    color = MiuixTheme.colorScheme.outline
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )
             }
         }
@@ -672,7 +653,7 @@ fun SelectMemberDialog(
                 modifier = Modifier.padding(bottom = 12.dp)
             )
 
-            // Auto Match Option
+            // Auto Match Option（应用自持选中行：8dp 小件圆角；选中淡底色为真实透明度）
             Surface(
                 onClick = { onSelect(null) },
                 modifier = Modifier
@@ -687,7 +668,7 @@ fun SelectMemberDialog(
                 ) {
                     Icon(MiuixIcons.Promotions, contentDescription = null, tint = MiuixTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.width(12.dp))
-                    Text("全员智能自动匹配", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium)
+                    Text("全员智能自动匹配", style = MiuixTheme.textStyles.body1)
                 }
             }
 
@@ -723,7 +704,7 @@ fun SelectMemberDialog(
                                 )
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(text = member.name, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold)
+                                    Text(text = member.name, style = MiuixTheme.textStyles.body1)
                                     Text(
                                         text = "${if (member.sex == Sex.MALE) "男" else "女"} · ${member.heightCm.toInt()}cm",
                                         style = MiuixTheme.textStyles.footnote1,
@@ -784,21 +765,22 @@ fun MetricItem(label: String, value: String, status: String? = null, modifier: M
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier
     ) {
-        Text(text = label, style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.outline)
+        Text(text = label, style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.onSurfaceContainerVariant)
+        // 指标数值强调（数据阅读层级），保留 Bold
         Text(text = value, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold)
         if (status != null) {
-            val color = if (status == "标准") Color(0xFF4CAF50) else MiuixTheme.colorScheme.error
+            val color = if (status == "标准") SuccessGreen else MiuixTheme.colorScheme.error
+            // 应用自持状态徽标：8dp 徽标圆角；淡底色为真实透明度；文字用 footnote2 字阶原尺寸
             Surface(
                 color = color.copy(alpha = 0.1f),
-                shape = CircleShape,
+                shape = RoundedCornerShape(8.dp),
                 modifier = Modifier.padding(top = 4.dp)
             ) {
                 Text(
                     text = status,
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                     style = MiuixTheme.textStyles.footnote2,
-                    color = color,
-                    fontSize = 10.sp
+                    color = color
                 )
             }
         }
