@@ -18,8 +18,9 @@
 ## 0.5 工具链要求（CI 失败日志实证）
 
 - `compileSdk = 37`：miuix 0.9.4 的 AAR 在 `checkAarMetadata` 强制要求 compileSdk ≥ 37（targetSdk/minSdk 不必变）。
-- Kotlin **2.4.20**（显式 `org.jetbrains.kotlin.android` + `org.jetbrains.kotlin.plugin.compose` 同版本）：miuix 0.9.4 由 Kotlin 2.4.20 构建，metadata 2.4 需要 ≥2.4 的编译器读取；显式 KGP 覆盖 AGP 内置 Kotlin。
-- KSP **2.3.13**（独立版本线，配套新 Kotlin）；Compose BOM **2026.09.00**（对齐 miuix 所需的 androidx.compose 1.12.x）。
+- Kotlin **2.4.20**：miuix 0.9.4 由 Kotlin 2.4.20 构建，metadata 2.4 需要 ≥2.4 的编译器读取。AGP 9 内置 Kotlin（built-in Kotlin）默认 KGP 2.2.10 且**禁止**独立 `org.jetbrains.kotlin.android` 插件；官方升级方式是在**根 build.gradle.kts 的 `buildscript` classpath** 声明 `kotlin-gradle-plugin:2.4.20`（见 kotl.in/gradle/agp-built-in-kotlin）。`org.jetbrains.kotlin.plugin.compose` 保持 plugins 块且与 KGP 同版本 2.4.20。
+- KSP **2.3.13**：同样经根 `buildscript` classpath 注入（`symbol-processing-gradle-plugin`），app 内以无版本 `id("com.google.devtools.ksp")` 应用。
+- Compose BOM **2026.09.00**（对齐 miuix 所需的 androidx.compose 1.12.x）。
 
 ## 1. 硬性规则
 

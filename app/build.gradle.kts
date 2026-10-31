@@ -1,10 +1,10 @@
 plugins {
     alias(libs.plugins.android.application)
-    // 显式 Kotlin 2.4.20：miuix 0.9.4 由 Kotlin 2.4.20 构建（metadata 2.4），
-    // 需要 ≥2.4 的编译器读取；显式 KGP 覆盖 AGP 内置 Kotlin。
-    alias(libs.plugins.kotlin.android)
+    // Kotlin 由 AGP 9 built-in Kotlin 提供，版本经根 buildscript classpath 升至 2.4.20
+    // （miuix 0.9.4 metadata 2.4 的要求）；compose 编译器插件保持与 KGP 同版本。
     alias(libs.plugins.kotlin.compose)
-    alias(libs.plugins.ksp)
+    // KSP 版本同样由根 buildscript classpath 提供（2.3.13），此处不写版本号
+    id("com.google.devtools.ksp")
 }
 
 android {

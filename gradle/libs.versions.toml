@@ -12,7 +12,6 @@ room = "2.8.4"
 datastore = "1.1.1"
 navigation = "2.8.5"
 lifecycle = "2.8.7"
-ksp = "2.3.13"
 healthConnect = "1.1.0-alpha10"
 okhttp = "4.12.0"
 miuix = "0.9.4"
@@ -45,7 +44,5 @@ miuix-icons = { group = "top.yukonga.miuix.kmp", name = "miuix-icons-android", v
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
-kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
-ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 
