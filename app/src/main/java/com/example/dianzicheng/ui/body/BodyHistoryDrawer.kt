@@ -45,9 +45,6 @@ import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/** 时间轴行高（契约：44dp 横向时间轴）。 */
-private val TimelineHeight = 44.dp
-
 /** 拖拽条尺寸（契约：36×4dp，距顶 8dp）。 */
 private val DragHandleWidth = 36.dp
 private val DragHandleHeight = 4.dp
@@ -58,9 +55,9 @@ private val DragHandleTopGap = 8.dp
  *
  * 结构：全屏遮罩（drawBehind，仅全展开渐显 ≤45%）+ 底部 92% 高容器（按 [BodySheetState.topOffset] 位移）。
  * - 顶部 28dp 圆角、左右 16dp 边距、36×4dp 拖拽条。
- * - 拖拽手势**只**绑定在头部（标题 / 日期 / 时间轴 / 筛选 chip），
+ * - 拖拽手势**只**绑定在头部（标题 / 日期 / 筛选 chip），
  *   抽屉内部内容用 `verticalScroll` 独立滚动，两者不冲突。
- * - 头部：标题 + 日期/成员 + 44dp 时间轴 + 多成员筛选。
+ * - 头部：标题 + 日期/成员 + 多成员筛选。
  * - 内容：全展开时的 180dp 趋势图 + A 组 `BodyMetricGrid` 卡片网格（不在此重写卡片）。
  *
  * 高频动画量（fraction / scrimAlpha / topOffset）只在绘制与布局阶段读取，
@@ -221,14 +218,6 @@ fun BodyHistoryDrawer(
                         modifier = Modifier.padding(horizontal = BodyDimens.PagePadding),
                     )
 
-                    Spacer(modifier = Modifier.height(8.dp))
-                    HistoryTimeline(
-                        snapshots = snapshots,
-                        selectedIndex = safeIndex,
-                        onSelectIndex = onSelectIndex,
-                        palette = palette,
-                    )
-
                     if (members.size > 1) {
                         Spacer(modifier = Modifier.height(8.dp))
                         MemberFilterRow(
@@ -386,56 +375,6 @@ private fun DateArrowButton(
                 color = if (enabled) palette.textPrimary else palette.textSecondary,
                 maxLines = 1,
             )
-        }
-    }
-}
-
-// ── 44dp 横向时间轴 ─────────────────────────────────────────────────────────
-
-@Composable
-private fun HistoryTimeline(
-    snapshots: List<HistorySnapshot>,
-    selectedIndex: Int,
-    onSelectIndex: (Int) -> Unit,
-    palette: BodyPalette,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(TimelineHeight)
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = BodyDimens.PagePadding),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        snapshots.forEachIndexed { index, snapshot ->
-            val selected = index == selectedIndex
-            Surface(
-                onClick = { onSelectIndex(index) },
-                shape = RoundedCornerShape(12.dp),
-                color = if (selected) palette.cardSelected else Color.Transparent,
-            ) {
-                Column(
-                    modifier = Modifier
-                        .height(40.dp)
-                        .padding(horizontal = 10.dp),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(
-                        text = snapshot.label,
-                        style = MiuixTheme.textStyles.body2.copy(fontFeatureSettings = "tnum"),
-                        color = if (selected) palette.primary else palette.textPrimary,
-                        maxLines = 1,
-                    )
-                    Text(
-                        text = snapshot.sublabel,
-                        style = MiuixTheme.textStyles.footnote2.copy(fontFeatureSettings = "tnum"),
-                        color = palette.textSecondary,
-                        maxLines = 1,
-                    )
-                }
-            }
         }
     }
 }
