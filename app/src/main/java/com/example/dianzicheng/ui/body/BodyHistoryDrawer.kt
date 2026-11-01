@@ -324,15 +324,6 @@ fun BodyHistoryDrawer(
                             onMetricClick = onMetricSelected,
                             modifier = Modifier.fillMaxWidth(),
                         )
-                        Spacer(modifier = Modifier.height(BodyDimens.CardGap))
-                        Text(
-                            text = "点击卡片切换趋势指标",
-                            style = MiuixTheme.textStyles.footnote2,
-                            color = palette.textSecondary,
-                            textAlign = TextAlign.Center,
-                            maxLines = 1,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
                     }
                     Spacer(modifier = Modifier.height(28.dp + contentBottomInset + navigationBottom))
                 }

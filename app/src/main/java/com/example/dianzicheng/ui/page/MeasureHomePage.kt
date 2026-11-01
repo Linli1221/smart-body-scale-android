@@ -423,7 +423,7 @@ fun MeasureHomePage(
                 Triple("蓝牙已关闭 · 点击开启", palette.danger, enableBluetooth)
 
             uiState.connection == BleScaleClient.ConnectionState.SCANNING ->
-                Triple("正在搜索已记住的体脂秤", palette.primary, {})
+                Triple(null, palette.primary, {})
 
             uiState.connection == BleScaleClient.ConnectionState.CONNECTING ->
                 Triple("正在连接体脂秤", palette.primary, {})
@@ -496,7 +496,7 @@ fun MeasureHomePage(
             !uiState.isBluetoothEnabled -> "开启手机蓝牙后才能连接体脂秤并接收数据"
             stagePhase == StagePhase.OFFLINE -> "离线查看历史记录；点击状态胶囊可唤醒测量"
             !uiState.isDeviceRemembered -> "尚未绑定体脂秤：绑定后踩上即可自动连接"
-            uiState.connection == BleScaleClient.ConnectionState.SCANNING -> "正在寻找已记住的体脂秤，请稍候"
+            uiState.connection == BleScaleClient.ConnectionState.SCANNING -> null
             uiState.connection == BleScaleClient.ConnectionState.CONNECTING -> "正在连接体脂秤，请稍候"
             history.isEmpty() && uiState.currentMeasurement == null -> "还没有称重记录，连接体脂秤后即可测量"
             else -> null
@@ -565,6 +565,11 @@ fun MeasureHomePage(
                         weightKg = displayWeight,
                         phase = stagePhase,
                         stageScale = 1f,
+                        isSearching = uiState.connection == BleScaleClient.ConnectionState.SCANNING,
+                        onOpenSettings = {
+                            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                            onOpenSettings()
+                        },
                     )
 
                     Spacer(modifier = Modifier.height(8.dp))
@@ -709,7 +714,7 @@ fun MeasureHomePage(
 /** 顶部一行：状态胶囊 + 「我的/设置」入口（无顶栏，自行处理 safeDrawing）。 */
 @Composable
 private fun HomeHeader(
-    statusText: String,
+    statusText: String?,
     statusDotColor: Color,
     statusActive: Boolean,
     onStatusClick: () -> Unit,
@@ -720,12 +725,14 @@ private fun HomeHeader(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(modifier = Modifier.weight(1f)) {
-            StatusCapsule(
-                text = statusText,
-                dotColor = statusDotColor,
-                active = statusActive,
-                onClick = onStatusClick,
-            )
+            if (statusText != null) {
+                StatusCapsule(
+                    text = statusText,
+                    dotColor = statusDotColor,
+                    active = statusActive,
+                    onClick = onStatusClick,
+                )
+            }
         }
         IconButton(onClick = onOpenSettings) {
             Icon(

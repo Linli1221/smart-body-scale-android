@@ -9,6 +9,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,6 +35,10 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -116,9 +122,12 @@ fun WeightDial(
     weightKg: Double,
     phase: StagePhase,
     stageScale: Float,
+    isSearching: Boolean,
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val palette = bodyPalette()
+    val currentOnOpenSettings by rememberUpdatedState(onOpenSettings)
     val blink = remember { Animatable(1f) }
     LaunchedEffect(phase) {
         if (phase == StagePhase.LOCKED) {
@@ -148,10 +157,30 @@ fun WeightDial(
         0f
     }
 
+    // 仅搜索设备时创建呼吸动画，其他阶段不持续绘制。
+    val searchAlpha = if (isSearching) {
+        val transition = rememberInfiniteTransition(label = "dial-search")
+        transition.animateFloat(
+            initialValue = 0.22f,
+            targetValue = 0.95f,
+            animationSpec = infiniteRepeatable(animation = tween(1100), repeatMode = RepeatMode.Reverse),
+            label = "dial-search-alpha",
+        )
+    } else {
+        remember { mutableStateOf(0f) }
+    }
+
     val scale = stageScale.coerceIn(0.5f, 1f)
     Box(
         modifier = modifier
             .size(BodyDimens.DialSize)
+            .semantics {
+                if (isSearching) stateDescription = "正在搜索体脂秤"
+                onLongClick(label = "打开设置") { currentOnOpenSettings(); true }
+            }
+            .pointerInput(Unit) {
+                detectTapGestures(onLongPress = { currentOnOpenSettings() })
+            }
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
@@ -281,6 +310,27 @@ fun WeightDial(
                 }
 
                 StagePhase.IDLE, StagePhase.OFFLINE -> Unit
+            }
+        }
+
+        if (isSearching) {
+            Canvas(
+                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = searchAlpha.value },
+            ) {
+                val stroke = BodyDimens.DialStroke.toPx()
+                val inset = stroke / 2f
+                drawArc(
+                    brush = Brush.sweepGradient(
+                        listOf(palette.metricAccents.weight, palette.metricAccents.muscle,
+                            palette.metricAccents.bmi, palette.metricAccents.weight),
+                    ),
+                    startAngle = -90f,
+                    sweepAngle = 360f,
+                    useCenter = false,
+                    topLeft = Offset(inset, inset),
+                    size = androidx.compose.ui.geometry.Size(size.width - stroke, size.height - stroke),
+                    style = Stroke(width = stroke, cap = StrokeCap.Round),
+                )
             }
         }
 
