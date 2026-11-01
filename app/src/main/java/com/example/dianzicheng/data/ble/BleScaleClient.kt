@@ -59,6 +59,7 @@ class BleScaleClient(private val context: Context) {
         get() = (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
 
     /** 当前活跃的 GATT 连接实例；未连接时为 null。 */
+    @Volatile
     private var bluetoothGatt: BluetoothGatt? = null
 
     /** 支持的体脂秤服务 UUID 集合（仅薄荷健康/沃莱与小米体脂秤 2 代），用于广播过滤与服务匹配 */
@@ -484,6 +485,8 @@ class BleScaleClient(private val context: Context) {
      */
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
+            if (!scanRequested || !isForeground) return
+            scanRetryCount = 0
             val device = result.device
 
             // 【Debug 抓包】在任何过滤逻辑之前，先无差别记录每一条收到的广播包原始字节，
@@ -671,9 +674,7 @@ class BleScaleClient(private val context: Context) {
                         _weight.value = 0.0
                         _isStable.value = false
                         _impedance.value = 0.0
-                        if (_connectionState.value == ConnectionState.MEASURING) {
-                            _connectionState.value = ConnectionState.CONNECTED
-                        }
+                        if (isScanning) _connectionState.value = ConnectionState.SCANNING
                     }
 
                     // 重置 2.5s 无广播数据超时定时器（无论体重是否为 0 均重置，避免超时回调再次归零干扰）
@@ -684,9 +685,7 @@ class BleScaleClient(private val context: Context) {
                         _weight.value = 0.0
                         _isStable.value = false
                         _impedance.value = 0.0
-                        if (_connectionState.value == ConnectionState.MEASURING) {
-                            _connectionState.value = ConnectionState.CONNECTED
-                        }
+                        if (isScanning) _connectionState.value = ConnectionState.SCANNING
                     }.also { inactivityRunnable = it }
                     handler.removeCallbacks(watchdog)
                     handler.postDelayed(watchdog, 2500)
@@ -720,6 +719,7 @@ class BleScaleClient(private val context: Context) {
         }
 
         override fun onScanFailed(errorCode: Int) {
+            if (!scanRequested || !isForeground) return
             BleProtocolRecorder.recordScanFailed(errorCode)
             AppLogger.e(TAG, "BLE 扫描失败，错误码: $errorCode")
             isScanning = false
@@ -729,21 +729,23 @@ class BleScaleClient(private val context: Context) {
                 return
             }
             _connectionState.value = ConnectionState.IDLE
-            if (scanRetryCount < 3) {
-                // 指数退避重试 (2s, 4s, 8s)，避免高频重试导致被系统 BLE 栈永久拉黑
-                val delay = 2000L * (1 shl scanRetryCount)
-                scanRetryCount++
-                BleProtocolRecorder.recordConnectRetry("", scanRetryCount, delay)
-                AppLogger.w(TAG, "扫描失败，将于 ${delay}ms 后进行第 $scanRetryCount 次重试 (errorCode: $errorCode)")
-                handler.postDelayed({
-                    if (_connectionState.value == ConnectionState.IDLE) {
-                        startScan()
-                    }
-                }, delay)
-            } else {
-                AppLogger.e(TAG, "扫描重试已达上限 (3次)，停止自动重试，请手动触发")
-            }
+            scheduleScanRetry()
         }
+    }
+
+    /** 指数退避并持续低频重试；主动停止或进入后台时取消待执行任务。 */
+    private fun scheduleScanRetry() {
+        if (!scanRequested || !isForeground) return
+        scanRetryRunnable?.let { handler.removeCallbacks(it) }
+        val delayMs = (2000L * (1L shl scanRetryCount.coerceAtMost(4))).coerceAtMost(30000L)
+        scanRetryCount = (scanRetryCount + 1).coerceAtMost(5)
+        AppLogger.w(TAG, "BLE 扫描失败，将在 ${delayMs}ms 后重试")
+        val retry = Runnable {
+            scanRetryRunnable = null
+            if (scanRequested && isForeground && _connectionState.value == ConnectionState.IDLE) startScan()
+        }
+        scanRetryRunnable = retry
+        handler.postDelayed(retry, delayMs)
     }
 
     // -------------------------------------------------------------------------
@@ -781,6 +783,11 @@ class BleScaleClient(private val context: Context) {
 
     /** 扫描失败连续重试计数 */
     private var scanRetryCount = 0
+    private var scanRetryRunnable: Runnable? = null
+    private var scanRequested = false
+
+    /** 仅前台允许扫描；后台保留已有连接，回到前台后重新扫描。 */
+    var isForeground: Boolean = false
 
     /** GATT 连接超时看门狗 Runnable，8 秒内未完成连接则回退到扫描状态。 */
     private var connectTimeoutRunnable: Runnable? = null
@@ -832,6 +839,10 @@ class BleScaleClient(private val context: Context) {
      * 若蓝牙适配器不可用或未启用，则直接将状态设为 [ConnectionState.IDLE] 并返回。
      */
     fun startScan() {
+        if (!isForeground) return
+        scanRequested = true
+        scanRetryRunnable?.let { handler.removeCallbacks(it) }
+        scanRetryRunnable = null
         // 已经扫描时直接返回，不能先清空正在进行的称重会话。
         if (isScanning && _connectionState.value == ConnectionState.SCANNING) {
             BleProtocolRecorder.recordScanLifecycle("SCAN_SKIP", "已在扫描中")
@@ -872,6 +883,7 @@ class BleScaleClient(private val context: Context) {
             AppLogger.e(TAG, "蓝牙扫描器不可用: $reason")
             _connectionState.value = ConnectionState.IDLE
             isScanning = false
+            if (adapter != null && runCatching { adapter.isEnabled }.getOrDefault(false)) scheduleScanRetry()
             return
         }
 
@@ -944,11 +956,11 @@ class BleScaleClient(private val context: Context) {
         try {
             scanner.startScan(scanFilters, settings, scanCallback)
             isScanning = true
-            scanRetryCount = 0
         } catch (e: Exception) {
             isScanning = false
             AppLogger.e(TAG, "启动 BLE 扫描失败: ${e.message}")
             _connectionState.value = ConnectionState.IDLE
+            scheduleScanRetry()
         }
     }
 
@@ -1010,9 +1022,18 @@ class BleScaleClient(private val context: Context) {
      */
     fun stopScan() {
         val wasScanning = isScanning
+        scanRequested = false
+        scanRetryRunnable?.let { handler.removeCallbacks(it) }
+        scanRetryRunnable = null
+        scanRetryCount = 0
         isScanning = false
         BleProtocolRecorder.recordScanLifecycle("SCAN_STOP")
-        pendingConnectRunnable?.let { handler.removeCallbacks(it) }
+        pendingConnectRunnable?.let {
+            handler.removeCallbacks(it)
+            if (_connectionState.value == ConnectionState.CONNECTING && bluetoothGatt == null) {
+                _connectionState.value = ConnectionState.IDLE
+            }
+        }
         pendingConnectRunnable = null
         try {
             bluetoothAdapter?.bluetoothLeScanner?.stopScan(scanCallback)
@@ -1106,6 +1127,10 @@ class BleScaleClient(private val context: Context) {
             return
         }
 
+        // 停止广播秤的旧看门狗，避免它在新 GATT 会话中清空示数。
+        inactivityRunnable?.let { handler.removeCallbacks(it) }
+        inactivityRunnable = null
+        broadcastSessionMac = null
         // 1. 立即停止扫描，避免无线电资源冲突
         stopScan()
         // 2. 立即置为 CONNECTING，阻止后续广播包触发多次连接
@@ -1113,6 +1138,7 @@ class BleScaleClient(private val context: Context) {
 
         pendingConnectRunnable?.let { handler.removeCallbacks(it) }
         val connectRunnable = Runnable {
+            pendingConnectRunnable = null
             if (_connectionState.value != ConnectionState.CONNECTING) return@Runnable
 
             // 关闭旧的 GATT 连接实例
@@ -1151,10 +1177,21 @@ class BleScaleClient(private val context: Context) {
             handler.postDelayed(timeoutRunnable, 8000L)  // 8000ms = 8秒超时
 
             // 发起 GATT 连接；Android M（API 23）及以上强制指定 LE 传输通道以提高稳定性
-            bluetoothGatt = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
-            } else {
-                device.connectGatt(context, false, gattCallback)
+            try {
+                bluetoothGatt = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                    device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
+                } else {
+                    device.connectGatt(context, false, gattCallback)
+                }
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "发起 GATT 连接失败: ${e.message}")
+                handler.removeCallbacks(timeoutRunnable)
+                connectTimeoutRunnable = null
+                _connectionState.value = ConnectionState.IDLE
+                handler.postDelayed({
+                    if (isForeground && !isPairingMode && hasRememberedDevice &&
+                        _connectionState.value == ConnectionState.IDLE) startScan()
+                }, 2000L)
             }
         }
         pendingConnectRunnable = connectRunnable
@@ -1753,6 +1790,11 @@ class BleScaleClient(private val context: Context) {
          * @param newState 新的连接状态（[BluetoothProfile.STATE_CONNECTED] 或 [BluetoothProfile.STATE_DISCONNECTED]）。
          */
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
+            if (gatt !== bluetoothGatt) {
+                AppLogger.d(TAG, "忽略过期 GATT 连接回调")
+                runCatching { gatt.close() }
+                return
+            }
             BleProtocolRecorder.recordConnectionState(gatt.device?.address ?: "", status, newState)
             AppLogger.i(TAG, "GATT 连接状态变更: status=$status, newState=$newState, currentConnectionState=${_connectionState.value}")
             // 连接事件发生，取消超时看门狗与延时任务
@@ -1897,6 +1939,7 @@ class BleScaleClient(private val context: Context) {
          * @param status 发现结果状态码。
          */
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
+            if (gatt !== bluetoothGatt) return
             AppLogger.i(TAG, "GATT 服务发现完成: status=$status")
             // 【Debug 抓包】无论成功失败都记录服务发现结果；失败时这里是唯一能定位原因的入口
             BleProtocolRecorder.recordServiceDiscovery(status)
@@ -1966,6 +2009,7 @@ class BleScaleClient(private val context: Context) {
             descriptor: BluetoothGattDescriptor,
             status: Int
         ) {
+            if (gatt !== bluetoothGatt) return
             AppLogger.d(TAG, "描述符写入完成: status=$status, 特征: ${descriptor.characteristic?.uuid}")
             // 【Debug 抓包】记录 CCCD 写入回调及其 status 码
             BleProtocolRecorder.recordDescriptorWriteResult(
@@ -1996,6 +2040,7 @@ class BleScaleClient(private val context: Context) {
             characteristic: BluetoothGattCharacteristic,
             status: Int
         ) {
+            if (gatt !== bluetoothGatt) return
             AppLogger.d(TAG, "特征写入完成: status=$status, 特征: ${characteristic.uuid}")
             // 【Debug 抓包】记录下行写入的最终 GATT 结果码
             BleProtocolRecorder.recordWriteResult(
@@ -2020,6 +2065,7 @@ class BleScaleClient(private val context: Context) {
             characteristic: BluetoothGattCharacteristic,
             value: ByteArray
         ) {
+            if (gatt !== bluetoothGatt) return
             handleIncomingData(value, characteristic.uuid.toString())
         }
 
@@ -2038,6 +2084,7 @@ class BleScaleClient(private val context: Context) {
             gatt: BluetoothGatt,
             characteristic: BluetoothGattCharacteristic
         ) {
+            if (gatt !== bluetoothGatt) return
             val data = characteristic.value ?: return
             handleIncomingData(data, characteristic.uuid.toString())
         }

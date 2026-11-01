@@ -236,12 +236,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        bleClient.isForeground = true
         resumeRememberedScaleScan()
     }
 
     override fun onStop() {
         super.onStop()
-        // 进入后台：暂停 BLE 低延迟扫描，节约电量并符合 Android 后台规范
+        // 进入后台：暂停扫描与重试；保留已经建立的 GATT 连接。
+        bleClient.isForeground = false
         bleClient.stopScan()
     }
 

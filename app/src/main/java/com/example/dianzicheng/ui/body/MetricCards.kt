@@ -303,7 +303,14 @@ private fun WeightSummaryCard(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 MetricIconBadge(kind = MetricKind.WEIGHT, accent = accent)
-                Spacer(modifier = Modifier.weight(1f))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = reading.title,
+                    style = bodyLabelStyle(13.sp),
+                    color = palette.textPrimary,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f),
+                )
                 WeightDeltaPill(report = report)
             }
             Row(verticalAlignment = Alignment.Bottom) {
@@ -384,7 +391,14 @@ private fun BmiSummaryCard(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 MetricIconBadge(kind = MetricKind.BMI, accent = accent)
-                Spacer(modifier = Modifier.weight(1f))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = reading.title,
+                    style = bodyLabelStyle(13.sp),
+                    color = palette.textPrimary,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f),
+                )
                 reading.status?.let { StatusPill(status = it) }
             }
             Row(verticalAlignment = Alignment.Bottom) {
@@ -430,7 +444,14 @@ private fun RangeMetricCard(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 MetricIconBadge(kind = reading.kind, accent = accent)
-                Spacer(modifier = Modifier.weight(1f))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = reading.title,
+                    style = bodyLabelStyle(13.sp),
+                    color = palette.textPrimary,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f),
+                )
                 reading.status?.let {
                     Text(
                         text = it.label,
@@ -569,7 +590,14 @@ private fun RiskMetricCard(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 MetricIconBadge(kind = reading.kind, accent = accent)
-                Spacer(modifier = Modifier.weight(1f))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = reading.title,
+                    style = bodyLabelStyle(13.sp),
+                    color = palette.textPrimary,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f),
+                )
                 reading.status?.let {
                     Text(
                         text = it.label,
@@ -705,6 +733,13 @@ private fun CompactMetricCard(
             MetricIconBadge(kind = reading.kind, accent = accent)
             Spacer(modifier = Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = reading.title,
+                    style = bodyLabelStyle(13.sp),
+                    color = palette.textPrimary,
+                    maxLines = 1,
+                )
+                Spacer(modifier = Modifier.height(1.dp))
                 Row(verticalAlignment = Alignment.Bottom) {
                     MetricNumber(
                         value = reading.numericValue,
