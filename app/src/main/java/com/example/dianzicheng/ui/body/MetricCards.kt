@@ -35,6 +35,9 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -163,10 +166,7 @@ private fun MetricRow(content: @Composable RowScope.() -> Unit) {
     )
 }
 
-/**
- * 指标图标徽章：参考健康卡片风格的彩色圆形图标底。
- * 用短字符代替复杂矢量图标，保证不同设备上稳定渲染。
- */
+/** 以图形区分指标，保留屏幕阅读器可读的指标名称。 */
 @Composable
 private fun MetricIconBadge(
     kind: MetricKind,
@@ -174,30 +174,92 @@ private fun MetricIconBadge(
     modifier: Modifier = Modifier,
 ) {
     val label = when (kind) {
-        MetricKind.WEIGHT -> "体"
-        MetricKind.BMI -> "标"
-        MetricKind.BODY_FAT -> "脂"
-        MetricKind.MUSCLE -> "肌"
-        MetricKind.WATER -> "水"
-        MetricKind.VISCERAL_FAT -> "内"
-        MetricKind.PROTEIN -> "蛋"
-        MetricKind.BONE -> "骨"
+        MetricKind.WEIGHT -> "体重"
+        MetricKind.BMI -> "身体质量指数"
+        MetricKind.BODY_FAT -> "体脂率"
+        MetricKind.MUSCLE -> "肌肉量"
+        MetricKind.WATER -> "水分"
+        MetricKind.VISCERAL_FAT -> "内脏脂肪"
+        MetricKind.PROTEIN -> "蛋白质"
+        MetricKind.BONE -> "骨量"
     }
     Surface(
         color = accent,
         shape = CircleShape,
-        modifier = modifier.size(32.dp),
+        modifier = modifier.size(32.dp).semantics { contentDescription = label },
     ) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = label,
-                style = bodyLabelStyle(13.sp, FontWeight.Bold),
-                color = Color.White,
-                maxLines = 1,
-            )
+        Canvas(modifier = Modifier.fillMaxSize().padding(6.dp)) {
+            scale(scaleX = size.width / 24f, scaleY = size.height / 24f, pivot = Offset.Zero) {
+                val stroke = Stroke(width = 1.8f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                fun outline(path: Path) = drawPath(path, Color.White, style = stroke)
+                fun line(x1: Float, y1: Float, x2: Float, y2: Float) =
+                    drawLine(Color.White, Offset(x1, y1), Offset(x2, y2), strokeWidth = 1.8f, cap = StrokeCap.Round)
+                fun circle(x: Float, y: Float, r: Float) =
+                    drawCircle(Color.White, r, Offset(x, y), style = stroke)
+                when (kind) {
+                    MetricKind.WEIGHT -> {
+                        outline(Path().apply {
+                            moveTo(5f, 5f); cubicTo(5f, 3.8f, 6f, 3f, 7f, 3f)
+                            lineTo(17f, 3f); cubicTo(18f, 3f, 19f, 3.8f, 19f, 5f)
+                            lineTo(20.5f, 19f); cubicTo(20.6f, 20f, 19.8f, 21f, 18.8f, 21f)
+                            lineTo(5.2f, 21f); cubicTo(4.2f, 21f, 3.4f, 20f, 3.5f, 19f); close()
+                        })
+                        outline(Path().apply { moveTo(8f, 9f); cubicTo(9f, 6f, 15f, 6f, 16f, 9f) })
+                        line(12f, 9f, 14f, 6.8f)
+                    }
+                    MetricKind.BMI -> {
+                        circle(8f, 5f, 2.1f)
+                        outline(Path().apply { moveTo(4.5f, 12f); cubicTo(4.5f, 8f, 11.5f, 8f, 11.5f, 12f); lineTo(11.5f, 14f); lineTo(10f, 14f); lineTo(10f, 20f); lineTo(6f, 20f); lineTo(6f, 14f); lineTo(4.5f, 14f); close() })
+                        line(15f, 4f, 15f, 20f); line(19f, 4f, 19f, 20f)
+                        line(15f, 4f, 19f, 4f); line(15f, 20f, 19f, 20f)
+                        line(15f, 8f, 17f, 8f); line(15f, 12f, 17f, 12f); line(15f, 16f, 17f, 16f)
+                    }
+                    MetricKind.BODY_FAT, MetricKind.WATER -> {
+                        outline(Path().apply {
+                            moveTo(12f, 2.5f); cubicTo(9f, 6.5f, 5.5f, 10f, 5.5f, 14.5f)
+                            cubicTo(5.5f, 18f, 8.3f, 21f, 12f, 21f); cubicTo(15.7f, 21f, 18.5f, 18f, 18.5f, 14.5f)
+                            cubicTo(18.5f, 10f, 15f, 6.5f, 12f, 2.5f); close()
+                        })
+                        if (kind == MetricKind.WATER) {
+                            outline(Path().apply { moveTo(8f, 15f); cubicTo(10f, 12.5f, 12f, 17f, 16f, 14f) })
+                        } else {
+                            line(9.5f, 17f, 14.5f, 11f); circle(9.5f, 11f, 0.8f); circle(14.5f, 17f, 0.8f)
+                        }
+                    }
+                    MetricKind.MUSCLE -> {
+                        outline(Path().apply {
+                            moveTo(4f, 19f); lineTo(4f, 14f); lineTo(7f, 11f); lineTo(9f, 12f)
+                            lineTo(10.5f, 9f); lineTo(9f, 7f); lineTo(10f, 4f); lineTo(14f, 4f)
+                            lineTo(15f, 7f); lineTo(13f, 9f); cubicTo(17f, 9f, 20f, 12f, 20f, 16f)
+                            lineTo(20f, 19f); close()
+                        })
+                        outline(Path().apply { moveTo(10f, 15f); cubicTo(11f, 12f, 15f, 12f, 17f, 14f) })
+                    }
+                    MetricKind.VISCERAL_FAT -> {
+                        outline(Path().apply {
+                            moveTo(12f, 2.5f); lineTo(19f, 5f); lineTo(19f, 11f)
+                            cubicTo(19f, 15.5f, 16f, 19f, 12f, 21.5f)
+                            cubicTo(8f, 19f, 5f, 15.5f, 5f, 11f); lineTo(5f, 5f); close()
+                        })
+                        outline(Path().apply { moveTo(8.5f, 12f); cubicTo(9.5f, 9f, 11f, 9.5f, 12f, 12f); cubicTo(13f, 9.5f, 14.5f, 9f, 15.5f, 12f) })
+                        line(12f, 12f, 12f, 16f)
+                    }
+                    MetricKind.PROTEIN -> {
+                        line(7f, 7f, 12f, 4f); line(12f, 4f, 17f, 8f); line(17f, 8f, 16f, 15f)
+                        line(16f, 15f, 10f, 19f); line(10f, 19f, 5f, 15f); line(5f, 15f, 7f, 7f)
+                        circle(7f, 7f, 1.5f); circle(12f, 4f, 1.5f); circle(17f, 8f, 1.5f)
+                        circle(16f, 15f, 1.5f); circle(10f, 19f, 1.5f); circle(5f, 15f, 1.5f)
+                    }
+                    MetricKind.BONE -> {
+                        outline(Path().apply {
+                            moveTo(6.5f, 9f); cubicTo(3f, 9f, 3f, 4f, 6f, 4.5f)
+                            cubicTo(7f, 2f, 10f, 3f, 10f, 6f); lineTo(17.5f, 13.5f)
+                            cubicTo(21f, 13.5f, 21f, 18.5f, 18f, 18f)
+                            cubicTo(17f, 21f, 14f, 20f, 14f, 17f); close()
+                        })
+                    }
+                }
+            }
         }
     }
 }
@@ -231,13 +293,7 @@ private fun WeightSummaryCard(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 MetricIconBadge(kind = MetricKind.WEIGHT, accent = accent)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = reading.title,
-                    style = bodyLabelStyle(13.sp),
-                    color = palette.textPrimary,
-                    modifier = Modifier.weight(1f),
-                )
+                Spacer(modifier = Modifier.weight(1f))
                 WeightDeltaPill(report = report)
             }
             Row(verticalAlignment = Alignment.Bottom) {
@@ -318,13 +374,7 @@ private fun BmiSummaryCard(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 MetricIconBadge(kind = MetricKind.BMI, accent = accent)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = reading.title,
-                    style = bodyLabelStyle(13.sp),
-                    color = palette.textPrimary,
-                    modifier = Modifier.weight(1f),
-                )
+                Spacer(modifier = Modifier.weight(1f))
                 reading.status?.let { StatusPill(status = it) }
             }
             Row(verticalAlignment = Alignment.Bottom) {
@@ -370,13 +420,7 @@ private fun RangeMetricCard(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 MetricIconBadge(kind = reading.kind, accent = accent)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = reading.title,
-                    style = bodyLabelStyle(13.sp),
-                    color = palette.textPrimary,
-                    modifier = Modifier.weight(1f),
-                )
+                Spacer(modifier = Modifier.weight(1f))
                 reading.status?.let {
                     Text(
                         text = it.label,
@@ -515,13 +559,7 @@ private fun RiskMetricCard(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 MetricIconBadge(kind = reading.kind, accent = accent)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = reading.title,
-                    style = bodyLabelStyle(13.sp),
-                    color = palette.textPrimary,
-                    modifier = Modifier.weight(1f),
-                )
+                Spacer(modifier = Modifier.weight(1f))
                 reading.status?.let {
                     Text(
                         text = it.label,
@@ -657,13 +695,6 @@ private fun CompactMetricCard(
             MetricIconBadge(kind = reading.kind, accent = accent)
             Spacer(modifier = Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = reading.title,
-                    style = bodyLabelStyle(13.sp),
-                    color = palette.textPrimary,
-                    maxLines = 1,
-                )
-                Spacer(modifier = Modifier.height(1.dp))
                 Row(verticalAlignment = Alignment.Bottom) {
                     MetricNumber(
                         value = reading.numericValue,
