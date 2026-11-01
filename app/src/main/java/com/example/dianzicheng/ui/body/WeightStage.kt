@@ -22,7 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.stateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -72,7 +72,7 @@ fun StatusCapsule(
             label = "status-dot-alpha",
         )
     } else {
-        remember { stateOf(0.8f) }
+        remember { mutableStateOf(0.8f) }
     }
     Surface(
         onClick = onClick,

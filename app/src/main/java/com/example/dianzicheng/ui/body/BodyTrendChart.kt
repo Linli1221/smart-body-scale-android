@@ -36,7 +36,7 @@ import com.example.dianzicheng.domain.FamilyMember
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.snapshotFlow
+import androidx.compose.runtime.snapshotFlow
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
