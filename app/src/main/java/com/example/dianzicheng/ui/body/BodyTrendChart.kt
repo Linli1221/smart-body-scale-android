@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -22,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -35,7 +37,7 @@ import androidx.compose.ui.unit.dp
 import com.example.dianzicheng.domain.FamilyMember
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.filterNotNull
 import androidx.compose.runtime.snapshotFlow
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
@@ -49,9 +51,6 @@ private val TrendChartHeight = 180.dp
 /** 单个数据点的横向宽度；滑动时以此为磁吸单位。 */
 private val TrendStepWidth = 88.dp
 
-/** 折线绘图区高度。 */
-private val TrendPlotHeight = 112.dp
-
 /** 单点状态文案。 */
 private const val SINGLE_POINT_HINT = "再测一次即可连成趋势曲线"
 
@@ -59,7 +58,7 @@ private const val SINGLE_POINT_HINT = "再测一次即可连成趋势曲线"
 private data class TrendStyle(val title: String, val unit: String, val decimals: Int)
 
 /** 一个绘图点：横轴用快照 label，纵轴为指标值。 */
-private data class TrendPoint(val label: String, val value: Double)
+private data class TrendPoint(val label: String, val time: String, val value: Double)
 
 /**
  * 指标趋势折线图（横向滑动 + 数据点磁吸）。
@@ -72,7 +71,7 @@ private data class TrendPoint(val label: String, val value: Double)
 fun BodyTrendChart(
     metric: MetricKind,
     snapshots: List<HistorySnapshot>,
-    member: FamilyMember? = null,
+    members: List<FamilyMember> = emptyList(),
     selectedIndex: Int = 0,
     onSelectIndex: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
@@ -80,21 +79,21 @@ fun BodyTrendChart(
     val palette = bodyPalette()
     val accent = palette.metricAccents.forMetric(metric)
     val style = remember(metric) { trendStyleOf(metric) }
-    val displayPoints = remember(metric, snapshots, member) {
+    val displayPoints = remember(metric, snapshots, members) {
         snapshots.mapNotNull { snapshot ->
-            val value = metricNumericValue(snapshot.measurement, metric, member)
-            if (value == null || value <= 0.0) null else TrendPoint(snapshot.label, value)
+            val value = metricNumericValue(snapshot.measurement, metric, members.firstOrNull { it.id == snapshot.measurement.memberId })
+            if (value == null || value <= 0.0) null else TrendPoint(snapshot.label, snapshot.sublabel, value)
         }.reversed()
     }
-    val snapshotIndices = remember(snapshots, metric, member) {
+    val snapshotIndices = remember(snapshots, metric, members) {
         snapshots.mapIndexedNotNull { index, snapshot ->
-            val value = metricNumericValue(snapshot.measurement, metric, member)
+            val value = metricNumericValue(snapshot.measurement, metric, members.firstOrNull { it.id == snapshot.measurement.memberId })
             if (value == null || value <= 0.0) null else index
         }.reversed()
     }
     val safeSelectedIndex = if (snapshots.isEmpty()) 0 else selectedIndex.coerceIn(0, snapshots.lastIndex)
     val selectedValue = snapshots.getOrNull(safeSelectedIndex)?.let {
-        metricNumericValue(it.measurement, metric, member)
+        metricNumericValue(it.measurement, metric, members.firstOrNull { member -> member.id == it.measurement.memberId })
     }
     val chartMin = displayPoints.minOfOrNull { it.value } ?: 0.0
     val chartMax = displayPoints.maxOfOrNull { it.value } ?: 0.0
@@ -106,22 +105,34 @@ fun BodyTrendChart(
 
     val listState = rememberLazyListState()
     val snapFling = rememberSnapFlingBehavior(listState)
-    val initialDisplayIndex = snapshotIndices.indexOf(safeSelectedIndex).coerceAtLeast(0)
-
-    LaunchedEffect(initialDisplayIndex, displayPoints.size) {
-        if (displayPoints.isNotEmpty()) listState.scrollToItem(initialDisplayIndex)
+    // 外部时间轴选择与图表滑动共用选中项；程序滚动期间不反向写回中途经过的点。
+    var programmaticScroll by remember { mutableStateOf(false) }
+    LaunchedEffect(snapshotIndices, metric) {
+        val index = snapshotIndices.indexOf(safeSelectedIndex).coerceAtLeast(0)
+        if (snapshotIndices.isNotEmpty()) listState.scrollToItem(index)
     }
-
+    LaunchedEffect(safeSelectedIndex, snapshotIndices) {
+        val index = snapshotIndices.indexOf(safeSelectedIndex)
+        if (index >= 0 && !listState.isScrollInProgress) {
+            programmaticScroll = true
+            try {
+                listState.animateScrollToItem(index)
+            } finally {
+                programmaticScroll = false
+            }
+        }
+    }
     LaunchedEffect(listState, snapshotIndices) {
         snapshotFlow {
-            val layout = listState.layoutInfo
-            val viewportCenter = layout.viewportStartOffset + layout.viewportSize.width / 2
-            layout.visibleItemsInfo
-                .minByOrNull { abs((it.offset + it.size / 2) - viewportCenter) }
-                ?.index
-                ?: 0
+            if (!listState.isScrollInProgress || programmaticScroll) null else {
+                val layout = listState.layoutInfo
+                val viewportCenter = layout.viewportStartOffset + layout.viewportSize.width / 2
+                layout.visibleItemsInfo
+                    .minByOrNull { abs((it.offset + it.size / 2) - viewportCenter) }
+                    ?.index
+            }
         }
-            .map { it.coerceIn(0, snapshotIndices.lastIndex.coerceAtLeast(0)) }
+            .filterNotNull()
             .distinctUntilChanged()
             .collect { displayIndex ->
                 snapshotIndices.getOrNull(displayIndex)?.let(onSelectIndex)
@@ -214,9 +225,11 @@ fun BodyTrendChart(
                     ) {
                         itemsIndexed(displayPoints) { displayIndex, point ->
                             val previous = displayPoints.getOrNull(displayIndex - 1)
+                            val next = displayPoints.getOrNull(displayIndex + 1)
                             TrendPointCell(
                                 point = point,
                                 previous = previous,
+                                next = next,
                                 selected = snapshotIndices.getOrNull(displayIndex) == safeSelectedIndex,
                                 accent = accent,
                                 palette = palette,
@@ -272,6 +285,7 @@ private fun RollingCounter(
         style = MiuixTheme.textStyles.body1.copy(fontFeatureSettings = "tnum"),
         color = if (value == null) neutral else accent,
         maxLines = 1,
+        modifier = modifier,
     )
 }
 
@@ -280,6 +294,7 @@ private fun RollingCounter(
 private fun TrendPointCell(
     point: TrendPoint,
     previous: TrendPoint?,
+    next: TrendPoint?,
     selected: Boolean,
     accent: Color,
     palette: BodyPalette,
@@ -289,41 +304,54 @@ private fun TrendPointCell(
     Box(
         modifier = Modifier
             .width(TrendStepWidth)
-            .height(TrendPlotHeight)
+            .fillMaxHeight()
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
+            // 为日期和时间预留空间；数据点放在单元中心，与磁吸中心一致。
+            val plotTop = 6.dp.toPx()
+            val plotBottom = size.height - 36.dp.toPx()
             val yOf = { v: Double ->
-                (TrendPlotHeight.toPx() * (1.0 - (v - lowerBound) / range)).toFloat()
+                (plotBottom - (plotBottom - plotTop) * (v - lowerBound) / range).toFloat()
             }
-            val startY = previous?.let { yOf(it.value) } ?: yOf(point.value)
-            val endY = yOf(point.value)
-            drawLine(
-                color = accent.copy(alpha = if (selected) 1f else 0.72f),
-                start = Offset(0f, startY),
-                end = Offset(size.width, endY),
-                strokeWidth = if (selected) 3.dp.toPx() else 2.dp.toPx(),
-                cap = StrokeCap.Round,
+            val center = Offset(size.width / 2f, yOf(point.value))
+            previous?.let {
+                drawLine(
+                    color = accent.copy(alpha = 0.72f),
+                    start = Offset(0f, (yOf(it.value) + center.y) / 2f),
+                    end = center,
+                    strokeWidth = 2.dp.toPx(),
+                    cap = StrokeCap.Round,
+                )
+            }
+            next?.let {
+                drawLine(
+                    color = accent.copy(alpha = 0.72f),
+                    start = center,
+                    end = Offset(size.width, (center.y + yOf(it.value)) / 2f),
+                    strokeWidth = 2.dp.toPx(),
+                    cap = StrokeCap.Round,
+                )
+            }
+            drawCircle(color = palette.card, radius = if (selected) 5.dp.toPx() else 3.5.dp.toPx(), center = center)
+            drawCircle(color = accent, radius = if (selected) 3.5.dp.toPx() else 2.5.dp.toPx(), center = center)
+        }
+        Column(
+            modifier = Modifier.align(Alignment.BottomCenter),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = point.label,
+                style = MiuixTheme.textStyles.footnote2.copy(fontFeatureSettings = "tnum"),
+                color = if (selected) accent else palette.textSecondary,
+                maxLines = 1,
             )
-            drawCircle(
-                color = palette.card,
-                radius = if (selected) 5.dp.toPx() else 3.5.dp.toPx(),
-                center = Offset(size.width, endY),
-            )
-            drawCircle(
-                color = accent,
-                radius = if (selected) 3.5.dp.toPx() else 2.5.dp.toPx(),
-                center = Offset(size.width, endY),
+            Text(
+                text = point.time,
+                style = MiuixTheme.textStyles.footnote2.copy(fontFeatureSettings = "tnum"),
+                color = palette.textSecondary,
+                maxLines = 1,
             )
         }
-        Text(
-            text = point.label,
-            style = MiuixTheme.textStyles.footnote2.copy(fontFeatureSettings = "tnum"),
-            color = if (selected) accent else palette.textSecondary,
-            maxLines = 1,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 2.dp),
-        )
     }
 }
 

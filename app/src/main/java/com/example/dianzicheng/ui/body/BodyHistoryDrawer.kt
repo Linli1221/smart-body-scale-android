@@ -1,7 +1,6 @@
 package com.example.dianzicheng.ui.body
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
@@ -10,7 +9,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -50,25 +48,19 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 /** 时间轴行高（契约：44dp 横向时间轴）。 */
 private val TimelineHeight = 44.dp
 
-/** 分段控制器行高。 */
-private val SegmentHeight = 32.dp
-
 /** 拖拽条尺寸（契约：36×4dp，距顶 8dp）。 */
 private val DragHandleWidth = 36.dp
 private val DragHandleHeight = 4.dp
 private val DragHandleTopGap = 8.dp
-
-/** 分段控制器的固定顺序与文案（契约：单次 / 周均 / 月均）。 */
-private val HISTORY_MODES = listOf(HistoryMode.SINGLE, HistoryMode.WEEK, HistoryMode.MONTH)
 
 /**
  * 三态历史抽屉容器（契约第 4 节 B 组）。
  *
  * 结构：全屏遮罩（drawBehind，仅全展开渐显 ≤45%）+ 底部 92% 高容器（按 [BodySheetState.topOffset] 位移）。
  * - 顶部 28dp 圆角、左右 16dp 边距、36×4dp 拖拽条。
- * - 拖拽手势**只**绑定在头部（标题 / 分段控制器 / 时间轴 / 筛选 chip），
+ * - 拖拽手势**只**绑定在头部（标题 / 日期 / 时间轴 / 筛选 chip），
  *   抽屉内部内容用 `verticalScroll` 独立滚动，两者不冲突。
- * - 头部：标题 + 日期/成员 + 单次/周均/月均 + 44dp 时间轴 + 多成员筛选。
+ * - 头部：标题 + 日期/成员 + 44dp 时间轴 + 多成员筛选。
  * - 内容：全展开时的 180dp 趋势图 + A 组 `BodyMetricGrid` 卡片网格（不在此重写卡片）。
  *
  * 高频动画量（fraction / scrimAlpha / topOffset）只在绘制与布局阶段读取，
@@ -76,9 +68,8 @@ private val HISTORY_MODES = listOf(HistoryMode.SINGLE, HistoryMode.WEEK, History
  *
  * @param state 抽屉状态机（[rememberBodySheetState]）。
  * @param report 当前选中测量的身体报告（A 组构建）。
- * @param snapshots 当前模式/成员下的历史快照，最新在前。
+ * @param snapshots 当前周/成员下的历史快照，最新在前。
  * @param selectedIndex 选中快照下标（对应 [snapshots]）。
- * @param mode 单次/周均/月均。
  * @param selectedMetric 趋势图与卡片选中的指标（默认体重由页面决定）。
  * @param revealCards 卡片渐显开关（页面时序控制）。
  */
@@ -89,8 +80,6 @@ fun BodyHistoryDrawer(
     snapshots: List<HistorySnapshot>,
     selectedIndex: Int,
     onSelectIndex: (Int) -> Unit,
-    mode: HistoryMode,
-    onModeChange: (HistoryMode) -> Unit,
     dateLabel: String,
     canPreviousDate: Boolean,
     canNextDate: Boolean,
@@ -219,7 +208,7 @@ fun BodyHistoryDrawer(
                         }
                     }
 
-                    // 收起态只露出标题行；留 20dp 让分段控制器正好落在 12% 折线以下。
+                    // 收起态只露出标题行。
                     Spacer(modifier = Modifier.height(20.dp))
                     HistoryDateNavigator(
                         dateLabel = dateLabel,
@@ -227,14 +216,6 @@ fun BodyHistoryDrawer(
                         canNextDate = canNextDate,
                         onPreviousDate = onPreviousDate,
                         onNextDate = onNextDate,
-                        palette = palette,
-                        modifier = Modifier.padding(horizontal = BodyDimens.PagePadding),
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-                    HistoryModeSegment(
-                        mode = mode,
-                        onModeChange = onModeChange,
                         palette = palette,
                         modifier = Modifier.padding(horizontal = BodyDimens.PagePadding),
                     )
@@ -268,12 +249,11 @@ fun BodyHistoryDrawer(
                         .padding(horizontal = BodyDimens.PagePadding)
                 ) {
                     Spacer(modifier = Modifier.height(4.dp))
-                    if (fullyExpanded && snapshots.isNotEmpty()) {
+                    if (fullyExpanded) {
                         BodyTrendChart(
                             metric = selectedMetric,
                             snapshots = snapshots,
-                            member = report.member
-                                ?: members.firstOrNull { it.id == memberFilterId },
+                            members = members,
                             selectedIndex = safeIndex,
                             onSelectIndex = onSelectIndex,
                             modifier = Modifier.fillMaxWidth(),
@@ -408,45 +388,6 @@ private fun DateArrowButton(
     }
 }
 
-// ── 分段控制器：单次 / 周均 / 月均 ───────────────────────────────────────────
-
-@Composable
-private fun HistoryModeSegment(
-    mode: HistoryMode,
-    onModeChange: (HistoryMode) -> Unit,
-    palette: BodyPalette,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(SegmentHeight)
-            .clip(RoundedCornerShape(12.dp))
-            .background(palette.track)
-            .padding(2.dp),
-    ) {
-        HISTORY_MODES.forEach { item ->
-            val selected = item == mode
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(if (selected) palette.sheet else Color.Transparent)
-                    .clickable { onModeChange(item) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = item.label(),
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = if (selected) palette.textPrimary else palette.textSecondary,
-                    maxLines = 1,
-                )
-            }
-        }
-    }
-}
-
 // ── 44dp 横向时间轴 ─────────────────────────────────────────────────────────
 
 @Composable
@@ -561,13 +502,6 @@ private fun MemberChip(
 }
 
 // ── 小工具 ──────────────────────────────────────────────────────────────────
-
-/** 分段控制器文案。 */
-private fun HistoryMode.label(): String = when (this) {
-    HistoryMode.SINGLE -> "按次"
-    HistoryMode.WEEK -> "周均"
-    HistoryMode.MONTH -> "月均"
-}
 
 /** 头部成员名：筛选成员 → 快照成员名 → 报告成员，最终兜底「未绑定成员」。 */
 private fun memberNameOf(

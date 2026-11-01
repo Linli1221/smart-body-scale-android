@@ -184,18 +184,8 @@ fun MeasureHomePage(
         val restoredMeasurementId = remember { uiState.currentMeasurement?.id }
 
         var selectedIndex by remember { mutableStateOf(0) }
-        // 默认按“次”显示；但数据窗口只展示一个 ISO 周，用户可前后切换周。
-        var mode by remember { mutableStateOf(HistoryMode.SINGLE) }
-        var weekStartMs by remember {
-            mutableStateOf(
-                startOfWeekMillis(
-                    uiState.currentMeasurement?.measuredAtEpochMs
-                        ?: history.firstOrNull()?.measuredAtEpochMs
-                        ?: System.currentTimeMillis()
-                )
-            )
-        }
-        var weekWindowInitialized by remember { mutableStateOf(false) }
+        // 默认展示当前自然周，可通过日期导航查看其他周。
+        var weekStartMs by remember { mutableStateOf(startOfWeekMillis(System.currentTimeMillis())) }
         var selectedMetric by remember { mutableStateOf(MetricKind.WEIGHT) }
         var memberFilterId by remember { mutableStateOf(uiState.selectedMember?.id) }
         var reveal by remember { mutableStateOf(true) }
@@ -260,6 +250,7 @@ fun MeasureHomePage(
             val measurement = uiState.currentMeasurement ?: return@LaunchedEffect
             if (measurement.id == handledMeasurementId) return@LaunchedEffect
             handledMeasurementId = measurement.id
+            weekStartMs = startOfWeekMillis(measurement.measuredAtEpochMs)
             selectedIndex = 0
             reveal = false
             stagePhase = StagePhase.LOCKED
@@ -344,25 +335,12 @@ fun MeasureHomePage(
         }
 
         // ── 数据装配 ────────────────────────────────────────────────────────
-        // 历史首次加载后，把默认窗口对齐到最近一条记录所在周，避免停留在“空周”。
-        LaunchedEffect(history.size, uiState.currentMeasurement?.id) {
-            if (!weekWindowInitialized && (history.isNotEmpty() || uiState.currentMeasurement != null)) {
-                weekStartMs = startOfWeekMillis(
-                    maxOf(
-                        uiState.currentMeasurement?.measuredAtEpochMs ?: 0L,
-                        history.maxOf { it.measuredAtEpochMs },
-                    )
-                )
-                weekWindowInitialized = true
-            }
-        }
-
         val currentMeasurement = uiState.currentMeasurement
         val currentMatchesFilter = currentMeasurement != null &&
             (memberFilterId == null || currentMeasurement.memberId == memberFilterId)
         val weekEndMs = remember(weekStartMs) { shiftWeekMillis(weekStartMs, 1) }
         val dateLabel = remember(weekStartMs) { formatWeekRange(weekStartMs) }
-        val snapshots = remember(history, currentMeasurement, memberFilterId, mode, weekStartMs) {
+        val snapshots = remember(history, currentMeasurement, memberFilterId, weekStartMs) {
             // 刚锁定的记录可能尚未进入 Room Flow：先并入时间轴，避免表盘是新体重、
             // 报告却还是上一条记录；同一 id 已在 history 中时不重复添加。
             val source = if (currentMeasurement != null &&
@@ -374,45 +352,40 @@ fun MeasureHomePage(
             } else {
                 history
             }
-            // 只显示一个 ISO 周内的数据，卡片按“次”展示；周均/月均是可切换的聚合粒度。
+            // 一周内每条测量都保留为独立数据点。
             buildHistorySnapshots(
                 history = source,
                 memberId = memberFilterId,
-                mode = mode,
+                mode = HistoryMode.SINGLE,
                 windowStartMs = weekStartMs,
                 windowEndMs = weekEndMs,
             )
         }
         val safeIndex = if (snapshots.isEmpty()) 0 else selectedIndex.coerceIn(0, snapshots.lastIndex)
         val snapshotMeasurement = snapshots.getOrNull(safeIndex)?.measurement
-        // 单次模式下，刚落库但 Room Flow 尚未刷新时，当前测量比快照更新，直接展示当前值；
-        // 周/月均模式始终展示聚合快照；用户手动选历史节点（index > 0）时也尊重快照。
-        val showCurrent = mode == HistoryMode.SINGLE &&
-            safeIndex == 0 &&
-            currentMatchesFilter &&
+        // 仅在当前测量属于所选周时展示，避免空周显示其他周的记录。
+        val showCurrent = safeIndex == 0 &&
+            currentMeasurement != null && currentMatchesFilter &&
+            isInWeekWindow(currentMeasurement.measuredAtEpochMs, weekStartMs, weekEndMs) &&
             (snapshotMeasurement == null ||
-                (currentMeasurement?.measuredAtEpochMs ?: 0L) > snapshotMeasurement.measuredAtEpochMs)
+                currentMeasurement.measuredAtEpochMs > snapshotMeasurement.measuredAtEpochMs)
         val measurement = if (showCurrent) {
             currentMeasurement
         } else {
             snapshotMeasurement
-                ?: currentMeasurement?.takeIf { currentMatchesFilter }
         }
 
         val boundMemberId = measurement?.memberId
         // 未绑定记录不能用当前选中成员的性别/年龄去套阈值，否则会把别人的标准套到这条记录上。
         val reportMember = boundMemberId?.let { id -> members.firstOrNull { it.id == id } }
 
-        // 差值基准必须来自同一成员；全员筛选时不能拿另一个人的记录来相减。
-        // 当前测量尚未进入 Room 快照时从 index 0 开始找，已对齐快照时从下一个桶开始找。
+        // 差值基准从完整历史中查找，跨周也能比较同一成员的上一次记录。
         val previous = measurement?.let { current ->
-            val start = if (current.id == snapshotMeasurement?.id) safeIndex + 1 else safeIndex
-            snapshots.drop(start)
-                .firstOrNull { it.measurement.memberId == current.memberId }
-                ?.measurement
+            history.asSequence()
+                .filter { it.id != current.id && it.memberId == current.memberId && it.measuredAtEpochMs < current.measuredAtEpochMs }
+                .maxByOrNull { it.measuredAtEpochMs }
         }
-        // 「首次基准」只属于单次记录；周/月均没有上一桶时显示「暂无对比」更准确。
-        val isFirstRecord = mode == HistoryMode.SINGLE && measurement != null && previous == null
+        val isFirstRecord = measurement != null && previous == null
 
         val report = remember(measurement, reportMember, previous, isFirstRecord) {
             buildBodyReport(
@@ -646,7 +619,8 @@ fun MeasureHomePage(
                 currentMeasurement?.let { it.measuredAtEpochMs < weekStartMs } == true
         }
         val canNextDate = remember(history, currentMeasurement, weekEndMs) {
-            history.any { it.measuredAtEpochMs >= weekEndMs } ||
+            weekEndMs <= System.currentTimeMillis() ||
+                history.any { it.measuredAtEpochMs >= weekEndMs } ||
                 currentMeasurement?.let { it.measuredAtEpochMs >= weekEndMs } == true
         }
 
@@ -656,11 +630,6 @@ fun MeasureHomePage(
             snapshots = snapshots,
             selectedIndex = safeIndex,
             onSelectIndex = { selectedIndex = it.coerceAtLeast(0) },
-            mode = mode,
-            onModeChange = { nextMode ->
-                mode = nextMode
-                selectedIndex = 0
-            },
             dateLabel = dateLabel,
             canPreviousDate = canPreviousDate,
             canNextDate = canNextDate,
