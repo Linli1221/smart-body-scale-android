@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -59,12 +60,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
-/**
- * 8 项指标 Bento 网格。
- *
- * 四行结构：体重+BMI / 体脂+肌肉 / 水分+内脏脂肪 / 蛋白质+骨量。
- * 卡片高度严格按交付方案（76/96/84/68dp）；无 BIA 时在体成分第一行上方插入提示条。
- */
+/** 八项身体指标统一为相同尺寸和信息层级的双列卡片。 */
 @Composable
 fun BodyMetricGrid(
     report: BodyReport,
@@ -74,96 +70,39 @@ fun BodyMetricGrid(
     modifier: Modifier = Modifier,
 ) {
     val palette = bodyPalette()
+    val rows = remember {
+        listOf(
+            listOf(MetricKind.WEIGHT, MetricKind.BMI),
+            listOf(MetricKind.BODY_FAT, MetricKind.MUSCLE),
+            listOf(MetricKind.WATER, MetricKind.VISCERAL_FAT),
+            listOf(MetricKind.PROTEIN, MetricKind.BONE),
+        )
+    }
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(BodyDimens.CardGap),
     ) {
-        MetricRow {
-            WeightSummaryCard(
-                report = report,
-                selected = selectedMetric == MetricKind.WEIGHT,
-                reveal = reveal,
-                order = 0,
-                accent = palette.metricAccents.forMetric(MetricKind.WEIGHT),
-                onClick = { onMetricClick(MetricKind.WEIGHT) },
-                modifier = Modifier.weight(1f),
-            )
-            BmiSummaryCard(
-                report = report,
-                selected = selectedMetric == MetricKind.BMI,
-                reveal = reveal,
-                order = 0,
-                accent = palette.metricAccents.forMetric(MetricKind.BMI),
-                onClick = { onMetricClick(MetricKind.BMI) },
-                modifier = Modifier.weight(1f),
-            )
-        }
-
-        if (!report.hasBia) {
-            BiaUnavailableBanner(
-                palette = palette,
-                reveal = reveal,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-
-        MetricRow {
-            RangeMetricCard(
-                reading = report.readings.getValue(MetricKind.BODY_FAT),
-                selected = selectedMetric == MetricKind.BODY_FAT,
-                reveal = reveal,
-                order = 1,
-                onClick = { onMetricClick(MetricKind.BODY_FAT) },
-                modifier = Modifier.weight(1f),
-            )
-            RangeMetricCard(
-                reading = report.readings.getValue(MetricKind.MUSCLE),
-                selected = selectedMetric == MetricKind.MUSCLE,
-                reveal = reveal,
-                order = 1,
-                onClick = { onMetricClick(MetricKind.MUSCLE) },
-                modifier = Modifier.weight(1f),
-            )
-        }
-
-        MetricRow {
-            RiskMetricCard(
-                reading = report.readings.getValue(MetricKind.WATER),
-                selected = selectedMetric == MetricKind.WATER,
-                reveal = reveal,
-                order = 2,
-                icon = RiskIcon.WATER,
-                onClick = { onMetricClick(MetricKind.WATER) },
-                modifier = Modifier.weight(1f),
-            )
-            RiskMetricCard(
-                reading = report.readings.getValue(MetricKind.VISCERAL_FAT),
-                selected = selectedMetric == MetricKind.VISCERAL_FAT,
-                reveal = reveal,
-                order = 2,
-                icon = RiskIcon.SHIELD,
-                onClick = { onMetricClick(MetricKind.VISCERAL_FAT) },
-                modifier = Modifier.weight(1f),
-            )
-        }
-
-        MetricRow {
-            CompactMetricCard(
-                reading = report.readings.getValue(MetricKind.PROTEIN),
-                selected = selectedMetric == MetricKind.PROTEIN,
-                reveal = reveal,
-                order = 3,
-                onClick = { onMetricClick(MetricKind.PROTEIN) },
-                modifier = Modifier.weight(1f),
-            )
-            CompactMetricCard(
-                reading = report.readings.getValue(MetricKind.BONE),
-                selected = selectedMetric == MetricKind.BONE,
-                reveal = reveal,
-                order = 3,
-                onClick = { onMetricClick(MetricKind.BONE) },
-                modifier = Modifier.weight(1f),
-            )
+        rows.forEachIndexed { rowIndex, kinds ->
+            if (rowIndex == 1 && !report.hasBia) {
+                BiaUnavailableBanner(
+                    palette = palette,
+                    reveal = reveal,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            MetricRow {
+                kinds.forEach { kind ->
+                    BodyMetricCard(
+                        report = report,
+                        reading = report.readings.getValue(kind),
+                        selected = selectedMetric == kind,
+                        reveal = reveal,
+                        order = rowIndex,
+                        onClick = { onMetricClick(kind) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
         }
     }
 }
@@ -275,23 +214,22 @@ private fun MetricIconBadge(
     }
 }
 
-// ── 顶层双基准摘要卡 ───────────────────────────────────────────────────────
-
+/** 所有指标共用图标、标题、读数和状态的布局。 */
 @Composable
-private fun WeightSummaryCard(
+private fun BodyMetricCard(
     report: BodyReport,
+    reading: MetricReading,
     selected: Boolean,
     reveal: Boolean,
     order: Int,
-    accent: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val palette = bodyPalette()
-    val reading = report.readings.getValue(MetricKind.WEIGHT)
+    val accent = palette.metricAccents.forMetric(reading.kind)
     MetricCardFrame(
         selected = selected,
-        height = BodyDimens.SummaryCardHeight,
+        height = BodyDimens.MetricCardMinHeight,
         order = order,
         reveal = reveal,
         accent = accent,
@@ -299,38 +237,60 @@ private fun WeightSummaryCard(
         modifier = modifier,
     ) {
         Column(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxWidth().heightIn(min = BodyDimens.MetricCardMinHeight - 20.dp),
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                MetricIconBadge(kind = MetricKind.WEIGHT, accent = accent)
+                MetricIconBadge(kind = reading.kind, accent = accent)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = reading.title,
-                    style = bodyLabelStyle(13.sp),
+                    style = bodyLabelStyle(13.sp, FontWeight.Medium),
                     color = palette.textPrimary,
                     maxLines = 1,
                     modifier = Modifier.weight(1f),
                 )
-                WeightDeltaPill(report = report)
             }
             Row(verticalAlignment = Alignment.Bottom) {
                 MetricNumber(
                     value = reading.numericValue,
-                    decimals = 2,
+                    decimals = when (reading.kind) {
+                        MetricKind.WEIGHT -> 2
+                        MetricKind.VISCERAL_FAT -> 0
+                        else -> 1
+                    },
                     play = reveal,
                     delayMillis = order * 50,
-                    style = bodyNumberStyle(28.sp, FontWeight.Bold),
+                    style = bodyNumberStyle(25.sp, FontWeight.Bold),
                     color = accent,
                     secondaryColor = palette.textSecondary,
                 )
-                Spacer(modifier = Modifier.width(2.dp))
-                Text(
-                    text = "kg",
-                    style = bodyLabelStyle(11.sp),
-                    color = palette.textSecondary,
-                    modifier = Modifier.padding(bottom = 3.dp),
-                )
+                if (reading.unit.isNotEmpty()) {
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Text(
+                        text = reading.unit,
+                        style = bodyLabelStyle(10.sp),
+                        color = palette.textSecondary,
+                        modifier = Modifier.padding(bottom = 3.dp),
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (reading.kind == MetricKind.WEIGHT) {
+                    WeightDeltaPill(report)
+                } else {
+                    StatusPill(reading.status ?: MetricStatus("--", MetricTone.NEUTRAL))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    RangeBar(
+                        spec = reading.range,
+                        palette = palette,
+                        accent = accent,
+                        modifier = Modifier.weight(1f).height(10.dp),
+                    )
+                }
             }
         }
     }
@@ -362,136 +322,6 @@ private fun WeightDeltaPill(report: BodyReport) {
             maxLines = 1,
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
         )
-    }
-}
-
-@Composable
-private fun BmiSummaryCard(
-    report: BodyReport,
-    selected: Boolean,
-    reveal: Boolean,
-    order: Int,
-    accent: Color,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val palette = bodyPalette()
-    val reading = report.readings.getValue(MetricKind.BMI)
-    MetricCardFrame(
-        selected = selected,
-        height = BodyDimens.SummaryCardHeight,
-        order = order,
-        reveal = reveal,
-        accent = accent,
-        onClick = onClick,
-        modifier = modifier,
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                MetricIconBadge(kind = MetricKind.BMI, accent = accent)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = reading.title,
-                    style = bodyLabelStyle(13.sp),
-                    color = palette.textPrimary,
-                    maxLines = 1,
-                    modifier = Modifier.weight(1f),
-                )
-                reading.status?.let { StatusPill(status = it) }
-            }
-            Row(verticalAlignment = Alignment.Bottom) {
-                MetricNumber(
-                    value = reading.numericValue,
-                    decimals = 1,
-                    play = reveal,
-                    delayMillis = order * 50,
-                    style = bodyNumberStyle(28.sp, FontWeight.Bold),
-                    color = accent,
-                    secondaryColor = palette.textSecondary,
-                )
-            }
-        }
-    }
-}
-
-// ── 第一行：核心塑形卡（体脂率 / 肌肉量） ─────────────────────────────────
-
-@Composable
-private fun RangeMetricCard(
-    reading: MetricReading,
-    selected: Boolean,
-    reveal: Boolean,
-    order: Int,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val palette = bodyPalette()
-    val accent = palette.metricAccents.forMetric(reading.kind)
-    MetricCardFrame(
-        selected = selected,
-        height = BodyDimens.ShapeCardHeight,
-        order = order,
-        reveal = reveal,
-        accent = accent,
-        onClick = onClick,
-        modifier = modifier,
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                MetricIconBadge(kind = reading.kind, accent = accent)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = reading.title,
-                    style = bodyLabelStyle(13.sp),
-                    color = palette.textPrimary,
-                    maxLines = 1,
-                    modifier = Modifier.weight(1f),
-                )
-                reading.status?.let {
-                    Text(
-                        text = it.label,
-                        style = bodyLabelStyle(10.sp, FontWeight.Medium),
-                        color = palette.toneColor(it.tone),
-                    )
-                }
-            }
-            Row(verticalAlignment = Alignment.Bottom) {
-                MetricNumber(
-                    value = reading.numericValue,
-                    decimals = 1,
-                    play = reveal,
-                    delayMillis = order * 50,
-                    style = bodyNumberStyle(26.sp),
-                    color = accent,
-                    secondaryColor = palette.textSecondary,
-                )
-                if (reading.unit.isNotEmpty()) {
-                    Spacer(modifier = Modifier.width(2.dp))
-                    Text(
-                        text = reading.unit,
-                        style = bodyLabelStyle(10.sp),
-                        color = palette.textSecondary,
-                        modifier = Modifier.padding(bottom = 3.dp),
-                    )
-                }
-            }
-            // 交付方案只为第一行「体脂/肌肉」定义三色区间条；
-            // 84dp/68dp 行保持高密度数值排版，不再塞入额外观测条。
-            RangeBar(
-                spec = reading.range,
-                palette = palette,
-                accent = accent,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(10.dp),
-            )
-        }
     }
 }
 
@@ -557,224 +387,6 @@ private fun RangeBar(
             radius = 1.2.dp.toPx(),
             center = Offset(cursorX, cursorY),
         )
-    }
-}
-
-// ── 第二行：代谢与风险卡（水分 / 内脏脂肪） ───────────────────────────────
-
-private enum class RiskIcon { WATER, SHIELD }
-
-@Composable
-private fun RiskMetricCard(
-    reading: MetricReading,
-    selected: Boolean,
-    reveal: Boolean,
-    order: Int,
-    icon: RiskIcon,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val palette = bodyPalette()
-    val accent = palette.metricAccents.forMetric(reading.kind)
-    MetricCardFrame(
-        selected = selected,
-        height = BodyDimens.MetabolicCardHeight,
-        order = order,
-        reveal = reveal,
-        accent = accent,
-        onClick = onClick,
-        modifier = modifier,
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                MetricIconBadge(kind = reading.kind, accent = accent)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = reading.title,
-                    style = bodyLabelStyle(13.sp),
-                    color = palette.textPrimary,
-                    maxLines = 1,
-                    modifier = Modifier.weight(1f),
-                )
-                reading.status?.let {
-                    Text(
-                        text = it.label,
-                        style = bodyLabelStyle(10.sp, FontWeight.Medium),
-                        color = palette.toneColor(it.tone),
-                    )
-                }
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Row(
-                    modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.Bottom,
-                ) {
-                    MetricNumber(
-                        value = reading.numericValue,
-                        decimals = if (reading.kind == MetricKind.VISCERAL_FAT) 0 else 1,
-                        play = reveal,
-                        delayMillis = order * 50,
-                        style = bodyNumberStyle(24.sp),
-                        color = accent,
-                        secondaryColor = palette.textSecondary,
-                    )
-                    if (reading.unit.isNotEmpty()) {
-                        Spacer(modifier = Modifier.width(2.dp))
-                        Text(
-                            text = reading.unit,
-                            style = bodyLabelStyle(10.sp),
-                            color = palette.textSecondary,
-                            modifier = Modifier.padding(bottom = 3.dp),
-                        )
-                    }
-                }
-                RiskGlyph(
-                    icon = icon,
-                    color = reading.status?.let { palette.toneColor(it.tone) } ?: accent,
-                    modifier = Modifier.size(28.dp),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun RiskGlyph(icon: RiskIcon, color: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier) {
-        val w = size.width
-        val h = size.height
-        val stroke = Stroke(
-            width = 1.8.dp.toPx(),
-            cap = StrokeCap.Round,
-            join = StrokeJoin.Round,
-        )
-        when (icon) {
-            RiskIcon.WATER -> {
-                val drop = Path().apply {
-                    moveTo(w * 0.50f, h * 0.08f)
-                    cubicTo(w * 0.72f, h * 0.34f, w * 0.82f, h * 0.50f, w * 0.82f, h * 0.63f)
-                    cubicTo(w * 0.82f, h * 0.83f, w * 0.67f, h * 0.94f, w * 0.50f, h * 0.94f)
-                    cubicTo(w * 0.33f, h * 0.94f, w * 0.18f, h * 0.83f, w * 0.18f, h * 0.63f)
-                    cubicTo(w * 0.18f, h * 0.50f, w * 0.28f, h * 0.34f, w * 0.50f, h * 0.08f)
-                    close()
-                }
-                drawPath(drop, color = color.copy(alpha = 0.16f))
-                drawPath(drop, color = color, style = stroke)
-                val wave = Path().apply {
-                    moveTo(w * 0.28f, h * 0.64f)
-                    cubicTo(w * 0.38f, h * 0.56f, w * 0.44f, h * 0.72f, w * 0.53f, h * 0.64f)
-                    cubicTo(w * 0.62f, h * 0.56f, w * 0.68f, h * 0.68f, w * 0.74f, h * 0.62f)
-                }
-                drawPath(wave, color = color, style = stroke)
-            }
-
-            RiskIcon.SHIELD -> {
-                val shield = Path().apply {
-                    moveTo(w * 0.50f, h * 0.08f)
-                    lineTo(w * 0.82f, h * 0.20f)
-                    lineTo(w * 0.82f, h * 0.50f)
-                    cubicTo(w * 0.82f, h * 0.72f, w * 0.66f, h * 0.86f, w * 0.50f, h * 0.94f)
-                    cubicTo(w * 0.34f, h * 0.86f, w * 0.18f, h * 0.72f, w * 0.18f, h * 0.50f)
-                    lineTo(w * 0.18f, h * 0.20f)
-                    close()
-                }
-                drawPath(shield, color = color.copy(alpha = 0.14f))
-                drawPath(shield, color = color, style = stroke)
-                drawLine(
-                    color = color.copy(alpha = 0.7f),
-                    start = Offset(w * 0.34f, h * 0.46f),
-                    end = Offset(w * 0.66f, h * 0.46f),
-                    strokeWidth = 1.5.dp.toPx(),
-                    cap = StrokeCap.Round,
-                )
-                drawLine(
-                    color = color.copy(alpha = 0.5f),
-                    start = Offset(w * 0.36f, h * 0.58f),
-                    end = Offset(w * 0.64f, h * 0.58f),
-                    strokeWidth = 1.5.dp.toPx(),
-                    cap = StrokeCap.Round,
-                )
-            }
-        }
-    }
-}
-
-// ── 第三行：基础构成卡（蛋白质 / 骨量） ───────────────────────────────────
-
-@Composable
-private fun CompactMetricCard(
-    reading: MetricReading,
-    selected: Boolean,
-    reveal: Boolean,
-    order: Int,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val palette = bodyPalette()
-    val accent = palette.metricAccents.forMetric(reading.kind)
-    MetricCardFrame(
-        selected = selected,
-        height = BodyDimens.CompactCardHeight,
-        order = order,
-        reveal = reveal,
-        accent = accent,
-        onClick = onClick,
-        modifier = modifier,
-    ) {
-        Row(
-            modifier = Modifier.fillMaxSize(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            MetricIconBadge(kind = reading.kind, accent = accent)
-            Spacer(modifier = Modifier.width(8.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = reading.title,
-                    style = bodyLabelStyle(13.sp),
-                    color = palette.textPrimary,
-                    maxLines = 1,
-                )
-                Spacer(modifier = Modifier.height(1.dp))
-                Row(verticalAlignment = Alignment.Bottom) {
-                    MetricNumber(
-                        value = reading.numericValue,
-                        decimals = 1,
-                        play = reveal,
-                        delayMillis = order * 50,
-                        style = bodyNumberStyle(22.sp),
-                        color = accent,
-                        secondaryColor = palette.textSecondary,
-                    )
-                    if (reading.unit.isNotEmpty()) {
-                        Spacer(modifier = Modifier.width(2.dp))
-                        Text(
-                            text = reading.unit,
-                            style = bodyLabelStyle(9.sp),
-                            color = palette.textSecondary,
-                            modifier = Modifier.padding(bottom = 2.dp),
-                        )
-                    }
-                }
-            }
-            val status = reading.status
-            val dotColor = status?.let { palette.toneColor(it.tone) } ?: palette.track
-            Canvas(modifier = Modifier.size(8.dp)) {
-                drawCircle(color = dotColor)
-            }
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(
-                text = status?.label ?: "--",
-                style = bodyLabelStyle(10.sp, FontWeight.Medium),
-                color = dotColor,
-                maxLines = 1,
-            )
-        }
     }
 }
 
@@ -881,7 +493,7 @@ private fun MetricCardFrame(
         .compositeOver(if (selected) palette.cardSelected else palette.card)
     Surface(
         modifier = modifier
-            .height(height)
+            .heightIn(min = height)
             .clickable(interactionSource = interactionSource, indication = null, role = Role.Button, onClick = onClick)
             .graphicsLayer {
                 alpha = progress

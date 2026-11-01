@@ -203,7 +203,7 @@ fun BodyPalette.toneColor(tone: MetricTone): Color = when (tone) {
 }
 
 /**
- * 尺寸 token（契约 §1）：76 / 96 / 84 / 68dp 卡片、10dp 间距、16dp 圆角、240dp 表盘、4dp 环。
+ * 身体报告的卡片、间距和表盘尺寸。
  */
 object BodyDimens {
     /** 页面左右安全边距 */
@@ -218,17 +218,8 @@ object BodyDimens {
     /** 历史抽屉顶部圆角 */
     val SheetRadius: Dp = 32.dp
 
-    /** 第一行：体重 / BMI */
-    val SummaryCardHeight: Dp = 88.dp
-
-    /** 第二行：体脂 / 肌肉（视觉主场，最高） */
-    val ShapeCardHeight: Dp = 112.dp
-
-    /** 第三行：水分 / 内脏脂肪 */
-    val MetabolicCardHeight: Dp = 96.dp
-
-    /** 第四行：蛋白质 / 骨量 */
-    val CompactCardHeight: Dp = 80.dp
+    /** 指标卡统一最小高度；字体放大时允许卡片自然增高。 */
+    val MetricCardMinHeight: Dp = 120.dp
 
     /** 状态胶囊高度（28dp 高 / 14dp 圆角） */
     val StatusCapsuleHeight: Dp = 28.dp
