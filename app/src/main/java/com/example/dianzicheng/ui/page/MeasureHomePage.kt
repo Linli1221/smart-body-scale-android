@@ -25,8 +25,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -44,7 +42,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import com.example.dianzicheng.data.ble.BleScaleClient
@@ -65,12 +62,8 @@ import com.example.dianzicheng.ui.body.buildHistorySnapshots
 import com.example.dianzicheng.ui.body.rememberBodySheetState
 import com.example.dianzicheng.ui.state.ScaleUiState
 import kotlinx.coroutines.delay
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Contacts
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 
@@ -465,11 +458,7 @@ fun MeasureHomePage(
             stageMeasurement?.weightKg ?: 0.0
         }
 
-        val memberLabel = reportMember?.name
-            ?: uiState.selectedMember?.name
-            ?: "成员"
-
-        // ── 页面编排：顶部入口 + 主舞台（表盘/主操作），抽屉最后绘制覆盖舞台 ──
+        // ── 页面编排：顶部状态 + 主舞台（表盘/主操作），抽屉最后绘制覆盖舞台 ──
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -485,8 +474,6 @@ fun MeasureHomePage(
                 statusText = statusText,
                 statusDotColor = statusDotColor,
                 onStatusClick = statusAction,
-                memberLabel = memberLabel,
-                onMemberClick = { memberDialogMode = HomeMemberDialogMode.Select },
             )
 
             Box(
@@ -646,65 +633,18 @@ fun MeasureHomePage(
     }
 }
 
-/** 顶部一行：状态胶囊 + 成员入口 + 设置入口（无顶栏，自行处理 safeDrawing）。 */
+/** 顶部一行：仅状态胶囊（无顶栏，自行处理 safeDrawing）。 */
 @Composable
 private fun HomeHeader(
     statusText: String,
     statusDotColor: Color,
     onStatusClick: () -> Unit,
-    memberLabel: String,
-    onMemberClick: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // 胶囊占剩余宽度但只包裹自身内容，长文案不会把右侧入口挤出屏幕。
-        Box(modifier = Modifier.weight(1f)) {
-            StatusCapsule(
-                text = statusText,
-                dotColor = statusDotColor,
-                onClick = onStatusClick,
-            )
-        }
-        Spacer(modifier = Modifier.width(8.dp))
-        MemberEntry(label = memberLabel, onClick = onMemberClick)
-    }
-}
-
-/** 成员入口：显示当前/所选成员名，点击复用 [SelectMemberDialog]。 */
-@Composable
-private fun MemberEntry(
-    label: String,
-    onClick: () -> Unit,
-) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(12.dp),
-        color = MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-        modifier = Modifier.height(28.dp),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = MiuixIcons.Contacts,
-                contentDescription = null,
-                tint = MiuixTheme.colorScheme.primary,
-                modifier = Modifier.size(16.dp),
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(
-                text = label,
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.widthIn(max = 64.dp),
-            )
-        }
+    Box(modifier = Modifier.fillMaxWidth()) {
+        StatusCapsule(
+            text = statusText,
+            dotColor = statusDotColor,
+            onClick = onStatusClick,
+        )
     }
 }
