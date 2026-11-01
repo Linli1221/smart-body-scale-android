@@ -34,6 +34,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -115,8 +116,7 @@ private enum class HomeMemberDialogMode { Select, Bind }
  * - T+1300 → 抽屉自动到 HALF（主表盘 0.72 缩放、上移 80dp 由本页与 [WeightDial] 协同）
  * - T+1500 → 卡片 reveal（渐显/滚动由 A 的 BodyMetricGrid 实现）
  *
- * 初始抽屉：有历史（或恢复出来的当前测量）→ HALF；无历史 → COLLAPSED（B 组默认值）。
- * 离线查看：无绑定设备但有历史 → HALF + 最近一条记录 + 「未连接设备 · 点击唤醒测量」。
+ * 启动后 1 秒仍未连接体脂秤时，全展开身体报告；自动扫描继续在后台运行。
  */
 @Composable
 fun MeasureHomePage(
@@ -205,7 +205,6 @@ fun MeasureHomePage(
             )
         }
         var handledMeasurementId by remember { mutableStateOf(uiState.currentMeasurement?.id) }
-        var initialSheetApplied by remember { mutableStateOf(false) }
         var memberDialogMode by remember { mutableStateOf<HomeMemberDialogMode?>(null) }
 
         val offlineHistory = history.isNotEmpty() && !uiState.isDeviceRemembered
@@ -284,32 +283,17 @@ fun MeasureHomePage(
             }
         }
 
-        // ② 恢复到已有当前测量：直接 COMPLETE + HALF，不重放 Haptic/流光。
+        // 只在启动时计时一次；读取最新连接状态，避免重组或扫描状态变化重置计时。
+        val latestUiState by rememberUpdatedState(uiState)
         LaunchedEffect(Unit) {
-            if (restoredMeasurementId != null) {
-                initialSheetApplied = true
-                reveal = true
-                selectedIndex = 0
-                sheetState.animateTo(SheetAnchor.HALF)
-            }
-        }
-
-        // ③ 冷启动读到历史（离线查看）：初始 HALF。只有「无当前测量 + 无称重会话（IDLE）
-        // + 尚无已处理测量 id」时才自动展开，避免把刚称完的第一条记录误判为历史（时序由 ① 负责）。
-        // 【M1 性能】key 用「是否归零」而非体重值：触发条件只依赖 liveWeightKg <= 0.0，
-        // 布尔 key 保留全部触发时机，又不再随每包体重变化 cancel/relaunch 本协程。
-        LaunchedEffect(history.size, uiState.connection, uiState.liveWeightKg <= 0.0) {
-            if (!initialSheetApplied &&
-                handledMeasurementId == null &&
-                uiState.currentMeasurement == null &&
-                uiState.connection == BleScaleClient.ConnectionState.IDLE &&
-                history.isNotEmpty() &&
-                uiState.liveWeightKg <= 0.0
+            delay(1000L)
+            val state = latestUiState
+            if (state.connection != BleScaleClient.ConnectionState.CONNECTED &&
+                state.connection != BleScaleClient.ConnectionState.MEASURING &&
+                state.liveWeightKg <= 0.0 &&
+                state.currentMeasurement?.id == restoredMeasurementId
             ) {
-                initialSheetApplied = true
-                selectedIndex = 0
-                reveal = true
-                sheetState.animateTo(SheetAnchor.HALF)
+                sheetState.animateTo(SheetAnchor.FULL)
             }
         }
 
@@ -328,6 +312,7 @@ fun MeasureHomePage(
                         stagePhase == StagePhase.OFFLINE ||
                         stagePhase == StagePhase.COMPLETE) -> {
                     stagePhase = StagePhase.LIVE
+                    sheetState.animateTo(SheetAnchor.COLLAPSED)
                     // 新一轮称重开始先收起旧报告卡片；T+0 再按序列渐显，避免旧卡片闪一下。
                     reveal = false
                 }
@@ -477,7 +462,7 @@ fun MeasureHomePage(
                 Triple("未绑定体脂秤 · 点击配对", palette.warn, onOpenPairing)
 
             else ->
-                Triple("待机 · 点击开始称重", palette.textSecondary, onStartScan)
+                Triple("待机 · 点击搜索体脂秤", palette.textSecondary, onStartScan)
         }
         val statusText = status.first
         val statusDotColor = status.second
@@ -522,7 +507,7 @@ fun MeasureHomePage(
             }
 
             else -> {
-                primaryText = "开始称重"
+                primaryText = "搜索体脂秤"
                 primaryAction = onStartScan
             }
         }
@@ -534,7 +519,7 @@ fun MeasureHomePage(
             !uiState.isDeviceRemembered -> "尚未绑定体脂秤：绑定后踩上即可自动连接"
             uiState.connection == BleScaleClient.ConnectionState.SCANNING -> "正在寻找已记住的体脂秤，请稍候"
             uiState.connection == BleScaleClient.ConnectionState.CONNECTING -> "正在连接体脂秤，请稍候"
-            history.isEmpty() && uiState.currentMeasurement == null -> "还没有称重记录，点击下方按钮开始第一次测量"
+            history.isEmpty() && uiState.currentMeasurement == null -> "还没有称重记录，连接体脂秤后即可测量"
             else -> null
         }
 
@@ -630,7 +615,8 @@ fun MeasureHomePage(
 
                     // 「寻找体脂秤」类主按钮按需求隐藏；未绑定/扫描中的入口由状态胶囊承担。
                     val showPrimaryAction = uiState.isDeviceRemembered &&
-                        uiState.connection != BleScaleClient.ConnectionState.SCANNING
+                        uiState.connection != BleScaleClient.ConnectionState.SCANNING &&
+                        uiState.connection != BleScaleClient.ConnectionState.IDLE
                     if (stageCollapsed && showPrimaryAction) {
                         StagePrimaryAction(
                             text = primaryText,
