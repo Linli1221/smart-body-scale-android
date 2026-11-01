@@ -1,15 +1,15 @@
 package com.example.dianzicheng.ui.body
 
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -26,17 +26,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -47,6 +44,7 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.TextStyle
@@ -57,6 +55,9 @@ import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import java.util.Locale
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 
 /**
  * 8 项指标 Bento 网格。
@@ -843,58 +844,88 @@ private fun MetricCardFrame(
         ),
         label = "metric-card-$order",
     )
-    var pressed by remember { mutableStateOf(false) }
-    // 释放时弹簧短暂越过 0，使缩小的卡片有轻微超调后回到原尺寸。
-    val pressProgress by animateFloatAsState(
-        targetValue = if (pressed) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.62f, stiffness = 520f),
-        label = "metric-card-press",
-    )
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressProgress = remember { Animatable(0f) }
+    LaunchedEffect(interactionSource) {
+        var pressAnimation: Job? = null
+        var releaseAnimation: Job? = null
+        interactionSource.interactions.collect { interaction ->
+            when (interaction) {
+                is PressInteraction.Press -> {
+                    releaseAnimation?.cancel()
+                    pressAnimation?.cancel()
+                    pressAnimation = launch {
+                        pressProgress.animateTo(1f, animationSpec = tween(durationMillis = 90))
+                    }
+                }
+                is PressInteraction.Release -> {
+                    releaseAnimation?.cancel()
+                    releaseAnimation = launch {
+                        // 短按也先完成压缩，再执行弹簧回弹。
+                        pressAnimation?.join()
+                        pressProgress.animateTo(0f, spring(dampingRatio = 0.52f, stiffness = 300f))
+                    }
+                }
+                is PressInteraction.Cancel -> {
+                    pressAnimation?.cancel()
+                    releaseAnimation?.cancel()
+                    releaseAnimation = launch {
+                        pressProgress.animateTo(0f, spring(dampingRatio = 0.7f, stiffness = 400f))
+                    }
+                }
+                else -> Unit
+            }
+        }
+    }
     val tint = accent.copy(alpha = if (selected) 0.14f else 0.07f)
         .compositeOver(if (selected) palette.cardSelected else palette.card)
     Surface(
-        onClick = onClick,
         modifier = modifier
             .height(height)
-            // 只观察手势，不消费点击；滚动、取消或移出时立即释放视觉状态。
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                    pressed = true
-                    try {
-                        waitForUpOrCancellation(pass = PointerEventPass.Final)
-                    } finally {
-                        pressed = false
-                    }
-                }
-            }
+            .clickable(interactionSource = interactionSource, indication = null, role = Role.Button, onClick = onClick)
             .graphicsLayer {
                 alpha = progress
                 translationY = (1f - progress) * 12.dp.toPx()
-                scaleX = 1f - 0.035f * pressProgress
-                scaleY = 1f - 0.035f * pressProgress
+                scaleX = 1f - 0.065f * pressProgress.value
+                scaleY = 1f - 0.065f * pressProgress.value
+            }
+            .drawWithContent {
+                drawContent()
+                val depth = pressProgress.value.coerceIn(0f, 1f)
+                if (selected || depth > 0f) {
+                    val width = (if (selected) 1.5f + 1.5f * depth else 1.5f * depth).dp.toPx()
+                    val inset = width / 2f
+                    val radius = (BodyDimens.CardRadius.toPx() - inset).coerceAtLeast(0f)
+                    drawRoundRect(
+                        color = accent.copy(alpha = if (selected) 1f else 0.55f * depth),
+                        topLeft = Offset(inset, inset),
+                        size = Size((size.width - width).coerceAtLeast(0f), (size.height - width).coerceAtLeast(0f)),
+                        cornerRadius = CornerRadius(radius),
+                        style = Stroke(width = width),
+                    )
+                }
             },
         shape = RoundedCornerShape(BodyDimens.CardRadius),
         color = tint,
-        border = if (selected) BorderStroke(1.5.dp, accent) else null,
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .drawWithContent {
                     drawContent()
-                    val depth = pressProgress.coerceIn(0f, 1f)
+                    val depth = pressProgress.value.coerceIn(0f, 1f)
                     if (depth > 0f) {
                         // 多层柔和描边裁在卡片内部，模拟顶部更深的内阴影。
                         val shadow = Brush.verticalGradient(
-                            0f to Color.Black.copy(alpha = 0.24f * depth),
-                            0.5f to Color.Black.copy(alpha = 0.10f * depth),
-                            1f to Color.Black.copy(alpha = 0.05f * depth),
+                            0f to Color.Black.copy(alpha = 0.32f * depth),
+                            0.5f to Color.Black.copy(alpha = 0.14f * depth),
+                            1f to Color.Black.copy(alpha = 0.07f * depth),
                             endY = size.height,
                         )
                         val radius = CornerRadius(BodyDimens.CardRadius.toPx())
-                        drawRoundRect(brush = shadow, cornerRadius = radius, style = Stroke(width = 9.dp.toPx()))
-                        drawRoundRect(brush = shadow, cornerRadius = radius, style = Stroke(width = 3.dp.toPx()))
+                        drawRoundRect(brush = shadow, cornerRadius = radius, style = Stroke(width = 14.dp.toPx()))
+                        drawRoundRect(brush = shadow, cornerRadius = radius, style = Stroke(width = 5.dp.toPx()))
+                        drawRoundRect(brush = shadow, cornerRadius = radius, style = Stroke(width = 1.5.dp.toPx()))
                     }
                 }
                 .background(
