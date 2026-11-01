@@ -13,6 +13,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -77,6 +78,8 @@ class MainActivity : ComponentActivity() {
                 "蓝牙权限被拒绝，请前往「设置 → 应用 → 权限」手动开启蓝牙权限，否则无法搜索体脂秤",
                 Toast.LENGTH_LONG
             ).show()
+        } else {
+            resumeRememberedScaleScan()
         }
     }
 
@@ -125,30 +128,14 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             preferenceManager.rememberedScales.collect { scales ->
                 bleClient.rememberedMacs = scales.map { normalizeMacAddress(it.mac) }.toSet()
+                if (scales.isNotEmpty()) resumeRememberedScaleScan()
             }
         }
 
         lifecycleScope.launch {
             preferenceManager.pairedMac.collect { mac ->
                 bleClient.lastPairedMac = mac // null clears memory, preventing stale reconnect
-                if (mac.isNullOrEmpty()) {
-                    bleClient.disconnectAndReset()
-                } else {
-                    bleClient.isPairingMode = false
-                    if (bleClient.connectionState.value == BleScaleClient.ConnectionState.IDLE &&
-                        bleClient.isBluetoothEnabled()
-                    ) {
-                        // 首帧后才启动扫描（启动性能优化）：不与首帧抢主线程 binder；
-                        // 运行期的偏好变化同样只是延后约一帧，无感知。
-                        runAfterFirstFrame {
-                            if (bleClient.connectionState.value == BleScaleClient.ConnectionState.IDLE &&
-                                bleClient.isBluetoothEnabled()
-                            ) {
-                                bleClient.startScan()
-                            }
-                        }
-                    }
-                }
+                if (!mac.isNullOrEmpty()) resumeRememberedScaleScan()
             }
         }
 
@@ -233,19 +220,23 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onStart() {
-        super.onStart()
-        // 回到前台：如果已记住任意一台设备且当前为空闲状态，自动恢复扫描以保持踏秤即连。
-        // 首帧后才执行（启动性能优化）：冷启动时不与首帧抢主线程 binder；
-        // 运行期回到前台只是延后约一帧，无感知。
-        if (bleClient.hasRememberedDevice) {
-            bleClient.isPairingMode = false
-            runAfterFirstFrame {
-                if (bleClient.connectionState.value == BleScaleClient.ConnectionState.IDLE) {
-                    bleClient.startScan()
-                }
+    /** 已记住设备、权限就绪且前台空闲时恢复自动扫描。 */
+    private fun resumeRememberedScaleScan() {
+        if (!::bleClient.isInitialized) return
+        runAfterFirstFrame {
+            if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) &&
+                bleClient.hasRememberedDevice && !bleClient.isPairingMode &&
+                bleClient.connectionState.value == BleScaleClient.ConnectionState.IDLE &&
+                runCatching { bleClient.isBluetoothEnabled() }.getOrDefault(false)
+            ) {
+                bleClient.startScan()
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        resumeRememberedScaleScan()
     }
 
     override fun onStop() {

@@ -24,9 +24,22 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.roundToInt
+
+/** 短暂归零后仅续接体重接近的会话；宽限过后新称重必须使用新的记录 ID。 */
+internal fun isMeasurementContinuation(
+    hasPrevious: Boolean,
+    interrupted: Boolean,
+    elapsedSinceZeroMs: Long,
+    weightDifferenceKg: Double,
+    graceMs: Long,
+    toleranceKg: Double,
+): Boolean = hasPrevious && (!interrupted ||
+    (elapsedSinceZeroMs in 0..graceMs && weightDifferenceKg <= toleranceKg))
 
 /**
  * 测量主页状态持有者：BLE 称重会话状态机 + 成员绑定 + 设备配对/切换。
@@ -36,7 +49,7 @@ import kotlin.math.roundToInt
  * 2. 阻抗稍后到达 → 用同一 sessionId 覆盖写（REPLACE 幂等），兼容有/无 BIA 两种称重；
  * 3. 过早锁定（实时体重超锁定值 3.0kg）→ 会话作废并删除已写记录；
  * 4. 归零后 2.5s 内重新锁定且体重差 ≤2.0kg → 视为同一次称重（续接）；
- * 5. 阻抗延迟补写窗口：下秤后 3s 内到达的阻抗仍写回上一条记录；
+ * 5. 阻抗延迟补写窗口：下秤后 20s 内到达的阻抗仍写回上一条记录；
  * 6. Health Connect 同步 2s 防抖，同一次称重只写一条最终记录。
  */
 class ScaleViewModel(
@@ -50,6 +63,7 @@ class ScaleViewModel(
     val uiState: StateFlow<ScaleUiState> = _uiState.asStateFlow()
 
     // ── 会话内部状态（幂等核心） ─────────────────────────────────────────────
+    private val measurementMutex = Mutex()
     private var activeSessionId: String? = null
     private var activeSessionTimestamp: Long = 0L
     private var hasAlertedForCurrentSession = false
@@ -216,8 +230,13 @@ class ScaleViewModel(
     /** 退出配对界面：停扫描并退出配对模式。 */
     fun stopPairingScan() {
         AppLogger.i(TAG, "停止配对扫描")
+        // 配对成功后可能正在连接；弹层销毁不应取消连接或自动监听。
+        if (!bleClient.isPairingMode) return
         bleClient.stopScan()
         bleClient.isPairingMode = false
+        if (bleClient.hasRememberedDevice && bleClient.isBluetoothEnabled() &&
+            bleClient.connectionState.value == BleScaleClient.ConnectionState.IDLE
+        ) bleClient.startScan()
     }
 
     override fun onCleared() {
@@ -237,13 +256,13 @@ class ScaleViewModel(
             }
         }
         viewModelScope.launch {
-            bleClient.weight.collect { rawWeight -> onWeightChanged(rawWeight) }
+            bleClient.weight.collect { rawWeight -> measurementMutex.withLock { onWeightChanged(rawWeight) } }
         }
         viewModelScope.launch {
-            bleClient.isStable.collect { stable -> onStableChanged(stable) }
+            bleClient.isStable.collect { stable -> measurementMutex.withLock { onStableChanged(stable) } }
         }
         viewModelScope.launch {
-            bleClient.impedance.collect { z -> onImpedanceChanged(z) }
+            bleClient.impedance.collect { z -> measurementMutex.withLock { onImpedanceChanged(z) } }
         }
         viewModelScope.launch {
             bleClient.discoveredScales.collect { list ->
@@ -254,6 +273,8 @@ class ScaleViewModel(
 
     /** 实时体重：显示取整与发射节流、锁定后示数校准（写库节流）、过早锁定作废、离秤最终提交。 */
     private suspend fun onWeightChanged(rawWeight: Double) {
+        // 写库挂起期间可能排队收到旧的归零事件；若秤已经恢复示数，不能结束当前会话。
+        if (rawWeight <= 0.0 && bleClient.weight.value > 0.0) return
         val stable = bleClient.isStable.value
         // 显示精度 0.01kg 取整（防高频重组）；入库与锁定始终用原始 rawWeight。
         // 【M1 性能】显示值相等去重 + ≤100ms 发射节流：称重期间每秒 10~20 个数据包不再逐包驱动
@@ -312,13 +333,15 @@ class ScaleViewModel(
                 hasAlertedForCurrentSession = false
                 sessionInterrupted = true
                 lastWeightZeroMs = System.currentTimeMillis()
-                // lastLockedSessionId 保留 3s 阻抗延迟补写窗口，之后清空
+                // lastLockedSessionId 保留 20s 阻抗延迟补写窗口，之后清空
                 val pending = lastLockedSessionId
                 if (pending != null) {
                     viewModelScope.launch {
                         delay(LAST_LOCKED_RETAIN_MS)
-                        if (lastLockedSessionId == pending && activeSessionId == null) {
-                            lastLockedSessionId = null
+                        measurementMutex.withLock {
+                            if (lastLockedSessionId == pending && activeSessionId == null) {
+                                lastLockedSessionId = null
+                            }
                         }
                     }
                 }
@@ -330,20 +353,26 @@ class ScaleViewModel(
     private suspend fun onStableChanged(stable: Boolean) {
         if (stable) {
             clearSessionJob?.cancel()
+            if (activeSessionId != null) return
             val weight = bleClient.weight.value
             if (weight < MIN_VALID_WEIGHT_KG) return
             val previousLockedWeightKg = currentLockedWeightKg
             val now = System.currentTimeMillis()
-            val continuation = lastLockedSessionId != null && (
-                !sessionInterrupted ||
-                    (now - lastWeightZeroMs <= CONTINUATION_AFTER_ZERO_GRACE_MS &&
-                        abs(weight - previousLockedWeightKg) <= WEIGHT_CONTINUATION_TOLERANCE_KG)
-                )
+            val continuation = isMeasurementContinuation(
+                hasPrevious = lastLockedSessionId != null,
+                interrupted = sessionInterrupted,
+                elapsedSinceZeroMs = now - lastWeightZeroMs,
+                weightDifferenceKg = abs(weight - previousLockedWeightKg),
+                graceMs = CONTINUATION_AFTER_ZERO_GRACE_MS,
+                toleranceKg = WEIGHT_CONTINUATION_TOLERANCE_KG,
+            )
             currentLockedWeightKg = weight
             // 锁定是关键时刻：强制刷新实时体重显示，防止发射节流滞后的尾值丢失
             flushLiveWeight()
             if (continuation && lastLockedSessionId != null) {
                 activeSessionId = lastLockedSessionId
+                sessionInterrupted = false
+                lastLockedSessionId = activeSessionId
                 AppLogger.i(TAG, "会话续接 $activeSessionId（|Δw| 宽限内重新锁定）")
                 processMeasurement(commitToDb = true, forceCommit = true)
             } else {
@@ -352,11 +381,10 @@ class ScaleViewModel(
                 sessionCommitted = false
                 sessionInterrupted = false
                 sessionImpedanceOhm = 0.0
+                lastLockedSessionId = activeSessionId
                 AppLogger.i(TAG, "稳定锁定 ${weight}kg，新会话 $activeSessionId")
                 processMeasurement(commitToDb = true, forceCommit = true)
             }
-            // 登记最近锁定会话：下秤后 3s 内到达的阻抗靠它补写回同一条记录
-            lastLockedSessionId = activeSessionId
         } else {
             _uiState.update { it.copy(impedanceOhm = 0.0) }
             // 不稳定持续 2s 后才清会话（短暂波动不作废）
@@ -364,19 +392,24 @@ class ScaleViewModel(
             clearSessionJob?.cancel()
             clearSessionJob = viewModelScope.launch {
                 delay(UNSTABLE_CLEAR_DELAY_MS)
-                if (activeSessionId == sessionId && !bleClient.isStable.value) {
-                    activeSessionId = null
-                    hasAlertedForCurrentSession = false
+                measurementMutex.withLock {
+                    if (activeSessionId == sessionId && !bleClient.isStable.value) {
+                        activeSessionId = null
+                        hasAlertedForCurrentSession = false
+                    }
                 }
             }
         }
     }
 
-    /** 阻抗到达：3s 补写窗口内写回同一条记录（兼容「先锁体重、后出阻抗」的 BIA 流程）。 */
+    /** 阻抗到达：20s 补写窗口内写回同一条记录（兼容「先锁体重、后出阻抗」的 BIA 流程）。 */
     private suspend fun onImpedanceChanged(impedanceOhm: Double) {
         if (impedanceOhm <= 0.0) return
-        val sessionId = activeSessionId ?: lastLockedSessionId ?: _uiState.value.currentMeasurement?.id
-        if (sessionId.isNullOrBlank()) return
+        // 阻抗可能与首个锁定包同时到达；先建立会话，避免丢失或写入旧记录。
+        if (activeSessionId == null && bleClient.isStable.value) {
+            onStableChanged(true)
+        }
+        val sessionId = activeSessionId ?: lastLockedSessionId ?: return
         if (currentLockedWeightKg < MIN_VALID_WEIGHT_KG) return
         val live = bleClient.weight.value
         val lockStillValid = live <= 0.0 || live <= currentLockedWeightKg + SUPERSEDE_THRESHOLD_KG
@@ -423,8 +456,8 @@ class ScaleViewModel(
                         bleClient.disconnectAndReset()
                         if (macs.isNotEmpty() && bleClient.isBluetoothEnabled()) bleClient.startScan()
                     }
-                    // 全部移除 → 自动连接暂停，直到重新绑定
-                    macs.isEmpty() -> bleClient.disconnectAndReset()
+                    // 配对过程中首次登记尚未完成时，不要打断正在连接的设备。
+                    macs.isEmpty() && !bleClient.isPairingMode && connected != null -> bleClient.disconnectAndReset()
                 }
             }
         }
@@ -473,8 +506,7 @@ class ScaleViewModel(
     ) {
         val weight = currentLockedWeightKg
         if (weight < MIN_VALID_WEIGHT_KG) return
-        val impedance = explicitImpedance
-            ?: if (bleClient.isStable.value) _uiState.value.impedanceOhm else 0.0
+        val impedance = explicitImpedance ?: sessionImpedanceOhm
         val sessionId = explicitSessionId ?: activeSessionId ?: lastLockedSessionId
             ?: _uiState.value.currentMeasurement?.id ?: UUID.randomUUID().toString()
         val timestamp = getSessionTimestamp()
@@ -653,7 +685,7 @@ class ScaleViewModel(
         const val WEIGHT_CONTINUATION_TOLERANCE_KG = 2.0
 
         /** 阻抗延迟补写窗口（ms） */
-        const val LAST_LOCKED_RETAIN_MS = 3000L
+        const val LAST_LOCKED_RETAIN_MS = 20000L
 
         /** 不稳定清会话延迟（ms） */
         const val UNSTABLE_CLEAR_DELAY_MS = 2000L

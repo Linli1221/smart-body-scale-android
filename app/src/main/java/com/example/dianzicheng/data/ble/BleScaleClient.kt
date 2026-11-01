@@ -832,18 +832,18 @@ class BleScaleClient(private val context: Context) {
      * 若蓝牙适配器不可用或未启用，则直接将状态设为 [ConnectionState.IDLE] 并返回。
      */
     fun startScan() {
-        // 重置所有测量数据，确保下一次称重得到干净的初始状态
-        broadcastSessionMac = null
-        _weight.value = 0.0
-        _isStable.value = false
-        _impedance.value = 0.0
-
-        // 若当前已在扫描中且连接状态也是 SCANNING，无需重复销毁与重建扫描器，避免触发系统频控
+        // 已经扫描时直接返回，不能先清空正在进行的称重会话。
         if (isScanning && _connectionState.value == ConnectionState.SCANNING) {
             BleProtocolRecorder.recordScanLifecycle("SCAN_SKIP", "已在扫描中")
             AppLogger.d(TAG, "BLE 扫描已处于运行状态，无需重复启动")
             return
         }
+
+        // 新扫描开始时清理上一轮测量状态。
+        broadcastSessionMac = null
+        _weight.value = 0.0
+        _isStable.value = false
+        _impedance.value = 0.0
 
         // 取消任何待发起的 GATT 连接，确保扫描环境干净
         pendingConnectRunnable?.let { handler.removeCallbacks(it) }
@@ -858,7 +858,14 @@ class BleScaleClient(private val context: Context) {
         }
 
         val adapter = bluetoothAdapter
-        val scanner = adapter?.bluetoothLeScanner
+        val scanner = try {
+            adapter?.bluetoothLeScanner
+        } catch (e: SecurityException) {
+            AppLogger.w(TAG, "蓝牙扫描权限尚未授予: ${e.message}")
+            _connectionState.value = ConnectionState.IDLE
+            isScanning = false
+            return
+        }
         if (scanner == null) {
             // 记录详细原因：无适配器 / BT 未开启 / Scanner 为 null
             val reason = if (adapter == null) "No BT Adapter" else if (!adapter.isEnabled) "BT Disabled" else "Scanner Null"
@@ -909,7 +916,8 @@ class BleScaleClient(private val context: Context) {
         // OR 支持的服务 UUID（兜底已知型号设备）。配对扫描保持无过滤（由 isScaleAdvertisement 逻辑层过滤）。
         val scanFilters: List<ScanFilter>? = if (autoConnectScan) {
             buildList<ScanFilter> {
-                for (mac in rememberedMacs) {
+                // 当前设备可能先于设备列表加载完成，过滤器也必须覆盖该地址。
+                for (mac in rememberedMacs + listOfNotNull(lastPairedMac)) {
                     if (BluetoothAdapter.checkBluetoothAddress(mac)) {
                         add(ScanFilter.Builder().setDeviceAddress(mac).build())
                     }
@@ -950,6 +958,7 @@ class BleScaleClient(private val context: Context) {
      */
     fun startPairingScan() {
         AppLogger.i(TAG, "启动设备手动配对扫描...")
+        if (isScanning) stopScan()
         isPairingMode = true
         _discoveredScales.value = emptyList()
         startScan()
@@ -1000,18 +1009,23 @@ class BleScaleClient(private val context: Context) {
      * 如果调用时扫描已停止，忽略异常静默处理。
      */
     fun stopScan() {
+        val wasScanning = isScanning
         isScanning = false
         BleProtocolRecorder.recordScanLifecycle("SCAN_STOP")
         pendingConnectRunnable?.let { handler.removeCallbacks(it) }
         pendingConnectRunnable = null
-        val scanner = bluetoothAdapter?.bluetoothLeScanner ?: return
         try {
-            scanner.stopScan(scanCallback)
+            bluetoothAdapter?.bluetoothLeScanner?.stopScan(scanCallback)
         } catch (e: Exception) {
             AppLogger.w(TAG, "停止扫描异常: ${e.message}")
         }
-        // 仅当处于扫描状态时才回退到 IDLE，避免覆盖 CONNECTING/CONNECTED 等状态
-        if (_connectionState.value == ConnectionState.SCANNING) {
+        // 广播秤依赖扫描接收数据；停止监听后不能保留虚假的 CONNECTED 状态，
+        // 否则从后台返回时不会重新扫描。真正的 GATT 连接保持原状态。
+        if (_connectionState.value == ConnectionState.SCANNING ||
+            (wasScanning && bluetoothGatt == null &&
+                (_connectionState.value == ConnectionState.CONNECTED ||
+                    _connectionState.value == ConnectionState.MEASURING))
+        ) {
             _connectionState.value = ConnectionState.IDLE
         }
     }
