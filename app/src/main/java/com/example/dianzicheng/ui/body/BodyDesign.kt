@@ -110,9 +110,9 @@ private val DarkMetricAccents = MetricAccents(
 )
 
 // ── 浅色固定 token（交付方案） ────────────────────────────────────────────────
-private val LightBackground = Color(0xFFF1F5F9)
+private val LightBackground = Color(0xFFF5F6F8)
 private val LightSheet = Color(0xF0FFFFFF) // #FFFFFF · 约 94% 不透明
-private val LightCard = Color(0xFFF8FAFC)
+private val LightCard = Color(0xFFFFFFFF)
 private val LightTextPrimary = Color(0xFF0F172A)
 private val LightTextSecondary = Color(0xFF64748B)
 private val LightGood = Color(0xFF10B981)
@@ -210,25 +210,25 @@ object BodyDimens {
     val PagePadding: Dp = 16.dp
 
     /** 卡片间距（Bento 四行） */
-    val CardGap: Dp = 10.dp
+    val CardGap: Dp = 12.dp
 
-    /** 指标卡圆角 */
-    val CardRadius: Dp = 16.dp
+    /** 指标卡圆角（参考健康卡片的大圆角风格） */
+    val CardRadius: Dp = 24.dp
 
     /** 历史抽屉顶部圆角 */
-    val SheetRadius: Dp = 28.dp
+    val SheetRadius: Dp = 32.dp
 
     /** 第一行：体重 / BMI */
-    val SummaryCardHeight: Dp = 76.dp
+    val SummaryCardHeight: Dp = 88.dp
 
     /** 第二行：体脂 / 肌肉（视觉主场，最高） */
-    val ShapeCardHeight: Dp = 96.dp
+    val ShapeCardHeight: Dp = 112.dp
 
     /** 第三行：水分 / 内脏脂肪 */
-    val MetabolicCardHeight: Dp = 84.dp
+    val MetabolicCardHeight: Dp = 96.dp
 
     /** 第四行：蛋白质 / 骨量 */
-    val CompactCardHeight: Dp = 68.dp
+    val CompactCardHeight: Dp = 80.dp
 
     /** 状态胶囊高度（28dp 高 / 14dp 圆角） */
     val StatusCapsuleHeight: Dp = 28.dp

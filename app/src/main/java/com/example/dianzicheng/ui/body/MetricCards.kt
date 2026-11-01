@@ -162,6 +162,45 @@ private fun MetricRow(content: @Composable RowScope.() -> Unit) {
     )
 }
 
+/**
+ * 指标图标徽章：参考健康卡片风格的彩色圆形图标底。
+ * 用短字符代替复杂矢量图标，保证不同设备上稳定渲染。
+ */
+@Composable
+private fun MetricIconBadge(
+    kind: MetricKind,
+    accent: Color,
+    modifier: Modifier = Modifier,
+) {
+    val label = when (kind) {
+        MetricKind.WEIGHT -> "体"
+        MetricKind.BMI -> "标"
+        MetricKind.BODY_FAT -> "脂"
+        MetricKind.MUSCLE -> "肌"
+        MetricKind.WATER -> "水"
+        MetricKind.VISCERAL_FAT -> "内"
+        MetricKind.PROTEIN -> "蛋"
+        MetricKind.BONE -> "骨"
+    }
+    Surface(
+        color = accent,
+        shape = CircleShape,
+        modifier = modifier.size(32.dp),
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = label,
+                style = bodyLabelStyle(13.sp, FontWeight.Bold),
+                color = Color.White,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
 // ── 顶层双基准摘要卡 ───────────────────────────────────────────────────────
 
 @Composable
@@ -190,10 +229,12 @@ private fun WeightSummaryCard(
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                MetricIconBadge(kind = MetricKind.WEIGHT, accent = accent)
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = reading.title,
                     style = bodyLabelStyle(13.sp),
-                    color = palette.textSecondary,
+                    color = palette.textPrimary,
                     modifier = Modifier.weight(1f),
                 )
                 WeightDeltaPill(report = report)
@@ -275,10 +316,12 @@ private fun BmiSummaryCard(
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                MetricIconBadge(kind = MetricKind.BMI, accent = accent)
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = reading.title,
                     style = bodyLabelStyle(13.sp),
-                    color = palette.textSecondary,
+                    color = palette.textPrimary,
                     modifier = Modifier.weight(1f),
                 )
                 reading.status?.let { StatusPill(status = it) }
@@ -325,10 +368,12 @@ private fun RangeMetricCard(
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                MetricIconBadge(kind = reading.kind, accent = accent)
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = reading.title,
                     style = bodyLabelStyle(13.sp),
-                    color = palette.textSecondary,
+                    color = palette.textPrimary,
                     modifier = Modifier.weight(1f),
                 )
                 reading.status?.let {
@@ -345,7 +390,7 @@ private fun RangeMetricCard(
                     decimals = 1,
                     play = reveal,
                     delayMillis = order * 50,
-                    style = bodyNumberStyle(24.sp),
+                    style = bodyNumberStyle(26.sp),
                     color = accent,
                     secondaryColor = palette.textSecondary,
                 )
@@ -468,10 +513,12 @@ private fun RiskMetricCard(
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                MetricIconBadge(kind = reading.kind, accent = accent)
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = reading.title,
                     style = bodyLabelStyle(13.sp),
-                    color = palette.textSecondary,
+                    color = palette.textPrimary,
                     modifier = Modifier.weight(1f),
                 )
                 reading.status?.let {
@@ -495,7 +542,7 @@ private fun RiskMetricCard(
                         decimals = if (reading.kind == MetricKind.VISCERAL_FAT) 0 else 1,
                         play = reveal,
                         delayMillis = order * 50,
-                        style = bodyNumberStyle(22.sp),
+                        style = bodyNumberStyle(24.sp),
                         color = accent,
                         secondaryColor = palette.textSecondary,
                     )
@@ -606,11 +653,13 @@ private fun CompactMetricCard(
             modifier = Modifier.fillMaxSize(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            MetricIconBadge(kind = reading.kind, accent = accent)
+            Spacer(modifier = Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = reading.title,
                     style = bodyLabelStyle(13.sp),
-                    color = palette.textSecondary,
+                    color = palette.textPrimary,
                     maxLines = 1,
                 )
                 Spacer(modifier = Modifier.height(1.dp))
@@ -620,7 +669,7 @@ private fun CompactMetricCard(
                         decimals = 1,
                         play = reveal,
                         delayMillis = order * 50,
-                        style = bodyNumberStyle(20.sp),
+                        style = bodyNumberStyle(22.sp),
                         color = accent,
                         secondaryColor = palette.textSecondary,
                     )

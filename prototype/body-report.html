@@ -123,12 +123,12 @@ body.is-mobile .phone::after { display: none; }
   font-family: inherit;
   transition: background-color .35s ease, color .35s ease;
 
-  --bg: #F1F5F9;
-  --bg-rgb: 241, 245, 249;
+  --bg: #F5F6F8;
+  --bg-rgb: 245, 246, 248;
   --sheet: #FFFFFF;
   --sheet-rgb: 255, 255, 255;
-  --sheet-border: rgba(255, 255, 255, .74);
-  --card: #F8FAFC;
+  --sheet-border: rgba(255, 255, 255, .82);
+  --card: #FFFFFF;
   --card-selected: #EFF6FF;
   --card-border: rgba(15, 23, 42, .055);
   --text-primary: #0F172A;
@@ -1101,7 +1101,7 @@ body.is-mobile .phone::after { display: none; }
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 12px;
   margin: 0 16px;
   align-items: stretch;
 }
@@ -1126,8 +1126,8 @@ body.is-mobile .phone::after { display: none; }
   flex-direction: column;
   align-items: stretch;
   min-width: 0;
-  padding: 10px 12px;
-  border-radius: 16px;
+  padding: 12px;
+  border-radius: 24px;
   border: 1px solid var(--card-border);
   background: var(--card);
   color: var(--text-primary);
@@ -1145,8 +1145,8 @@ body.is-mobile .phone::after { display: none; }
 }
 .metric-grid.is-revealed .metric-card { opacity: 1; transform: translateY(0); }
 .metric-grid.instant .metric-card { opacity: 1; transform: none; transition: none; }
-/* 严格高度：76 / 96 / 84 / 68，含 1px 边框与 10/16px 内边距 */
-.metric-card.h76 { height: 76px; padding: 8px 12px; }
+/* 参考健康卡片：更高、更宽松的圆角卡片 */
+.metric-card.h76 { height: 88px; padding: 10px 12px; }
 .metric-card[data-metric="weight"] { --metric-accent: var(--metric-weight); --metric-accent-rgb: 37, 99, 235; }
 .metric-card[data-metric="bmi"] { --metric-accent: var(--metric-bmi); --metric-accent-rgb: 139, 92, 246; }
 .metric-card[data-metric="bodyFat"] { --metric-accent: var(--metric-bodyFat); --metric-accent-rgb: 249, 115, 22; }
@@ -1155,19 +1155,19 @@ body.is-mobile .phone::after { display: none; }
 .metric-card[data-metric="visceral"] { --metric-accent: var(--metric-visceral); --metric-accent-rgb: 244, 63, 94; }
 .metric-card[data-metric="protein"] { --metric-accent: var(--metric-protein); --metric-accent-rgb: 99, 102, 241; }
 .metric-card[data-metric="bone"] { --metric-accent: var(--metric-bone); --metric-accent-rgb: 20, 184, 166; }
-.metric-card.h96 { height: 96px; padding: 10px 13px; }
-.metric-card.h84 { height: 84px; padding: 10px 12px; }
-.metric-card.h68 { height: 68px; padding: 8px 11px; }
+.metric-card.h96 { height: 112px; padding: 12px; }
+.metric-card.h84 { height: 96px; padding: 12px; }
+.metric-card.h68 { height: 80px; padding: 10px 12px; }
 .h84 .card-foot { display: none; }
 .metric-card::before {
   content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
-  opacity: .82;
+  opacity: .38;
   background:
-    radial-gradient(120% 80% at 100% 0%, rgba(var(--metric-accent-rgb), .16), transparent 62%),
-    linear-gradient(145deg, rgba(var(--metric-accent-rgb), .11), transparent 52%);
+    radial-gradient(120% 80% at 100% 0%, rgba(var(--metric-accent-rgb), .10), transparent 62%),
+    linear-gradient(145deg, rgba(var(--metric-accent-rgb), .06), transparent 52%);
   transition: opacity .25s ease;
 }
 @media (hover: hover) {
@@ -1190,17 +1190,36 @@ body.is-mobile .phone::after { display: none; }
 .card-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 5px;
-  min-height: 16px;
+  gap: 8px;
+  min-height: 32px;
+}
+.card-head::before {
+  content: attr(data-icon);
+  width: 36px;
+  height: 36px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1;
+  background: var(--metric-accent, var(--primary));
+  box-shadow: 0 5px 12px -7px rgba(var(--metric-accent-rgb, var(--primary-rgb)), .8);
 }
 .card-title {
-  font-size: 10.5px;
-  font-weight: 600;
+  min-width: 0;
+  flex: 1;
+  font-size: 11px;
+  font-weight: 650;
   line-height: 14px;
   letter-spacing: .01em;
-  color: var(--text-secondary);
+  color: var(--text-primary);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .card-value {
   display: flex;
@@ -1250,6 +1269,9 @@ body.is-mobile .phone::after { display: none; }
 .status-pill.warn { color: var(--warn); background: rgba(var(--warn-rgb), .12); }
 .status-pill.danger { color: var(--danger); background: rgba(var(--danger-rgb), .11); }
 .status-pill.neutral { color: var(--text-tertiary); background: rgba(var(--text-rgb), .05); }
+.delta-pill, .status-pill, .baseline-tag {
+  margin-left: auto;
+}
 .delta-pill {
   display: inline-flex;
   align-items: center;
@@ -1716,7 +1738,7 @@ body.is-mobile .phone::after { display: none; }
           </div>
 
           <div class="metric-grid" id="metricGrid">
-            <button class="metric-card h76" type="button" data-metric="weight" aria-pressed="true" aria-label="体重，点击查看趋势">
+            <button class="metric-card h76" type="button" data-metric="weight" aria-pressed="true" data-icon="体" aria-label="体重，点击查看趋势">
               <span class="card-head">
                 <span class="card-title">体重</span>
                 <span class="delta-pill" id="weightDeltaPill">
@@ -1731,7 +1753,7 @@ body.is-mobile .phone::after { display: none; }
               <span class="card-foot" id="weightFoot">较上次 <b>−0.6 kg</b></span>
             </button>
 
-            <button class="metric-card h76" type="button" data-metric="bmi" aria-pressed="false" aria-label="BMI，点击查看趋势">
+            <button class="metric-card h76" type="button" data-metric="bmi" data-icon="标" aria-pressed="false" aria-label="BMI，点击查看趋势">
               <span class="card-head">
                 <span class="card-title">BMI</span>
                 <span class="status-pill good"><i></i><span>标准</span></span>
@@ -1752,7 +1774,7 @@ body.is-mobile .phone::after { display: none; }
               <span>未检测到赤足接触，本次仅记录体重与 BMI</span>
             </div>
 
-            <button class="metric-card h96" type="button" data-metric="bodyFat" aria-pressed="false" aria-label="体脂率，点击查看趋势">
+            <button class="metric-card h96" type="button" data-metric="bodyFat" data-icon="脂" aria-pressed="false" aria-label="体脂率，点击查看趋势">
               <span class="card-head">
                 <span class="card-title">体脂率</span>
                 <span class="status-pill good"><i></i><span>标准</span></span>
@@ -1765,7 +1787,7 @@ body.is-mobile .phone::after { display: none; }
               <span class="card-foot" data-std>标准 18–28%</span>
             </button>
 
-            <button class="metric-card h96" type="button" data-metric="muscle" aria-pressed="false" aria-label="肌肉量，点击查看趋势">
+            <button class="metric-card h96" type="button" data-metric="muscle" data-icon="肌" aria-pressed="false" aria-label="肌肉量，点击查看趋势">
               <span class="card-head">
                 <span class="card-title">肌肉量</span>
                 <span class="status-pill good"><i></i><span>达标</span></span>
@@ -1778,7 +1800,7 @@ body.is-mobile .phone::after { display: none; }
               <span class="card-foot" data-std>标准 19.0–29.8 kg</span>
             </button>
 
-            <button class="metric-card h84" type="button" data-metric="water" aria-pressed="false" aria-label="水分率，点击查看趋势">
+            <button class="metric-card h84" type="button" data-metric="water" data-icon="水" aria-pressed="false" aria-label="水分率，点击查看趋势">
               <span class="card-head">
                 <span class="card-title">水分率</span>
                 <span class="status-pill good"><i></i><span>达标</span></span>
@@ -1791,7 +1813,7 @@ body.is-mobile .phone::after { display: none; }
               <span class="card-foot" data-std>标准 45–60%</span>
             </button>
 
-            <button class="metric-card h84" type="button" data-metric="visceral" aria-pressed="false" aria-label="内脏脂肪，点击查看趋势">
+            <button class="metric-card h84" type="button" data-metric="visceral" data-icon="内" aria-pressed="false" aria-label="内脏脂肪，点击查看趋势">
               <span class="card-head">
                 <span class="card-title">内脏脂肪</span>
                 <span class="status-pill good"><i></i><span>达标</span></span>
@@ -1804,7 +1826,7 @@ body.is-mobile .phone::after { display: none; }
               <span class="card-foot" data-std>标准 1–9 级</span>
             </button>
 
-            <button class="metric-card h68" type="button" data-metric="protein" aria-pressed="false" aria-label="蛋白质，点击查看趋势">
+            <button class="metric-card h68" type="button" data-metric="protein" data-icon="蛋" aria-pressed="false" aria-label="蛋白质，点击查看趋势">
               <span class="card-head">
                 <span class="card-title">蛋白质</span>
                 <span class="status-pill good"><i></i><span>达标</span></span>
@@ -1816,7 +1838,7 @@ body.is-mobile .phone::after { display: none; }
               </span>
             </button>
 
-            <button class="metric-card h68" type="button" data-metric="bone" aria-pressed="false" aria-label="骨量，点击查看趋势">
+            <button class="metric-card h68" type="button" data-metric="bone" data-icon="骨" aria-pressed="false" aria-label="骨量，点击查看趋势">
               <span class="card-head">
                 <span class="card-title">骨量</span>
                 <span class="status-pill good"><i></i><span>正常</span></span>
@@ -1983,6 +2005,8 @@ body.is-mobile .phone::after { display: none; }
   var cardEls = {};
   $$('.metric-card').forEach(function (card) {
     cardEls[card.getAttribute('data-metric')] = card;
+    var head = card.querySelector('.card-head');
+    if (head) head.setAttribute('data-icon', card.getAttribute('data-icon') || '');
   });
 
   var state = {
