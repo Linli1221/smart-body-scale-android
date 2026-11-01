@@ -59,6 +59,10 @@ import com.example.dianzicheng.ui.body.WeightDial
 import com.example.dianzicheng.ui.body.bodyPalette
 import com.example.dianzicheng.ui.body.buildBodyReport
 import com.example.dianzicheng.ui.body.buildHistorySnapshots
+import com.example.dianzicheng.ui.body.formatWeekRange
+import com.example.dianzicheng.ui.body.isInWeekWindow
+import com.example.dianzicheng.ui.body.shiftWeekMillis
+import com.example.dianzicheng.ui.body.startOfWeekMillis
 import com.example.dianzicheng.ui.body.rememberBodySheetState
 import com.example.dianzicheng.ui.state.ScaleUiState
 import kotlinx.coroutines.delay
@@ -169,7 +173,18 @@ fun MeasureHomePage(
         val restoredMeasurementId = remember { uiState.currentMeasurement?.id }
 
         var selectedIndex by remember { mutableStateOf(0) }
+        // 默认按“次”显示；但数据窗口只展示一个 ISO 周，用户可前后切换周。
         var mode by remember { mutableStateOf(HistoryMode.SINGLE) }
+        var weekStartMs by remember {
+            mutableStateOf(
+                startOfWeekMillis(
+                    uiState.currentMeasurement?.measuredAtEpochMs
+                        ?: history.firstOrNull()?.measuredAtEpochMs
+                        ?: System.currentTimeMillis()
+                )
+            )
+        }
+        var weekWindowInitialized by remember { mutableStateOf(false) }
         var selectedMetric by remember { mutableStateOf(MetricKind.WEIGHT) }
         var memberFilterId by remember { mutableStateOf(uiState.selectedMember?.id) }
         var reveal by remember { mutableStateOf(true) }
@@ -293,26 +308,43 @@ fun MeasureHomePage(
         }
 
         // ── 数据装配 ────────────────────────────────────────────────────────
+        // 历史首次加载后，把默认窗口对齐到最近一条记录所在周，避免停留在“空周”。
+        LaunchedEffect(history.size, uiState.currentMeasurement?.id) {
+            if (!weekWindowInitialized && (history.isNotEmpty() || uiState.currentMeasurement != null)) {
+                weekStartMs = startOfWeekMillis(
+                    maxOf(
+                        uiState.currentMeasurement?.measuredAtEpochMs ?: 0L,
+                        history.maxOf { it.measuredAtEpochMs },
+                    )
+                )
+                weekWindowInitialized = true
+            }
+        }
+
         val currentMeasurement = uiState.currentMeasurement
         val currentMatchesFilter = currentMeasurement != null &&
             (memberFilterId == null || currentMeasurement.memberId == memberFilterId)
-        val snapshots = remember(history, currentMeasurement, memberFilterId, mode) {
+        val weekEndMs = remember(weekStartMs) { shiftWeekMillis(weekStartMs, 1) }
+        val dateLabel = remember(weekStartMs) { formatWeekRange(weekStartMs) }
+        val snapshots = remember(history, currentMeasurement, memberFilterId, mode, weekStartMs) {
             // 刚锁定的记录可能尚未进入 Room Flow：先并入时间轴，避免表盘是新体重、
             // 报告却还是上一条记录；同一 id 已在 history 中时不重复添加。
-            val source = if (mode == HistoryMode.SINGLE &&
-                currentMeasurement != null &&
+            val source = if (currentMeasurement != null &&
                 currentMatchesFilter &&
-                history.none { it.id == currentMeasurement.id }
+                history.none { it.id == currentMeasurement.id } &&
+                isInWeekWindow(currentMeasurement.measuredAtEpochMs, weekStartMs, weekEndMs)
             ) {
                 history + currentMeasurement
             } else {
                 history
             }
-            // 契约 §2：返回顺序最新在前，供时间轴左侧最近、右侧更早。
+            // 只显示一个 ISO 周内的数据，卡片按“次”展示；周均/月均是可切换的聚合粒度。
             buildHistorySnapshots(
                 history = source,
                 memberId = memberFilterId,
                 mode = mode,
+                windowStartMs = weekStartMs,
+                windowEndMs = weekEndMs,
             )
         }
         val safeIndex = if (snapshots.isEmpty()) 0 else selectedIndex.coerceIn(0, snapshots.lastIndex)
@@ -573,6 +605,19 @@ fun MeasureHomePage(
             mode = mode,
             onModeChange = { nextMode ->
                 mode = nextMode
+                selectedIndex = 0
+            },
+            dateLabel = dateLabel,
+            canPreviousDate = history.any { it.measuredAtEpochMs < weekStartMs } ||
+                currentMeasurement?.let { it.measuredAtEpochMs < weekStartMs } == true,
+            canNextDate = history.any { it.measuredAtEpochMs >= weekEndMs } ||
+                currentMeasurement?.let { it.measuredAtEpochMs >= weekEndMs } == true,
+            onPreviousDate = {
+                weekStartMs = shiftWeekMillis(weekStartMs, -1)
+                selectedIndex = 0
+            },
+            onNextDate = {
+                weekStartMs = shiftWeekMillis(weekStartMs, 1)
                 selectedIndex = 0
             },
             selectedMetric = selectedMetric,

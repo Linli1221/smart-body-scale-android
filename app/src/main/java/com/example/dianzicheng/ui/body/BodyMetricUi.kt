@@ -52,6 +52,41 @@ data class BodyReport(
 
 enum class HistoryMode { SINGLE, WEEK, MONTH }
 
+/** 计算包含 [nowMs] 的 ISO 周（周一为起点）的 00:00 时间戳。 */
+fun startOfWeekMillis(nowMs: Long = System.currentTimeMillis()): Long {
+    val zone = ZoneId.systemDefault()
+    val date = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
+    return date.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+        .atStartOfDay(zone)
+        .toInstant()
+        .toEpochMilli()
+}
+
+/** 计算下一 ISO 周的起点（用于日期前后切换）。 */
+fun shiftWeekMillis(weekStartMs: Long, weeks: Int): Long {
+    val zone = ZoneId.systemDefault()
+    val date = Instant.ofEpochMilli(weekStartMs).atZone(zone).toLocalDate()
+    return date.plusWeeks(weeks.toLong())
+        .atStartOfDay(zone)
+        .toInstant()
+        .toEpochMilli()
+}
+
+/** 格式化周范围标题，例如 10/26 – 11/01。 */
+fun formatWeekRange(weekStartMs: Long): String {
+    val zone = ZoneId.systemDefault()
+    val start = Instant.ofEpochMilli(weekStartMs).atZone(zone).toLocalDate()
+    val end = start.plusDays(6)
+    return start.format(MM_DD_FORMAT) + " – " + end.format(MM_DD_FORMAT)
+}
+
+/** 判断某条测量是否落在指定 ISO 周内（左闭右开）。 */
+fun isInWeekWindow(
+    measuredAtMs: Long,
+    weekStartMs: Long,
+    weekEndMs: Long,
+): Boolean = measuredAtMs >= weekStartMs && measuredAtMs < weekEndMs
+
 /**
  * 时间轴快照。
  *
@@ -165,10 +200,14 @@ fun buildHistorySnapshots(
     history: List<BodyMeasurement>,
     memberId: String?,
     mode: HistoryMode,
-    @Suppress("UNUSED_PARAMETER") nowMs: Long = System.currentTimeMillis(),
+    nowMs: Long = System.currentTimeMillis(),
+    windowStartMs: Long? = null,
+    windowEndMs: Long? = null,
 ): List<HistorySnapshot> {
     val filtered = history
         .filter { memberId == null || it.memberId == memberId }
+        .filter { windowStartMs == null || it.measuredAtEpochMs >= windowStartMs }
+        .filter { windowEndMs == null || it.measuredAtEpochMs < windowEndMs }
         .sortedByDescending { it.measuredAtEpochMs }
     if (filtered.isEmpty()) return emptyList()
 

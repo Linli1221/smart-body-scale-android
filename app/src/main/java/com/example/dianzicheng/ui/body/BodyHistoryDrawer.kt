@@ -91,6 +91,11 @@ fun BodyHistoryDrawer(
     onSelectIndex: (Int) -> Unit,
     mode: HistoryMode,
     onModeChange: (HistoryMode) -> Unit,
+    dateLabel: String,
+    canPreviousDate: Boolean,
+    canNextDate: Boolean,
+    onPreviousDate: () -> Unit,
+    onNextDate: () -> Unit,
     selectedMetric: MetricKind,
     onMetricSelected: (MetricKind) -> Unit,
     members: List<FamilyMember>,
@@ -216,6 +221,17 @@ fun BodyHistoryDrawer(
 
                     // 收起态只露出标题行；留 20dp 让分段控制器正好落在 12% 折线以下。
                     Spacer(modifier = Modifier.height(20.dp))
+                    HistoryDateNavigator(
+                        dateLabel = dateLabel,
+                        canPreviousDate = canPreviousDate,
+                        canNextDate = canNextDate,
+                        onPreviousDate = onPreviousDate,
+                        onNextDate = onNextDate,
+                        palette = palette,
+                        modifier = Modifier.padding(horizontal = BodyDimens.PagePadding),
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
                     HistoryModeSegment(
                         mode = mode,
                         onModeChange = onModeChange,
@@ -321,6 +337,73 @@ private fun Modifier.drawerDragHandle(
             state.onDrag(dragAmount)
         },
     )
+}
+
+// ── 日期切换：当前期 + 上一期 / 下一期 ───────────────────────────────────────
+@Composable
+private fun HistoryDateNavigator(
+    dateLabel: String,
+    canPreviousDate: Boolean,
+    canNextDate: Boolean,
+    onPreviousDate: () -> Unit,
+    onNextDate: () -> Unit,
+    palette: BodyPalette,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(32.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        DateArrowButton(
+            text = "‹",
+            enabled = canPreviousDate,
+            palette = palette,
+            onClick = onPreviousDate,
+        )
+        Text(
+            text = dateLabel,
+            style = MiuixTheme.textStyles.body2.copy(fontFeatureSettings = "tnum"),
+            color = palette.textPrimary,
+            maxLines = 1,
+            modifier = Modifier.weight(1f),
+            textAlign = TextAlign.Center,
+        )
+        DateArrowButton(
+            text = "›",
+            enabled = canNextDate,
+            palette = palette,
+            onClick = onNextDate,
+        )
+    }
+}
+
+@Composable
+private fun DateArrowButton(
+    text: String,
+    enabled: Boolean,
+    palette: BodyPalette,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = { if (enabled) onClick() },
+        shape = CircleShape,
+        color = if (enabled) palette.cardSelected else Color.Transparent,
+        modifier = Modifier.size(28.dp),
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = text,
+                style = MiuixTheme.textStyles.body1,
+                color = if (enabled) palette.textPrimary else palette.textSecondary,
+                maxLines = 1,
+            )
+        }
+    }
 }
 
 // ── 分段控制器：单次 / 周均 / 月均 ───────────────────────────────────────────
@@ -479,7 +562,7 @@ private fun MemberChip(
 
 /** 分段控制器文案。 */
 private fun HistoryMode.label(): String = when (this) {
-    HistoryMode.SINGLE -> "单次"
+    HistoryMode.SINGLE -> "按次"
     HistoryMode.WEEK -> "周均"
     HistoryMode.MONTH -> "月均"
 }

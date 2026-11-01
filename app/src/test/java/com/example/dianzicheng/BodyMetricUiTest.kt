@@ -180,6 +180,29 @@ class BodyMetricUiTest {
     }
 
     @Test
+    fun singleSnapshotsOnlyIncludeRecordsInsideSelectedWeek() {
+        val day = 86_400_000L
+        val weekStart = Instant.parse("2026-03-09T00:00:00Z").toEpochMilli()
+        val inside = listOf(
+            measurement(id = "in-1", at = weekStart + day, weight = 70.0),
+            measurement(id = "in-2", at = weekStart + 2 * day, weight = 71.0),
+        )
+        val outside = listOf(
+            measurement(id = "out-1", at = weekStart - day, weight = 69.0),
+            measurement(id = "out-2", at = weekStart + 8 * day, weight = 72.0),
+        )
+        val snapshots = buildHistorySnapshots(
+            history = inside + outside,
+            memberId = "m1",
+            mode = HistoryMode.SINGLE,
+            windowStartMs = weekStart,
+            windowEndMs = weekStart + 7 * day,
+        )
+        assertEquals(listOf("in-2", "in-1"), snapshots.map { it.measurement.id })
+        assertEquals(1, snapshots.first().sampleCount)
+    }
+
+    @Test
     fun monthlySnapshotUsesStableIdAndLabel() {
         val at = Instant.parse("2026-03-15T10:00:00Z").toEpochMilli()
         val snapshot = buildHistorySnapshots(listOf(measurement(at = at)), "m1", HistoryMode.MONTH).single()

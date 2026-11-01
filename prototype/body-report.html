@@ -886,6 +886,37 @@ body.is-mobile .phone::after { display: none; }
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.date-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+.date-arrow {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--divider);
+  color: var(--text-primary);
+  background: var(--card);
+}
+.date-arrow:disabled {
+  opacity: .35;
+}
+.date-current {
+  min-width: 0;
+  flex: 1;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
 .timeline {
   position: relative;
   display: flex;
@@ -1701,11 +1732,16 @@ body.is-mobile .phone::after { display: none; }
             <div class="control-row">
               <div class="segmented" id="modeControl" role="tablist" aria-label="统计范围">
                 <span class="seg-thumb" id="segThumb" aria-hidden="true"></span>
-                <button class="seg-btn active" type="button" role="tab" data-mode="single" aria-selected="true">单次</button>
+                <button class="seg-btn active" type="button" role="tab" data-mode="single" aria-selected="true">按次</button>
                 <button class="seg-btn" type="button" role="tab" data-mode="week" aria-selected="false">周均</button>
                 <button class="seg-btn" type="button" role="tab" data-mode="month" aria-selected="false">月均</button>
               </div>
               <span class="record-count" id="recordCount">14 次记录</span>
+            </div>
+            <div class="date-nav">
+              <button class="date-arrow" id="datePrev" type="button" aria-label="上一日期">‹</button>
+              <span class="date-current" id="dateCurrent">—</span>
+              <button class="date-arrow" id="dateNext" type="button" aria-label="下一日期">›</button>
             </div>
             <div class="timeline" id="timeline" role="listbox" aria-label="测量时间轴"></div>
             <div class="member-filter" id="memberFilter" role="group" aria-label="成员筛选"></div>
@@ -1950,7 +1986,7 @@ body.is-mobile .phone::after { display: none; }
     protein:  { title: '蛋白质',   unit: '%',      decimals: 1 },
     bone:     { title: '骨量',     unit: 'kg',     decimals: 1 }
   };
-  var MODE_LABEL = { single: '单次', week: '周均', month: '月均' };
+  var MODE_LABEL = { single: '按次', week: '周均', month: '月均' };
   var ANCHOR = { full: 0, half: 0.30, collapsed: 0.80 };
   var RING_C = 2 * Math.PI * 116;
   var SVGNS = 'http://www.w3.org/2000/svg';
@@ -1965,6 +2001,9 @@ body.is-mobile .phone::after { display: none; }
   var sheetBody = $('#sheetBody');
   var scrim = $('#scrim');
   var timelineEl = $('#timeline');
+  var datePrev = $('#datePrev');
+  var dateNext = $('#dateNext');
+  var dateCurrent = $('#dateCurrent');
   var memberFilterEl = $('#memberFilter');
   var grid = $('#metricGrid');
   var trendPanel = $('#trendPanel');
@@ -2013,6 +2052,7 @@ body.is-mobile .phone::after { display: none; }
     demo: 'normal',
     theme: 'light',
     mode: 'single',
+    weekStartMs: Date.now(),
     memberFilter: 'm1',
     members: MEMBERS.slice(),
     records: [],
@@ -2120,6 +2160,13 @@ body.is-mobile .phone::after { display: none; }
     return d.getTime();
   }
 
+  function formatWeekRange(startMs) {
+    var start = new Date(startMs);
+    var end = new Date(startMs + 6 * DAY);
+    return pad2(start.getMonth() + 1) + '/' + pad2(start.getDate()) +
+      ' – ' + pad2(end.getMonth() + 1) + '/' + pad2(end.getDate());
+  }
+
   function monthStart(ts) {
     var d = new Date(ts);
     return new Date(d.getFullYear(), d.getMonth(), 1).getTime();
@@ -2215,8 +2262,10 @@ body.is-mobile .phone::after { display: none; }
   }
 
   function buildSnapshots(mode, filterId) {
+    var weekEnd = state.weekStartMs + 7 * DAY;
     var recs = state.records.filter(function (r) {
-      return !filterId || r.memberId === filterId;
+      return (!filterId || r.memberId === filterId) &&
+        r.measuredAt >= state.weekStartMs && r.measuredAt < weekEnd;
     });
     if (mode === 'single') {
       return recs.map(singleSnapshot).sort(function (a, b) { return b.measuredAt - a.measuredAt; });
@@ -2438,6 +2487,16 @@ body.is-mobile .phone::after { display: none; }
         '</button>';
     }
     timelineEl.innerHTML = html;
+    dateCurrent.textContent = formatWeekRange(state.weekStartMs);
+    var hasOlder = state.records.some(function (r) {
+      return (!state.memberFilter || r.memberId === state.memberFilter) && r.measuredAt < state.weekStartMs;
+    });
+    var weekEnd = state.weekStartMs + 7 * DAY;
+    var hasNewer = state.records.some(function (r) {
+      return (!state.memberFilter || r.memberId === state.memberFilter) && r.measuredAt >= weekEnd;
+    });
+    datePrev.disabled = !hasOlder;
+    dateNext.disabled = !hasNewer;
   }
 
   function renderMemberFilter() {
@@ -3056,11 +3115,7 @@ body.is-mobile .phone::after { display: none; }
   function selectSnapshot(index, scroll) {
     if (index < 0 || index >= state.snapshots.length) return;
     state.selectedIndex = index;
-    $$('.tl-chip').forEach(function (chip, i) {
-      var active = i === index;
-      chip.classList.toggle('active', active);
-      chip.setAttribute('aria-selected', active ? 'true' : 'false');
-    });
+    renderTimeline();
     var snapshot = currentSnapshot();
     renderSheetMeta(snapshot);
     renderDial(snapshot);
@@ -3109,6 +3164,14 @@ body.is-mobile .phone::after { display: none; }
   function setMemberFilter(id) {
     state.memberFilter = id;
     state.snapshots = buildSnapshots(state.mode, id);
+    state.selectedIndex = 0;
+    renderAll({ instant: true });
+    timelineEl.scrollLeft = 0;
+  }
+
+  function shiftWeek(delta) {
+    state.weekStartMs += delta * 7 * DAY;
+    state.snapshots = buildSnapshots(state.mode, state.memberFilter);
     state.selectedIndex = 0;
     renderAll({ instant: true });
     timelineEl.scrollLeft = 0;
@@ -3307,6 +3370,7 @@ body.is-mobile .phone::after { display: none; }
     state.memberFilter = state.members[0].id;
     state.selectedMetric = 'weight';
     state.selectedIndex = 0;
+    state.weekStartMs = state.records.length ? weekStart(state.records[0].measuredAt) : weekStart(Date.now());
     state.snapshots = buildSnapshots('single', state.memberFilter);
     state.phase = demo === 'offline' ? 'offline' : 'complete';
     app.dataset.demo = demo;
@@ -3477,6 +3541,13 @@ body.is-mobile .phone::after { display: none; }
       var chip = e.target.closest('.tl-chip');
       if (!chip) return;
       selectSnapshot(Number(chip.getAttribute('data-index')), true);
+    });
+
+    datePrev.addEventListener('click', function () {
+      shiftWeek(-1);
+    });
+    dateNext.addEventListener('click', function () {
+      shiftWeek(1);
     });
 
     memberFilterEl.addEventListener('click', function (e) {
