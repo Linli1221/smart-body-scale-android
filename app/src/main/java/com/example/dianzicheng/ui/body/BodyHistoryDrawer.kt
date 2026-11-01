@@ -30,10 +30,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -42,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import com.example.dianzicheng.domain.FamilyMember
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -62,7 +66,7 @@ private val DragHandleTopGap = 8.dp
  * - 内容：全展开时的 180dp 趋势图 + A 组 `BodyMetricGrid` 卡片网格（不在此重写卡片）。
  *
  * 高频动画量（fraction / scrimAlpha / topOffset）只在绘制与布局阶段读取，
- * 组合阶段仅通过 `derivedStateOf` 读取「是否全展开」「遮罩是否可点」两个布尔，避免拖拽逐帧重组。
+ * 组合阶段仅通过 `derivedStateOf` 读取「遮罩是否可点」，避免拖拽逐帧重组。
  *
  * @param state 抽屉状态机（[rememberBodySheetState]）。
  * @param report 当前选中测量的身体报告（A 组构建）。
@@ -99,8 +103,7 @@ fun BodyHistoryDrawer(
         topEnd = BodyDimens.SheetRadius,
     )
 
-    // 组合阶段只保留两个布尔派生值，避免拖拽时整棵子树逐帧重组。
-    val fullyExpanded by remember(state) { derivedStateOf { state.fraction >= 0.99f } }
+    // 组合阶段只保留布尔派生值，避免拖拽时整棵子树逐帧重组。
     val scrimInteractive by remember(state) {
         // 不用 fraction>0.5：弹簧过冲或停在 0.51 时遮罩几乎不可见却会吞掉主舞台点击。
         derivedStateOf { state.scrimAlpha > 0.08f }
@@ -240,7 +243,20 @@ fun BodyHistoryDrawer(
                         .padding(horizontal = BodyDimens.PagePadding)
                 ) {
                     Spacer(modifier = Modifier.height(4.dp))
-                    if (fullyExpanded) {
+                    // 报告从半展开到全展开时，趋势图的高度与透明度跟随抽屉进度。
+                    // 在布局/绘制阶段读取进度，拖动时不触发整页逐帧重组。
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clipToBounds()
+                            .layout { measurable, constraints ->
+                                val child = measurable.measure(constraints.copy(minHeight = 0))
+                                val progress = ((state.fraction - 0.5f) * 2f).coerceIn(0f, 1f)
+                                val visibleHeight = (child.height * progress).roundToInt()
+                                    .coerceIn(constraints.minHeight, constraints.maxHeight)
+                                layout(child.width, visibleHeight) { child.placeRelative(0, 0) }
+                            },
+                    ) {
                         BodyTrendChart(
                             metric = selectedMetric,
                             snapshots = snapshots,
@@ -248,7 +264,13 @@ fun BodyHistoryDrawer(
                             members = members,
                             selectedIndex = safeIndex,
                             onSelectIndex = onSelectIndex,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .graphicsLayer {
+                                    val progress = ((state.fraction - 0.5f) * 2f).coerceIn(0f, 1f)
+                                    alpha = progress
+                                    translationY = (1f - progress) * 12.dp.toPx()
+                                },
                         )
                         Spacer(modifier = Modifier.height(BodyDimens.CardGap))
                     }
