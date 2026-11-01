@@ -2,10 +2,14 @@ package com.example.dianzicheng.ui.body
 
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -23,10 +27,16 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -798,15 +808,36 @@ private fun MetricCardFrame(
         ),
         label = "metric-card-$order",
     )
+    var pressed by remember { mutableStateOf(false) }
+    // 释放时弹簧短暂越过 0，使缩小的卡片有轻微超调后回到原尺寸。
+    val pressProgress by animateFloatAsState(
+        targetValue = if (pressed) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.62f, stiffness = 520f),
+        label = "metric-card-press",
+    )
     val tint = accent.copy(alpha = if (selected) 0.14f else 0.07f)
         .compositeOver(if (selected) palette.cardSelected else palette.card)
     Surface(
         onClick = onClick,
         modifier = modifier
             .height(height)
+            // 只观察手势，不消费点击；滚动、取消或移出时立即释放视觉状态。
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    pressed = true
+                    try {
+                        waitForUpOrCancellation(pass = PointerEventPass.Final)
+                    } finally {
+                        pressed = false
+                    }
+                }
+            }
             .graphicsLayer {
                 alpha = progress
                 translationY = (1f - progress) * 12.dp.toPx()
+                scaleX = 1f - 0.035f * pressProgress
+                scaleY = 1f - 0.035f * pressProgress
             },
         shape = RoundedCornerShape(BodyDimens.CardRadius),
         color = tint,
@@ -815,6 +846,22 @@ private fun MetricCardFrame(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .drawWithContent {
+                    drawContent()
+                    val depth = pressProgress.coerceIn(0f, 1f)
+                    if (depth > 0f) {
+                        // 多层柔和描边裁在卡片内部，模拟顶部更深的内阴影。
+                        val shadow = Brush.verticalGradient(
+                            0f to Color.Black.copy(alpha = 0.24f * depth),
+                            0.5f to Color.Black.copy(alpha = 0.10f * depth),
+                            1f to Color.Black.copy(alpha = 0.05f * depth),
+                            endY = size.height,
+                        )
+                        val radius = CornerRadius(BodyDimens.CardRadius.toPx())
+                        drawRoundRect(brush = shadow, cornerRadius = radius, style = Stroke(width = 9.dp.toPx()))
+                        drawRoundRect(brush = shadow, cornerRadius = radius, style = Stroke(width = 3.dp.toPx()))
+                    }
+                }
                 .background(
                     // 渐变按 accent 记忆化：避免每次重组都新建 Brush（性能审计 L3）
                     remember(accent) {
