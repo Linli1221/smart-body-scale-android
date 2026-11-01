@@ -1,7 +1,6 @@
 package com.example.dianzicheng.domain
 
 import java.time.Instant
-import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.math.ln
 import kotlin.math.max
@@ -168,9 +167,10 @@ object BodyAlgorithm {
      * 现改为返回中性默认年龄 30 岁，减少未填生日时的计算偏差，并记录警告日志。
      *
      * @param birthDateEpochMs 出生日期（Unix 毫秒时间戳），0 或负数表示未设置
-     * @return 年龄（1~120 范围内，防止异常数据导致崩溃）
+     * @param nowMs           计算基准时刻（Unix 毫秒时间戳），默认当前时间
+     * @return 年龄（1~120 范围内，防止异常数据导致崩溃）；核心算法见 [ageFrom]
      */
-    private fun calculateAge(birthDateEpochMs: Long): Int {
+    fun calculateAge(birthDateEpochMs: Long, nowMs: Long = System.currentTimeMillis()): Int {
         // 出生日期未设置（0L 或负数）：返回中性默认年龄，避免 1970 年导致偏差
         if (birthDateEpochMs <= 0L) {
             AppLogger.w("BodyAlgorithm", "出生日期未设置（birthDateEpochMs=$birthDateEpochMs），使用默认年龄 30 岁参与体成分计算")
@@ -178,12 +178,32 @@ object BodyAlgorithm {
         }
         // 使用 java.time（minSdk 26 原生支持），避免每次调用分配两个 Calendar 实例
         val zone = ZoneId.systemDefault()
-        val today = LocalDate.now(zone)
+        val today = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
         val birthDate = Instant.ofEpochMilli(birthDateEpochMs).atZone(zone).toLocalDate()
         if (birthDate.isAfter(today)) {
             AppLogger.w("BodyAlgorithm", "出生日期在未来（birthDateEpochMs=$birthDateEpochMs），使用默认年龄 30 岁参与体成分计算")
             return 30
         }
+        return ageFrom(birthDateEpochMs, nowMs)
+    }
+
+    /**
+     * 年龄计算的唯一算法口径（纯函数、无日志副作用）。
+     *
+     * 体成分计算经 [calculateAge]（额外对异常生日记警告日志，低频调用可接受）、
+     * 身体报告 UI（BodyMetricUi.ageYears）与秤端档案下发（ScaleViewModel.syncAfuB1UserProfile）
+     * 均复用本实现，杜绝多套口径漂移（旧 365 天粗算误差可达 1 岁）。
+     *
+     * @param birthDateEpochMs 出生日期（Unix 毫秒时间戳），0 或负数表示未设置
+     * @param nowMs           计算基准时刻（Unix 毫秒时间戳），默认当前时间
+     * @return 年龄（缺失/未来生日回落中性 30；结果限制在 1~120）
+     */
+    fun ageFrom(birthDateEpochMs: Long, nowMs: Long = System.currentTimeMillis()): Int {
+        if (birthDateEpochMs <= 0L) return 30
+        val zone = ZoneId.systemDefault()
+        val today = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
+        val birthDate = Instant.ofEpochMilli(birthDateEpochMs).atZone(zone).toLocalDate()
+        if (birthDate.isAfter(today)) return 30
         var age = today.year - birthDate.year
         // 今年生日未过：年龄再减 1（使用月/日比较，避免闰年 DAY_OF_YEAR 偏差问题）
         if (today.monthValue < birthDate.monthValue ||

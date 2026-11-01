@@ -1,3 +1,7 @@
+> **⚠️ 历史文档（Miuix 迁移已完成）**：本文写于迁移期间，保留原文仅作决策记录；文中旧名词与当前代码的对应关系：
+> `电子秤Theme` → 现 `ui/theme/Theme.kt` 的 `AppTheme`；`MainScreen（含 bottomBar）` → 现 `ui/ScaleApp.kt` 单页面（无 bottomBar、无页面导航栈）；
+> `PairingScreen` → 现 `ui/sheet/PairingSheet.kt` 底部弹层；页面跳转 → 单页面 + 底部弹层（ScaleApp 的 ActiveOverlay 路由）。
+
 # Miuix 迁移规范（本项目专用）
 
 > 目标：把 `app/src/main/java/com/example/dianzicheng/ui/` 下所有 Compose UI 从 Material 3 迁移到 **Miuix 0.9.4**（top.yukonga.miuix.kmp，HyperOS 设计）。

@@ -70,6 +70,7 @@ import top.yukonga.miuix.kmp.icon.extended.Info
 import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.icon.extended.SearchDevice
 import top.yukonga.miuix.kmp.icon.extended.Tune
+import java.util.Locale
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -707,7 +708,7 @@ private fun ActiveWeighingCard(
             }
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = String.format("%.2f kg", device.liveWeightKg ?: 0.0),
+                text = String.format(Locale.US, "%.2f kg", device.liveWeightKg ?: 0.0),
                 style = MiuixTheme.textStyles.headline1.copy(fontSize = 34.sp),
                 fontWeight = FontWeight.ExtraBold,
                 color = MiuixTheme.colorScheme.primary

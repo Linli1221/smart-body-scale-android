@@ -1,6 +1,7 @@
 package com.example.dianzicheng.data.ble
 
 import java.util.UUID
+import kotlin.math.roundToInt
 
 /**
  * 薄荷健康 B1 (AFU-BH-TZ-B1，蚂蚁阿福联名款) 蓝牙体脂秤协议编解码器。
@@ -261,7 +262,7 @@ object AFUB1PacketParser {
         sex: Int,
         targetKg: Float
     ): ByteArray {
-        val targetX100 = Math.round(targetKg * 100f) and 0xFFFF
+        val targetX100 = (targetKg * 100f).roundToInt() and 0xFFFF
         val body = time4(nowEpochSeconds) + byteArrayOf(
             0x00, (user and 0xFF).toByte(),
             0xAF.toByte(), variant.openByte.toByte(), 0x17,
@@ -276,6 +277,9 @@ object AFUB1PacketParser {
      * 请求导出完整历史队列：`af45 8e <time4> 00 <user> af de 17 <age> <sex> <target*100 LE> 03 00 61 <crc>`。
      *
      * 不发送该请求时，秤只会反复推送同一条存储记录。
+     *
+     * 状态说明：当前未接入 BleScaleClient 的下秤收尾流程（仅单元测试覆盖）；
+     * 疑似 B1 历史队列的漏接线而非死代码，是否接入需真机验证 B1 历史队列行为后再定，故暂保留。
      */
     fun buildHistoryDumpRequest(
         nowEpochSeconds: Long,
@@ -284,7 +288,7 @@ object AFUB1PacketParser {
         sex: Int,
         targetKg: Float
     ): ByteArray {
-        val targetX100 = Math.round(targetKg * 100f) and 0xFFFF
+        val targetX100 = (targetKg * 100f).roundToInt() and 0xFFFF
         val body = time4(nowEpochSeconds) + byteArrayOf(
             0x00, (user and 0xFF).toByte(),
             0xAF.toByte(), 0xDE.toByte(), 0x17,

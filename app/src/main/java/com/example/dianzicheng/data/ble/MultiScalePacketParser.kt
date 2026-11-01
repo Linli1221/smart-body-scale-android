@@ -26,6 +26,9 @@ object MultiScalePacketParser {
     /** 薄荷健康 / 沃莱 Yolanda 扩展服务 UUID (0xFFA0) */
     val UUID_SERVICE_YOLANDA: UUID = UUID.fromString("0000FFA0-0000-1000-8000-00805F9B34FB")
 
+    /** [UUID_SERVICE_SIG_BCS] 的 [ParcelUuid] 常量：避免每个广播包解析都新建一次 */
+    private val BCS_PARCEL_UUID = ParcelUuid(UUID_SERVICE_SIG_BCS)
+
     /**
      * 解析完成的秤面数据。
      *
@@ -188,8 +191,7 @@ object MultiScalePacketParser {
     ): ParsedScaleData? {
         if (scanRecord == null) return null
 
-        val bcsParcel = ParcelUuid(UUID_SERVICE_SIG_BCS)
-        val bcsData = scanRecord.getServiceData(bcsParcel)
+        val bcsData = scanRecord.getServiceData(BCS_PARCEL_UUID)
 
         val serviceUuidStrings = scanRecord.serviceUuids?.map { it.uuid.toString() } ?: emptyList()
 
@@ -300,8 +302,8 @@ object MultiScalePacketParser {
         // ── 格式 1: 8 字节流式帧 (0xAC 开头) ──────────────────────────────────
         if (b0 == 0xAC && data.size >= 8) {
             val b1 = data[1].toInt() and 0xFF
-            // 薄荷健康/沃莱 8 字节流通常以 0x02, 0x03, 0x05, 0x0A 为命令字
-            if (b1 in listOf(0x02, 0x03, 0x05, 0x0A)) {
+            // 薄荷健康/沃莱 8 字节流通常以 0x02, 0x03, 0x05, 0x0A 为命令字（逐字节比较，避免每帧分配装箱 List）
+            if (b1 == 0x02 || b1 == 0x03 || b1 == 0x05 || b1 == 0x0A) {
                 val statusByte = data[6].toInt() and 0xFF
 
                 // 1.1 阻抗专属数据包：AC 02 FD 01 [IMP_HI] [IMP_LO] CB [CHK]
@@ -357,7 +359,7 @@ object MultiScalePacketParser {
                 }
 
                 // 1.4 复合流式变体 (Byte 2~3 为体重, Byte 4~5 为保留/温度/状态, Byte 6 为稳定标志 0x01/0x02)
-                if (statusByte in listOf(0x01, 0x02)) {
+                if (statusByte == 0x01 || statusByte == 0x02) {
                     // 若 b3 在 0x68..0x6E 范围内，说明该帧为 AFU 协议报文（w3 基准偏移量 0x68），绝非 Yolanda，直接拒绝以防误判
                     if (b3 in 0x68..0x6E) return null
 
@@ -377,7 +379,7 @@ object MultiScalePacketParser {
             }
 
             // 1.5 扩展复合包：AC 02 FF [W_HI] [W_LO] [IMP_HI] [IMP_LO] [STATUS] ...
-            if (data.size >= 10 && (data[1].toInt() and 0xFF) in listOf(0x02, 0x03) && (data[2].toInt() and 0xFF) == 0xFF) {
+            if (data.size >= 10 && ((data[1].toInt() and 0xFF) == 0x02 || (data[1].toInt() and 0xFF) == 0x03) && (data[2].toInt() and 0xFF) == 0xFF) {
                 val rawWeight = ((data[3].toInt() and 0xFF) shl 8) or (data[4].toInt() and 0xFF)
                 val rawImp = ((data[5].toInt() and 0xFF) shl 8) or (data[6].toInt() and 0xFF)
                 val status = data[7].toInt() and 0xFF

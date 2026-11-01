@@ -3,9 +3,11 @@ package com.example.dianzicheng.data.ble
 import android.annotation.SuppressLint
 import android.bluetooth.*
 import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
+import android.os.ParcelUuid
 import com.example.dianzicheng.data.local.AppLogger
 import com.example.dianzicheng.domain.ScaleModel
 import com.example.dianzicheng.domain.normalizeMacAddress
@@ -42,7 +44,6 @@ private const val AFUB1_FRESH_WEIGHT_TOLERANCE_G = 1000
  * - [weight]：实时体重（kg）
  * - [isStable]：体重是否稳定锁定
  * - [impedance]：生物电阻抗值（Ω）
- * - [discoveredDevice]：发现的设备（名称 + MAC 地址）
  *
  * @param context Android 上下文，用于获取蓝牙系统服务。
  */
@@ -71,6 +72,21 @@ class BleScaleClient(private val context: Context) {
     companion object {
         /** 已知体脂秤芯片厂商 Company ID 集合（0xFF 厂商自定义数据），常量避免每个广播包分配 List */
         private val KNOWN_SCALE_COMPANY_IDS = setOf(0x01A7, 0x0157, 0x0209)
+
+        /**
+         * 自动连接扫描的扫描模式：BALANCED 显著降低前台常扫功耗（扫描是本应用待机耗电大头），
+         * 发现延迟约 +1~2s，而称重会话持续 10~30s，完全足够「踩秤即连」。
+         * 配对扫描（[startPairingScan]）不受此常量影响，仍为 LOW_LATENCY。
+         * 若需回到极低延迟的自动连接，把本常量改回 [ScanSettings.SCAN_MODE_LOW_LATENCY] 即可。
+         */
+        private val AUTO_SCAN_MODE = ScanSettings.SCAN_MODE_BALANCED
+
+        /**
+         * 自动连接扫描的批量上报延迟（ms）：蓝牙控制器缓存该时长内的扫描结果整批回调
+         * （onBatchScanResults），把「每广播包一次主线程回调」降为约 2 次/秒。
+         * 配对扫描仍为 0（即时回调），保证候选列表的实时刷新。
+         */
+        private const val AUTO_SCAN_REPORT_DELAY_MS = 500L
     }
 
     // -------------------------------------------------------------------------
@@ -96,14 +112,6 @@ class BleScaleClient(private val context: Context) {
     private val _impedance = MutableStateFlow(0.0)
     /** 生物电阻抗值，单位 Ω（外部只读）。 */
     val impedance: StateFlow<Double> = _impedance
-
-    /**
-     * 扫描到的体脂秤设备信息：Pair<设备显示名称, MAC 地址>（内部可写）。
-     * null 表示尚未发现设备。
-     */
-    private val _discoveredDevice = MutableStateFlow<Pair<String, String>?>(null)
-    /** 扫描到的体脂秤设备信息（外部只读）。 */
-    val discoveredDevice: StateFlow<Pair<String, String>?> = _discoveredDevice
 
     /** 扫描发现的所有候选体脂秤列表（供用户手动选择配对）。 */
     private val _discoveredScales = MutableStateFlow<List<DiscoveredScaleDevice>>(emptyList())
@@ -293,7 +301,11 @@ class BleScaleClient(private val context: Context) {
      *
      * 仅区分薄荷健康/沃莱与小米体脂秤 2 代两类；无法判定时返回 [ScaleModel.AUTO]。
      */
-    fun detectMatchedModel(deviceName: String?, scanRecord: android.bluetooth.le.ScanRecord?): ScaleModel {
+    fun detectMatchedModel(
+        deviceName: String?,
+        scanRecord: android.bluetooth.le.ScanRecord?,
+        advProvider: () -> MultiScalePacketParser.ParsedScaleData? = { MultiScalePacketParser.parseAdvertisement(scanRecord, preferredModel) }
+    ): ScaleModel {
         val name = deviceName ?: ""
 
         // 小米体脂秤 2 代：广播名常见为 MIBFS / MISCALE / MI_SCALE / 米家 / 小米，或声明 0x181B 服务
@@ -320,8 +332,8 @@ class BleScaleClient(private val context: Context) {
             return ScaleModel.BOOHEE_YOLANDA
         }
 
-        // 依据广播数据实际命中的协议反推型号
-        val advData = MultiScalePacketParser.parseAdvertisement(scanRecord, preferredModel)
+        // 依据广播数据实际命中的协议反推型号（复用调用方的单次解析结果）
+        val advData = advProvider()
         if (advData != null) {
             return if (advData.protocolName.contains("Xiaomi", ignoreCase = true)) {
                 ScaleModel.XIAOMI_SCALE_2
@@ -345,7 +357,7 @@ class BleScaleClient(private val context: Context) {
      * @param result BLE 扫描回调返回的单条扫描结果。
      * @return 判定为目标设备返回 true，否则返回 false。
      */
-    private fun isScaleAdvertisement(result: ScanResult): Boolean {
+    private fun isScaleAdvertisement(result: ScanResult, advProvider: () -> MultiScalePacketParser.ParsedScaleData?): Boolean {
         val device = result.device
         val scanRecord = result.scanRecord
         val serviceUuids = scanRecord?.serviceUuids
@@ -386,8 +398,8 @@ class BleScaleClient(private val context: Context) {
         val hasService = serviceUuids?.any { it.uuid in SUPPORTED_SERVICE_UUIDS } == true
         if (hasService) return true
 
-        // 4. 广播数据包直接可解析出有效体重（如小米秤 Service Data、免配对广播秤）
-        if (MultiScalePacketParser.parseAdvertisement(scanRecord, preferredModel) != null) {
+        // 4. 广播数据包直接可解析出有效体重（如小米秤 Service Data、免配对广播秤；复用单次解析结果）
+        if (advProvider() != null) {
             return true
         }
 
@@ -478,9 +490,18 @@ class BleScaleClient(private val context: Context) {
             // 保证抓包内容为「设备实际发出的全部广播」，不受本 App 的筛选规则影响。
             BleProtocolRecorder.recordScanResult(result)
 
+            // 【性能】同一 ScanRecord 的广播解析（ParcelUuid/UUID 字符串/AD 段拷贝）代价可观，
+            // 旧实现对同一记录最多解析 4 次（isScaleAdvertisement / detectMatchedModel / 模式1 / 模式2）。
+            // 这里以惰性单次解析统一供给全部判定路径：未命中任何解析点的包一次都不解析，
+            // 命中后复用同一结果，语义与逐处解析完全一致。
+            val advDataLazy = lazy(LazyThreadSafetyMode.NONE) {
+                MultiScalePacketParser.parseAdvertisement(result.scanRecord, preferredModel)
+            }
+            val advProvider: () -> MultiScalePacketParser.ParsedScaleData? = { advDataLazy.value }
+
             // 模式 1：处于手动配对模式，或尚未记住任何设备
             if (isPairingMode || !hasRememberedDevice) {
-                val isScale = isScaleAdvertisement(result)
+                val isScale = isScaleAdvertisement(result, advProvider)
                 val rawBytes = result.scanRecord?.bytes
                 val parsedName = device.name ?: result.scanRecord?.deviceName ?: MultiScalePacketParser.parseNameFromBytes(rawBytes)
 
@@ -516,14 +537,14 @@ class BleScaleClient(private val context: Context) {
                 }
 
                 if (shouldInclude) {
-                    val advScaleData = if (isScale) MultiScalePacketParser.parseAdvertisement(result.scanRecord, preferredModel) else null
+                    val advScaleData = if (isScale) advProvider() else null
                     // 【Debug 抓包】记录纳入候选列表设备的广播原始 AD 结构与解析结论
                     BleProtocolRecorder.recordAdStructures(
                         source = if (isScale) "candidate-scale" else "candidate-other",
                         raw = result.scanRecord?.bytes
                     )
                     val liveWeight = if (isScale && advScaleData != null && advScaleData.weightKg in 3.0..350.0) advScaleData.weightKg else null
-                    val matchedModel = detectMatchedModel(parsedName, result.scanRecord)
+                    val matchedModel = detectMatchedModel(parsedName, result.scanRecord, advProvider)
                     val isXiaomi = matchedModel == ScaleModel.XIAOMI_SCALE_2 ||
                                    parsedName?.startsWith("MIBFS", ignoreCase = true) == true ||
                                    parsedName?.startsWith("MISCALE", ignoreCase = true) == true ||
@@ -587,9 +608,6 @@ class BleScaleClient(private val context: Context) {
                         }
                     )
                     _discoveredScales.value = currentList
-                    if (isScale) {
-                        _discoveredDevice.value = Pair(name, device.address)
-                    }
                 }
                 // 【核心保护】：手动配对阶段仅收集设备列表，绝不自动发起连接，等待用户手动点击！
                 return
@@ -604,11 +622,11 @@ class BleScaleClient(private val context: Context) {
             }
 
             // 确认是已记住的目标设备后，按协议处理
-            if (isScaleAdvertisement(result)) {
+            if (isScaleAdvertisement(result, advProvider)) {
                 val name = device.name ?: result.scanRecord?.deviceName ?: parseNameFromBytes(result.scanRecord?.bytes) ?: "体脂秤设备 (${device.address.takeLast(5)})"
 
-                // 尝试直接从广播数据解析（如小米秤、免配对广播秤即踩即读）
-                val advScaleData = MultiScalePacketParser.parseAdvertisement(result.scanRecord, preferredModel)
+                // 尝试直接从广播数据解析（如小米秤、免配对广播秤即踩即读；复用单次解析结果）
+                val advScaleData = advProvider()
                 // 【Debug 抓包】记录已命中目标设备的广播原始 AD 结构与解析结论
                 BleProtocolRecorder.recordAdStructures(
                     source = "paired-target",
@@ -658,8 +676,6 @@ class BleScaleClient(private val context: Context) {
                         }
                     }
 
-                    _discoveredDevice.value = Pair(name, device.address)
-
                     // 重置 2.5s 无广播数据超时定时器（无论体重是否为 0 均重置，避免超时回调再次归零干扰）
                     // 复用同一个 Runnable 实例，避免广播高峰期每包分配新对象
                     val watchdog = inactivityRunnable ?: Runnable {
@@ -687,8 +703,19 @@ class BleScaleClient(private val context: Context) {
                     return
                 }
                 AppLogger.i(TAG, "已发现已记住的体脂秤，自动连接 GATT: $name [${device.address}]")
-                _discoveredDevice.value = Pair(name, device.address)
                 connect(device)
+            }
+        }
+
+        /**
+         * 批量扫描结果回调。
+         * 自动连接模式使用 setReportDelay(>0) 批量上报时，系统**不再**回调 [onScanResult]，
+         * 而是整批走本方法（若不实现将丢失全部自动连接扫描结果！）；
+         * 逐条转交同一处理逻辑，保证批量/即时两条上报路径行为完全一致。
+         */
+        override fun onBatchScanResults(results: MutableList<ScanResult>) {
+            for (result in results) {
+                onScanResult(ScanSettings.CALLBACK_TYPE_ALL_MATCHES, result)
             }
         }
 
@@ -798,7 +825,9 @@ class BleScaleClient(private val context: Context) {
      * 1. 检查是否满足扫描条件：非配对模式下若未记住任何设备，直接跳过并设为 IDLE。
      * 2. 重置体重、稳定、阻抗状态为初始值。
      * 3. 清理旧 GATT 连接和看门狗定时器，防止资源泄漏。
-     * 4. 以 [ScanSettings.SCAN_MODE_LOW_LATENCY] 低延迟模式扫描，报告延迟为 0（即时回调）。
+     * 4. 扫描参数按模式区分：配对扫描为 LOW_LATENCY + 即时回调 + 无过滤（发现任意秤）；
+     *    自动连接扫描为 [AUTO_SCAN_MODE] + [AUTO_SCAN_REPORT_DELAY_MS] 批量上报 + ScanFilter
+     *    （已记住 MAC 与支持的服务 UUID，硬件侧过滤无关广播），显著降低常扫功耗。
      *
      * 若蓝牙适配器不可用或未启用，则直接将状态设为 [ConnectionState.IDLE] 并返回。
      */
@@ -854,17 +883,20 @@ class BleScaleClient(private val context: Context) {
         } catch (e: Exception) {}
         bluetoothGatt = null
 
+        // 【功耗优化】两种扫描模式：
+        // - 配对扫描（isPairingMode=true）：需要发现**任意**体脂秤，保持无过滤 + LOW_LATENCY + 即时回调；
+        // - 自动连接扫描：只关心「已记住的秤」（模式 2 严格按 rememberedMacs 白名单连接），
+        //   改用 ScanFilter 在蓝牙控制器侧过滤无关广播，并以 BALANCED 占空比 + 批量上报降低常扫功耗。
+        val autoConnectScan = !isPairingMode
+        val scanMode = if (autoConnectScan) AUTO_SCAN_MODE else ScanSettings.SCAN_MODE_LOW_LATENCY
+        val reportDelayMs = if (autoConnectScan) AUTO_SCAN_REPORT_DELAY_MS else 0L
         AppLogger.i(TAG, "启动 BLE 扫描 (isPairingMode: $isPairingMode, activeMac: $lastPairedMac, 已记住 ${rememberedMacs.size} 台)...")
-        BleProtocolRecorder.recordScanLifecycle(
-            "SCAN_START",
-            "isPairingMode=$isPairingMode, activeMac=${lastPairedMac ?: ""}, remembered=${rememberedMacs.size}, mode=LOW_LATENCY, reportDelay=0"
-        )
         _connectionState.value = ConnectionState.SCANNING
 
-        // 构建低延迟与高召回扫描参数配置（针对 MIUI/HyperOS/ColorOS/OriginOS 启用 Aggressive 模式）
+        // 构建扫描参数配置（针对 MIUI/HyperOS/ColorOS/OriginOS 启用 Aggressive 模式）
         val settingsBuilder = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)  // 最低延迟，最快发现设备
-            .setReportDelay(0)                                 // 不批量缓存，立即回调
+            .setScanMode(scanMode)
+            .setReportDelay(reportDelayMs)
 
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
             settingsBuilder.setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
@@ -873,14 +905,36 @@ class BleScaleClient(private val context: Context) {
         }
         val settings = settingsBuilder.build()
 
+        // 自动连接扫描过滤器：已记住 MAC（自动连接语义 = 只处理已记住设备，完全等价）
+        // OR 支持的服务 UUID（兜底已知型号设备）。配对扫描保持无过滤（由 isScaleAdvertisement 逻辑层过滤）。
+        val scanFilters: List<ScanFilter>? = if (autoConnectScan) {
+            buildList<ScanFilter> {
+                for (mac in rememberedMacs) {
+                    if (BluetoothAdapter.checkBluetoothAddress(mac)) {
+                        add(ScanFilter.Builder().setDeviceAddress(mac).build())
+                    }
+                }
+                for (uuid in SUPPORTED_SERVICE_UUIDS) {
+                    add(ScanFilter.Builder().setServiceUuid(ParcelUuid(uuid)).build())
+                }
+            }.ifEmpty { null }
+        } else {
+            null
+        }
+        BleProtocolRecorder.recordScanLifecycle(
+            "SCAN_START",
+            "isPairingMode=$isPairingMode, activeMac=${lastPairedMac ?: ""}, remembered=${rememberedMacs.size}, " +
+                "mode=${if (autoConnectScan) "BALANCED" else "LOW_LATENCY"}, reportDelay=${reportDelayMs}ms, filters=${scanFilters?.size ?: 0}"
+        )
+
         // 先尝试停止旧扫描（防止重复启动导致系统报错）
         try {
             scanner.stopScan(scanCallback)
         } catch (e: Exception) {}
 
-        // 以无过滤器方式启动扫描（由 isScaleAdvertisement 逻辑层过滤）
+        // 自动连接模式启用硬件侧过滤；配对模式以无过滤器方式启动扫描
         try {
-            scanner.startScan(null, settings, scanCallback)
+            scanner.startScan(scanFilters, settings, scanCallback)
             isScanning = true
             scanRetryCount = 0
         } catch (e: Exception) {
@@ -898,7 +952,6 @@ class BleScaleClient(private val context: Context) {
         AppLogger.i(TAG, "启动设备手动配对扫描...")
         isPairingMode = true
         _discoveredScales.value = emptyList()
-        _discoveredDevice.value = null
         startScan()
     }
 
@@ -920,7 +973,6 @@ class BleScaleClient(private val context: Context) {
 
         AppLogger.i(TAG, "用户手动连接设备: ${device.name} [${device.address}], 广播秤: ${device.isBroadcastScale}")
         BleProtocolRecorder.recordManualConnect(device.address, device.name, device.isBroadcastScale)
-        _discoveredDevice.value = Pair(device.name, device.address)
         lastPairedMac = normalizeMacAddress(device.address)
         // 立即纳入运行时记忆集合：多设备场景下新绑定的秤无需等待 DataStore 回读即可自动连接
         rememberMac(device.address)
@@ -976,7 +1028,6 @@ class BleScaleClient(private val context: Context) {
      * - GATT 连接实例
      * - 当前使用设备 MAC（lastPairedMac）。注意 [rememberedMacs] 由上层依据持久化列表同步，
      *   不在此处清空，避免断开动作误删用户已记住的设备
-     * - 已发现设备信息（discoveredDevice）
      * - 所有测量数据（体重、稳定标志、阻抗）
      */
     fun disconnectAndReset() {
@@ -1009,7 +1060,6 @@ class BleScaleClient(private val context: Context) {
         bluetoothGatt = null
         // 清除「当前使用设备」指针；已记住设备集合 rememberedMacs 由上层（PreferenceManager 订阅）负责同步
         lastPairedMac = null
-        _discoveredDevice.value = null
         // 重置所有测量数据为初始值
         _connectionState.value = ConnectionState.IDLE
         _weight.value = 0.0

@@ -12,6 +12,7 @@ import com.example.dianzicheng.domain.BodyAlgorithm
 import com.example.dianzicheng.domain.BodyMeasurement
 import com.example.dianzicheng.domain.FamilyMember
 import com.example.dianzicheng.domain.RememberedScale
+import com.example.dianzicheng.domain.ScaleMemoryLogic
 import com.example.dianzicheng.domain.ScaleModel
 import com.example.dianzicheng.domain.Sex
 import com.example.dianzicheng.domain.normalizeMacAddress
@@ -61,6 +62,17 @@ class ScaleViewModel(
     private var healthSyncJob: Job? = null
     private var selectedBiaModel: BiaModel = BiaModel.DEFAULT
 
+    /** 本次会话测得的阻抗（Ω），0.0 表示未测得；供离秤最终提交时保留 BIA 结果不被清零 */
+    private var sessionImpedanceOhm = 0.0
+
+    /** 写库节流基准：最近一次真正落库的体重与时刻（NaN/0 表示尚未落库，首个写入必定放行） */
+    private var lastPersistedWeightKg = Double.NaN
+    private var lastPersistedMs = 0L
+
+    /** 实时体重显示发射节流基准：最近一次发射给 UI 的取整体重与时刻 */
+    private var lastEmittedWeightKg = Double.NaN
+    private var lastWeightEmitMs = 0L
+
     init {
         checkBluetoothAndLocationState()
         observeBle()
@@ -92,7 +104,7 @@ class ScaleViewModel(
                 }
                 scheduleHealthSync(updated)
             } catch (e: Exception) {
-                android.util.Log.e(TAG, "重绑成员失败", e)
+                AppLogger.e(TAG, "重绑成员失败", e)
             }
         }
     }
@@ -155,12 +167,11 @@ class ScaleViewModel(
         }
         // 立即同步 UI（消除 DataStore 延迟闪烁）：只 upsert，不清其它已记住秤
         _uiState.update { state ->
-            val upserted = ScaleMemoryUpsert.upsert(state.rememberedScales, incoming)
+            val upserted = ScaleMemoryLogic.upsert(state.rememberedScales, incoming)
             state.copy(
                 rememberedScales = upserted,
                 activeScaleMac = mac,
                 pairedDeviceMac = mac,
-                pairedDeviceName = device.name,
                 isDeviceRemembered = true
             )
         }
@@ -173,12 +184,10 @@ class ScaleViewModel(
     fun switchActiveScale(mac: String) {
         if (mac.isBlank()) return
         AppLogger.i(TAG, "切换当前设备 $mac")
-        val target = _uiState.value.rememberedScales.firstOrNull { it.mac == mac }
         _uiState.update { state ->
             state.copy(
                 activeScaleMac = mac,
-                pairedDeviceMac = mac,
-                pairedDeviceName = target?.name ?: state.pairedDeviceName
+                pairedDeviceMac = mac
             )
         }
         bleClient.lastPairedMac = mac
@@ -243,15 +252,29 @@ class ScaleViewModel(
         }
     }
 
-    /** 实时体重：显示取整、锁定后示数校准、过早锁定作废、离秤兜底提交。 */
+    /** 实时体重：显示取整与发射节流、锁定后示数校准（写库节流）、过早锁定作废、离秤最终提交。 */
     private suspend fun onWeightChanged(rawWeight: Double) {
-        // 显示精度 0.01kg 取整（防高频重组）；入库始终用原始值
-        _uiState.update {
-            it.copy(liveWeightKg = (rawWeight * 100).roundToInt() / 100.0)
-        }
         val stable = bleClient.isStable.value
-        if (rawWeight < MIN_VALID_WEIGHT_KG || !stable) {
-            _uiState.update { it.copy(impedanceOhm = 0.0) }
+        // 显示精度 0.01kg 取整（防高频重组）；入库与锁定始终用原始 rawWeight。
+        // 【M1 性能】显示值相等去重 + ≤100ms 发射节流：称重期间每秒 10~20 个数据包不再逐包驱动
+        // 整页重组；并与阻抗清零合并为单次 update，消除旧实现的双发射。
+        // 节流只影响展示（滞后 ≤100ms、视觉无感），锁定值/入库值不受影响。
+        val roundedWeightKg = (rawWeight * 100).roundToInt() / 100.0
+        val nowMs = System.currentTimeMillis()
+        val emitWeight = roundedWeightKg != lastEmittedWeightKg &&
+            nowMs - lastWeightEmitMs >= WEIGHT_EMIT_MIN_INTERVAL_MS
+        val clearImpedance = rawWeight < MIN_VALID_WEIGHT_KG || !stable
+        if (emitWeight || clearImpedance) {
+            if (emitWeight) {
+                lastEmittedWeightKg = roundedWeightKg
+                lastWeightEmitMs = nowMs
+            }
+            _uiState.update {
+                it.copy(
+                    liveWeightKg = if (emitWeight) roundedWeightKg else it.liveWeightKg,
+                    impedanceOhm = if (clearImpedance) 0.0 else it.impedanceOhm
+                )
+            }
         }
 
         val sessionId = activeSessionId
@@ -267,7 +290,8 @@ class ScaleViewModel(
                     clearSession()
                     _uiState.update { it.copy(currentMeasurement = null) }
                 }
-                // 锁定中示数校准：|Δ| ≥ 0.005kg 时同 sessionId 重写库
+                // 锁定中示数校准：|Δ| ≥ 0.005kg 时刷新示数；真正写库由 processMeasurement 内部的
+                // 节流门槛控制（距上次落库 |Δ|≥0.05kg 或 ≥500ms 才落库），离秤时无条件补最终值
                 abs(rawWeight - currentLockedWeightKg) >= CALIBRATION_EPSILON_KG -> {
                     currentLockedWeightKg = rawWeight
                     processMeasurement(commitToDb = true)
@@ -275,11 +299,13 @@ class ScaleViewModel(
             }
         }
 
-        // 离秤（0kg）：兜底提交未写库会话；结果卡保留到下一次会话
+        // 离秤（0kg）：**最终值提交**（无条件落库，REPLACE 幂等）——写库节流期间滞后的示数
+        // 一律在此补齐，保证最终体重数值不丢失、不偏差；结果卡保留到下一次会话。
+        // explicitImpedance 传会话阻抗，防止以 0 覆盖已写入的 BIA 结果。
         if (rawWeight <= 0.0) {
-            if (sessionId != null && !sessionCommitted && currentLockedWeightKg >= MIN_VALID_WEIGHT_KG) {
-                AppLogger.i(TAG, "离秤兜底提交会话 $sessionId")
-                processMeasurement(commitToDb = true)
+            if (sessionId != null && currentLockedWeightKg >= MIN_VALID_WEIGHT_KG) {
+                AppLogger.i(TAG, "离秤最终提交会话 $sessionId")
+                processMeasurement(commitToDb = true, forceCommit = true, explicitImpedance = sessionImpedanceOhm)
             }
             if (sessionId != null || activeSessionId != null) {
                 activeSessionId = null
@@ -314,17 +340,20 @@ class ScaleViewModel(
                         abs(weight - previousLockedWeightKg) <= WEIGHT_CONTINUATION_TOLERANCE_KG)
                 )
             currentLockedWeightKg = weight
+            // 锁定是关键时刻：强制刷新实时体重显示，防止发射节流滞后的尾值丢失
+            flushLiveWeight()
             if (continuation && lastLockedSessionId != null) {
                 activeSessionId = lastLockedSessionId
                 AppLogger.i(TAG, "会话续接 $activeSessionId（|Δw| 宽限内重新锁定）")
-                processMeasurement(commitToDb = true)
+                processMeasurement(commitToDb = true, forceCommit = true)
             } else {
                 activeSessionId = UUID.randomUUID().toString()
                 activeSessionTimestamp = now
                 sessionCommitted = false
                 sessionInterrupted = false
+                sessionImpedanceOhm = 0.0
                 AppLogger.i(TAG, "稳定锁定 ${weight}kg，新会话 $activeSessionId")
-                processMeasurement(commitToDb = true)
+                processMeasurement(commitToDb = true, forceCommit = true)
             }
             // 登记最近锁定会话：下秤后 3s 内到达的阻抗靠它补写回同一条记录
             lastLockedSessionId = activeSessionId
@@ -352,9 +381,10 @@ class ScaleViewModel(
         val live = bleClient.weight.value
         val lockStillValid = live <= 0.0 || live <= currentLockedWeightKg + SUPERSEDE_THRESHOLD_KG
         if (!lockStillValid) return
+        sessionImpedanceOhm = impedanceOhm
         _uiState.update { it.copy(impedanceOhm = impedanceOhm) }
         AppLogger.i(TAG, "阻抗到达 ${impedanceOhm.toInt()}Ω，补写会话 $sessionId")
-        processMeasurement(commitToDb = true, explicitImpedance = impedanceOhm, explicitSessionId = sessionId)
+        processMeasurement(commitToDb = true, forceCommit = true, explicitImpedance = impedanceOhm, explicitSessionId = sessionId)
     }
 
     // ── 成员与偏好观察 ──────────────────────────────────────────────────────
@@ -405,8 +435,7 @@ class ScaleViewModel(
                 _uiState.update {
                     it.copy(
                         activeScaleMac = mac,
-                        pairedDeviceMac = mac,
-                        pairedDeviceName = scale?.name
+                        pairedDeviceMac = mac
                     )
                 }
             }
@@ -438,6 +467,7 @@ class ScaleViewModel(
      */
     private suspend fun processMeasurement(
         commitToDb: Boolean,
+        forceCommit: Boolean = false,
         explicitImpedance: Double? = null,
         explicitSessionId: String? = null
     ) {
@@ -479,20 +509,30 @@ class ScaleViewModel(
 
         var final = measurement
         if (commitToDb) {
-            try {
-                val (saved, bound) = repository.saveMeasurement(
-                    measurement = measurement,
-                    targetMember = selected,
-                    existingId = sessionId,
-                    biaModel = selectedBiaModel
-                )
-                final = saved
-                sessionCommitted = true
-                AppLogger.i(TAG, "记录已保存 id=$sessionId 体重=${saved.weightKg}kg 成员=${bound?.name ?: "未绑定"}")
-                scheduleHealthSync(saved)
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "记录保存失败：${e.localizedMessage}")
-                android.util.Log.e(TAG, "saveMeasurement failed", e)
+            // 【H3 写库节流】锁定后示数校准每 0.005kg 就会触发一次保存，引发 Room 全表 Flow 重发
+            // → 全表映射 → 快照重算 → 整页重组风暴。这里仅当体重距上次落库变化 ≥0.05kg
+            // 或距上次落库 ≥500ms 才真正写库；锁定 / 离秤最终提交 / 阻抗补写传 forceCommit=true 无条件落库。
+            val shouldSave = forceCommit ||
+                abs(weight - lastPersistedWeightKg) >= DB_WRITE_WEIGHT_EPSILON_KG ||
+                System.currentTimeMillis() - lastPersistedMs >= DB_WRITE_MIN_INTERVAL_MS
+            if (shouldSave) {
+                try {
+                    val (saved, bound) = repository.saveMeasurement(
+                        measurement = measurement,
+                        targetMember = selected,
+                        existingId = sessionId,
+                        biaModel = selectedBiaModel
+                    )
+                    final = saved
+                    sessionCommitted = true
+                    lastPersistedWeightKg = weight
+                    lastPersistedMs = System.currentTimeMillis()
+                    AppLogger.i(TAG, "记录已保存 id=$sessionId 体重=${saved.weightKg}kg 成员=${bound?.name ?: "未绑定"}")
+                    scheduleHealthSync(saved)
+                } catch (e: Exception) {
+                    AppLogger.e(TAG, "记录保存失败：${e.localizedMessage}")
+                    AppLogger.e(TAG, "saveMeasurement failed", e)
+                }
             }
         }
 
@@ -529,12 +569,10 @@ class ScaleViewModel(
     private fun syncAfuB1UserProfile(member: FamilyMember?) {
         if (member == null) return
         val age = run {
-            val birth = member.birthDateEpochMs
-            if (birth <= 0L) DEFAULT_USER_AGE
-            else {
-                val years = ((System.currentTimeMillis() - birth) / (365L * 24 * 3600 * 1000)).toInt()
-                if (years in MIN_USER_AGE..MAX_USER_AGE) years else DEFAULT_USER_AGE
-            }
+            // 年龄统一走 domain 唯一口径 BodyAlgorithm.calculateAge（修正旧 365 天粗算的 ±1 岁漂移），
+            // 并保留 B1 档案协议的有效年龄范围约束（超出回落默认值）
+            val years = BodyAlgorithm.calculateAge(member.birthDateEpochMs)
+            if (years in MIN_USER_AGE..MAX_USER_AGE) years else DEFAULT_USER_AGE
         }
         bleClient.afuB1UserAge = age
         bleClient.afuB1UserIsMale = member.sex == Sex.MALE
@@ -544,10 +582,21 @@ class ScaleViewModel(
     private fun getSessionTimestamp(): Long =
         if (activeSessionTimestamp > 0L) activeSessionTimestamp else System.currentTimeMillis()
 
+    /** 立即发射当前实时体重显示值（越过 ≤100ms 发射节流），用于锁定等关键时刻防止尾值丢失。 */
+    private fun flushLiveWeight() {
+        val rounded = (bleClient.weight.value * 100).roundToInt() / 100.0
+        if (rounded != lastEmittedWeightKg) {
+            lastEmittedWeightKg = rounded
+            lastWeightEmitMs = System.currentTimeMillis()
+            _uiState.update { it.copy(liveWeightKg = rounded) }
+        }
+    }
+
     private fun clearSession() {
         activeSessionId = null
         sessionCommitted = false
         hasAlertedForCurrentSession = false
+        sessionImpedanceOhm = 0.0
     }
 
     /** 扫描/配对前清空测量展示（保留偏好与设备状态）。 */
@@ -560,6 +609,11 @@ class ScaleViewModel(
         currentLockedWeightKg = 0.0
         sessionInterrupted = false
         sessionCommitted = false
+        sessionImpedanceOhm = 0.0
+        lastPersistedWeightKg = Double.NaN
+        lastPersistedMs = 0L
+        lastEmittedWeightKg = Double.NaN
+        lastWeightEmitMs = 0L
         _uiState.update {
             it.copy(
                 liveWeightKg = 0.0,
@@ -582,6 +636,15 @@ class ScaleViewModel(
 
         /** 锁定后示数校准灵敏度（kg） */
         const val CALIBRATION_EPSILON_KG = 0.005
+
+        /** 写库节流：距上次落库的体重变化门槛（kg），与 [DB_WRITE_MIN_INTERVAL_MS] 满足其一才落库 */
+        const val DB_WRITE_WEIGHT_EPSILON_KG = 0.05
+
+        /** 写库节流：距上次落库的最小间隔（ms） */
+        const val DB_WRITE_MIN_INTERVAL_MS = 500L
+
+        /** 实时体重显示的最小发射间隔（ms）：相等去重 + 限频，滞后 ≤100ms 视觉无感 */
+        const val WEIGHT_EMIT_MIN_INTERVAL_MS = 100L
 
         /** 归零后续接宽限（ms） */
         const val CONTINUATION_AFTER_ZERO_GRACE_MS = 2500L
@@ -613,10 +676,3 @@ class ScaleViewModel(
     }
 }
 
-/** 已记住秤列表的幂等 upsert（同 MAC 原地更新并置顶，不清除其它设备）。 */
-private object ScaleMemoryUpsert {
-    fun upsert(scales: List<RememberedScale>, incoming: RememberedScale): List<RememberedScale> {
-        val filtered = scales.filter { it.mac != incoming.mac }
-        return listOf(incoming) + filtered
-    }
-}

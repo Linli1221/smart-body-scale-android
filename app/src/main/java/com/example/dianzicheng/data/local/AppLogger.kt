@@ -1,5 +1,6 @@
 package com.example.dianzicheng.data.local
 
+import com.example.dianzicheng.BuildConfig
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,7 +17,7 @@ import java.util.ArrayDeque
  * - 通过 [entries] StateFlow 实时推送最新日志列表，UI 可直接订阅
  * - 同时调用 Android 原生 `android.util.Log`，保证 ADB Logcat 可见
  * - 提供 [exportText] 将全部日志格式化为纯文本，供复制/分享
- * - 线程安全：使用 `@Synchronized` 保护缓冲区操作
+ * - 线程安全：使用 `synchronized(this)` 保护缓冲区操作（Logcat 写入在锁外）
  *
  * 使用示例：
  * ```kotlin
@@ -73,6 +74,12 @@ object AppLogger {
     private val buffer = ArrayDeque<LogEntry>(MAX_ENTRIES + 1)
 
     /**
+     * 最小日志级别：Release 构建过滤 DEBUG 级（BLE 逐帧调试日志在称重期间每秒可达十余条），
+     * Debug 构建全量保留。低于该级别的日志直接丢弃，不入缓冲、不写 Logcat。
+     */
+    private val minLevel: Level = if (BuildConfig.DEBUG) Level.DEBUG else Level.INFO
+
+    /**
      * 追加一条日志记录到缓冲区，并同步写入 Logcat。
      * 线程安全，可从任意线程调用。
      *
@@ -81,17 +88,23 @@ object AppLogger {
      *
      * @param entry 要写入的日志记录
      */
-    @Synchronized
     private fun append(entry: LogEntry) {
-        buffer.addLast(entry)
-        // 超出上限时移除最旧的一条，保持环形滚动
-        if (buffer.size > MAX_ENTRIES) buffer.pollFirst()
-        // 仅在有订阅者时才拷贝快照推送 UI，避免无观察者时的 O(N) 开销
-        if (_entries.subscriptionCount.value > 0) {
-            _entries.value = buffer.toList()
+        // 级别门控：低于最小级别的日志不入缓冲、不写 Logcat（Release 下 DEBUG 逐帧日志直接丢弃）
+        if (entry.level.ordinal < minLevel.ordinal) return
+
+        synchronized(this) {
+            buffer.addLast(entry)
+            // 超出上限时移除最旧的一条，保持环形滚动
+            if (buffer.size > MAX_ENTRIES) buffer.pollFirst()
+            // 仅在有订阅者时才拷贝快照推送 UI，避免无观察者时的 O(N) 开销
+            if (_entries.subscriptionCount.value > 0) {
+                _entries.value = buffer.toList()
+            }
         }
 
-        // 同步写入 Android logcat，方便 ADB 调试（纯 JVM 单元测试环境自动捕获并跳过）
+        // 同步写入 Android logcat，方便 ADB 调试（纯 JVM 单元测试环境自动捕获并跳过）。
+        // 【性能】写 Logcat 移出临界区：日志高峰期（BLE 逐帧日志）不再用全局锁
+        // 串行化 Logcat 写入，避免阻塞其它线程的入队操作。
         try {
             when (entry.level) {
                 Level.DEBUG -> android.util.Log.d(entry.tag, entry.message)
@@ -115,6 +128,12 @@ object AppLogger {
 
     /** 写入 ERROR 级别日志（错误，需要关注的失败事件） */
     fun e(tag: String, msg: String) = append(LogEntry(level = Level.ERROR, tag = tag, message = msg))
+
+    /** 写入 WARN 级别日志并携带异常信息（异常以「消息: 异常」并入正文，供日志查看器完整展示） */
+    fun w(tag: String, msg: String, t: Throwable) = w(tag, "$msg: $t")
+
+    /** 写入 ERROR 级别日志并携带异常信息（异常以「消息: 异常」并入正文，供日志查看器完整展示） */
+    fun e(tag: String, msg: String, t: Throwable) = e(tag, "$msg: $t")
 
     /**
      * 重新发布一次当前缓冲区快照（仅在确有订阅者时）。

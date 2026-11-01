@@ -8,8 +8,11 @@ import com.example.dianzicheng.data.local.toEntity
 import com.example.dianzicheng.domain.BiaModel
 import com.example.dianzicheng.domain.BodyMeasurement
 import com.example.dianzicheng.domain.FamilyMember
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import java.util.*
 import kotlin.math.abs
 
@@ -36,7 +39,11 @@ class ScaleRepository(
      * 历史页订阅此 Flow，数据库更新后自动推送最新列表。
      */
     fun getHistory(): Flow<List<BodyMeasurement>> =
-        dao.getAllMeasurements().map { entities -> entities.map { it.toDomain() } }
+        dao.getAllMeasurements()
+            // 【性能】实体→领域映射固定在 Default 线程池执行，避免每次全表推送都在收集方
+            // （主线程 viewModelScope）逐行映射，历史越长省得越多
+            .map { entities -> entities.map { it.toDomain() } }
+            .flowOn(Dispatchers.Default)
 
     /**
      * 一次性获取所有测量记录列表（挂起函数）。
@@ -117,9 +124,13 @@ class ScaleRepository(
         // 写入数据库（REPLACE 策略：同 ID 覆盖旧记录）
         dao.insertMeasurement(recalculated.toEntity())
 
-        // 用本次体重更新成员参考体重，供下次智能匹配参考（仅更新单字段，避免整行 REPLACE）
+        // 用本次体重更新成员参考体重，供下次智能匹配参考（仅更新单字段，避免整行 REPLACE）。
+        // 【写库节流】参考体重只是智能匹配的线索（匹配容差 10kg）：变化不足 0.05kg 时不写库，
+        // 避免称重校准期间每次示数都更新 members 表，触发成员 Flow 重发与整页重组。
         memberToBind?.let { member ->
-            dao.updateMemberReferenceWeight(member.id, measurement.weightKg)
+            if (abs(member.referenceWeightKg - measurement.weightKg) >= REFERENCE_WEIGHT_UPDATE_EPSILON_KG) {
+                dao.updateMemberReferenceWeight(member.id, measurement.weightKg)
+            }
         }
 
         return Pair(recalculated, memberToBind)
@@ -182,8 +193,13 @@ class ScaleRepository(
      * @return [HistoryRecalcResult] 统计结果（更新条数、跳过条数与原因）
      */
     suspend fun recalculateHistory(biaModel: BiaModel): HistoryRecalcResult {
-        val membersById = dao.getMembersList().map { it.toDomain() }.associateBy { it.id }
-        val measurements = dao.getAllMeasurementsList().map { it.toDomain() }
+        // 【性能】全表实体→领域映射在 Default 线程池执行：调用方（ProfileViewModel）运行在主线程，
+        // 历史数千条时逐行映射会造成几十毫秒的主线程停顿
+        val (membersById, measurements) = withContext(Dispatchers.Default) {
+            val membersMap = dao.getMembersList().map { it.toDomain() }.associateBy { it.id }
+            val all = dao.getAllMeasurementsList().map { it.toDomain() }
+            Pair(membersMap, all)
+        }
 
         var updated = 0
         var skippedNoMember = 0
@@ -299,11 +315,6 @@ class ScaleRepository(
         return best ?: members.first()
     }
 
-    /** 删除一条测量记录 */
-    suspend fun deleteMeasurement(measurement: BodyMeasurement) {
-        dao.deleteMeasurement(measurement.toEntity())
-    }
-
     /** 按 ID 删除测量记录，用于作废无效会话 */
     suspend fun deleteMeasurementById(id: String) {
         dao.deleteMeasurementById(id)
@@ -339,6 +350,9 @@ data class HistoryRecalcResult(
         else -> "已重算 $updated 条记录"
     }
 }
+
+/** 成员参考体重更新门槛（kg）：变化不足此值不写库（写库节流，见 [ScaleRepository.saveMeasurement]） */
+private const val REFERENCE_WEIGHT_UPDATE_EPSILON_KG = 0.05
 
 /**
  * 判断两条测量记录的 BIA 派生指标是否等价（用于跳过无意义的历史重算写库）。

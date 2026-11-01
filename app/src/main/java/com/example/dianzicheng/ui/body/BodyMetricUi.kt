@@ -1,5 +1,6 @@
 package com.example.dianzicheng.ui.body
 
+import com.example.dianzicheng.domain.BodyAlgorithm
 import com.example.dianzicheng.domain.BodyMeasurement
 import com.example.dianzicheng.domain.FamilyMember
 import com.example.dianzicheng.domain.Sex
@@ -102,27 +103,14 @@ data class HistorySnapshot(
 )
 
 private const val DEFAULT_AGE = 30
-private const val MIN_AGE = 1
-private const val MAX_AGE = 120
 
 private val MM_DD_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("MM/dd", Locale.US)
 private val HH_MM_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm", Locale.US)
 
-/** 由出生日期推导年龄；缺失/未来日期回落到中性 30 岁。 */
-fun ageYears(birthDateEpochMs: Long, nowMs: Long = System.currentTimeMillis()): Int {
-    if (birthDateEpochMs <= 0L) return DEFAULT_AGE
-    val zone = ZoneId.systemDefault()
-    val today = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
-    val birth = Instant.ofEpochMilli(birthDateEpochMs).atZone(zone).toLocalDate()
-    if (birth.isAfter(today)) return DEFAULT_AGE
-    var age = today.year - birth.year
-    if (today.monthValue < birth.monthValue ||
-        (today.monthValue == birth.monthValue && today.dayOfMonth < birth.dayOfMonth)
-    ) {
-        age--
-    }
-    return age.coerceIn(MIN_AGE, MAX_AGE)
-}
+/** 由出生日期推导年龄；缺失/未来日期回落到中性 30 岁。
+ *  薄委托 [BodyAlgorithm.ageFrom]（全工程唯一年龄口径），仅保留 UI 层既有签名与语义。 */
+fun ageYears(birthDateEpochMs: Long, nowMs: Long = System.currentTimeMillis()): Int =
+    BodyAlgorithm.ageFrom(birthDateEpochMs, nowMs)
 
 /**
  * 内脏脂肪等级估算。

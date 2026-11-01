@@ -30,7 +30,6 @@ data class ScaleUiState(
     val rememberedScales: List<RememberedScale> = emptyList(),
     val activeScaleMac: String? = null,
     val pairedDeviceMac: String? = null,
-    val pairedDeviceName: String? = null,
     val isDeviceRemembered: Boolean = false,
     val discoveredScales: List<BleScaleClient.DiscoveredScaleDevice> = emptyList(),
     val isBluetoothEnabled: Boolean = true,

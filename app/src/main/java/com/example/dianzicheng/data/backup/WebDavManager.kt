@@ -1,6 +1,6 @@
 package com.example.dianzicheng.data.backup
 
-import android.util.Log
+import com.example.dianzicheng.data.local.AppLogger
 import com.example.dianzicheng.data.local.MemberEntity
 import com.example.dianzicheng.data.local.MeasurementEntity
 import com.example.dianzicheng.data.local.ScaleDao
@@ -16,6 +16,9 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 import com.example.dianzicheng.domain.Sex
+
+/** 日志 Tag：统一使用类名常量（经 AppLogger 输出，运行日志查看器可见） */
+private const val TAG = "WebDavManager"
 
 class WebDavManager(private val dao: ScaleDao) {
 
@@ -79,7 +82,7 @@ class WebDavManager(private val dao: ScaleDao) {
                 }
             }
         } catch (e: Exception) {
-            Log.e("WebDavManager", "Test connection error", e)
+            AppLogger.e(TAG, "Test connection error", e)
             Result.failure(Exception("连接错误: ${e.localizedMessage ?: "未知错误"}"))
         }
     }
@@ -145,7 +148,7 @@ class WebDavManager(private val dao: ScaleDao) {
                 }
             }
         } catch (e: Exception) {
-            Log.e("WebDavManager", "Backup error", e)
+            AppLogger.e(TAG, "Backup error", e)
             Result.failure(Exception("备份错误: ${e.localizedMessage ?: "未知错误"}"))
         }
     }
@@ -215,7 +218,7 @@ class WebDavManager(private val dao: ScaleDao) {
                 Result.success("恢复成功！已导入 ${importedMembers.size} 位成员及 ${importedMeasurements.size} 条测量记录")
             }
         } catch (e: Exception) {
-            Log.e("WebDavManager", "Restore error", e)
+            AppLogger.e(TAG, "Restore error", e)
             Result.failure(Exception("恢复错误: ${e.localizedMessage ?: "未知错误"}"))
         }
     }

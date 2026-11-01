@@ -147,10 +147,6 @@ class PreferenceManager(private val context: Context) {
      */
     val pairedMac: Flow<String?> = activeScaleMac
 
-    /** 当前使用中的体脂秤名称，未记住任何设备时为 null */
-    val pairedDeviceName: Flow<String?> = activeScale
-        .map { scale -> scale?.name }
-
     /** Health Connect 自动同步是否已开启，默认 false */
     val healthConnectEnabled: Flow<Boolean> = context.dataStore.data
         .map { preferences -> preferences[HEALTH_CONNECT_ENABLED] ?: false }

@@ -59,6 +59,9 @@ interface ScaleDao {
     /**
      * 获取指定成员的所有测量记录（Flow，按时间倒序），
      * 用于按成员过滤历史数据。
+     *
+     * 注意：仅测试代码依赖（ScaleRepositoryRecalcHistoryTest 的 fake dao 实现本接口），
+     * 生产代码暂无调用方；保留以维持 DAO 测试契约。
      */
     @Query("SELECT * FROM measurements WHERE memberId = :memberId ORDER BY measuredAtEpochMs DESC")
     fun getMeasurementsForMember(memberId: String): Flow<List<MeasurementEntity>>

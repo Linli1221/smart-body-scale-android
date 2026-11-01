@@ -296,7 +296,9 @@ fun MeasureHomePage(
 
         // ③ 冷启动读到历史（离线查看）：初始 HALF。只有「无当前测量 + 无称重会话（IDLE）
         // + 尚无已处理测量 id」时才自动展开，避免把刚称完的第一条记录误判为历史（时序由 ① 负责）。
-        LaunchedEffect(history.size, uiState.connection, uiState.liveWeightKg) {
+        // 【M1 性能】key 用「是否归零」而非体重值：触发条件只依赖 liveWeightKg <= 0.0，
+        // 布尔 key 保留全部触发时机，又不再随每包体重变化 cancel/relaunch 本协程。
+        LaunchedEffect(history.size, uiState.connection, uiState.liveWeightKg <= 0.0) {
             if (!initialSheetApplied &&
                 handledMeasurementId == null &&
                 uiState.currentMeasurement == null &&
@@ -313,7 +315,9 @@ fun MeasureHomePage(
 
         // ④ 实时称重阶段跟随（IDLE/OFFLINE/COMPLETE → LIVE）；LOCKED 由 ① 的测量仪式统一触发，
         //    避免同一值重复赋值导致 WeightDial 的 LaunchedEffect(phase) 不重启、闪烁丢失。
-        LaunchedEffect(uiState.liveWeightKg, uiState.isStable) {
+        // 【M1 性能】key 用「是否有示数」而非体重值：触发条件只依赖 liveWeightKg > 0.0，
+        // 布尔 key 语义等价，且不再随每包体重变化 cancel/relaunch 本协程。
+        LaunchedEffect(uiState.liveWeightKg > 0.0, uiState.isStable) {
             when {
                 // 已经有本次测量结果时不再回退到 LIVE，否则 T+1300 完成后称重仍在波动会把
                 // 卡片重新隐藏。LIVE 只服务于“新会话尚未锁定”的窗口。

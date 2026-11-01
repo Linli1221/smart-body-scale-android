@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.util.Log
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.BodyFatRecord
@@ -14,9 +13,13 @@ import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
 import androidx.health.connect.client.units.Mass
 import androidx.health.connect.client.units.Percentage
+import com.example.dianzicheng.data.local.AppLogger
 import com.example.dianzicheng.domain.BodyMeasurement
 import java.time.Instant
 import java.time.ZoneOffset
+
+/** 日志 Tag：统一使用类名常量（经 AppLogger 输出，运行日志查看器可见） */
+private const val TAG = "HealthConnectManager"
 
 class HealthConnectManager(private val context: Context) {
 
@@ -47,7 +50,7 @@ class HealthConnectManager(private val context: Context) {
 
     suspend fun writeMeasurement(measurement: BodyMeasurement): Boolean {
         val client = healthConnectClient ?: run {
-            Log.w("HealthConnectManager", "Health Connect Client is unavailable")
+            AppLogger.w(TAG, "Health Connect Client is unavailable")
             return false
         }
 
@@ -86,10 +89,10 @@ class HealthConnectManager(private val context: Context) {
             }
 
             client.insertRecords(records)
-            Log.d("HealthConnectManager", "Successfully written measurement to Health Connect")
+            AppLogger.d(TAG, "Successfully written measurement to Health Connect")
             true
         } catch (e: Exception) {
-            Log.e("HealthConnectManager", "Failed to write measurement to Health Connect", e)
+            AppLogger.e(TAG, "Failed to write measurement to Health Connect", e)
             false
         }
     }
@@ -101,7 +104,7 @@ class HealthConnectManager(private val context: Context) {
      */
     suspend fun deleteMeasurement(measurement: BodyMeasurement): Boolean {
         val client = healthConnectClient ?: run {
-            Log.w("HealthConnectManager", "Health Connect Client is unavailable")
+            AppLogger.w(TAG, "Health Connect Client is unavailable")
             return false
         }
 
@@ -118,7 +121,7 @@ class HealthConnectManager(private val context: Context) {
                         clientRecordIdsList = listOf("weight_${measurement.id}")
                     )
                 } catch (e: Exception) {
-                    Log.w("HealthConnectManager", "deleteRecords by clientRecordId weight failed", e)
+                    AppLogger.w(TAG, "deleteRecords by clientRecordId weight failed", e)
                 }
                 try {
                     client.deleteRecords(
@@ -127,7 +130,7 @@ class HealthConnectManager(private val context: Context) {
                         clientRecordIdsList = listOf("fat_${measurement.id}")
                     )
                 } catch (e: Exception) {
-                    Log.w("HealthConnectManager", "deleteRecords by clientRecordId fat failed", e)
+                    AppLogger.w(TAG, "deleteRecords by clientRecordId fat failed", e)
                 }
             }
 
@@ -165,13 +168,13 @@ class HealthConnectManager(private val context: Context) {
                 }
             } catch (e: Exception) {
                 // 无读权限或时间查询失败，跳过时间戳兜底
-                Log.d("HealthConnectManager", "Timestamp-based cleanup skipped: ${e.message}")
+                AppLogger.d(TAG, "Timestamp-based cleanup skipped: ${e.message}")
             }
 
-            Log.d("HealthConnectManager", "Deleted weight and fat records from Health Connect")
+            AppLogger.d(TAG, "Deleted weight and fat records from Health Connect")
             true
         } catch (e: Exception) {
-            Log.e("HealthConnectManager", "Failed to delete measurement from Health Connect", e)
+            AppLogger.e(TAG, "Failed to delete measurement from Health Connect", e)
             false
         }
     }
@@ -228,9 +231,9 @@ class HealthConnectManager(private val context: Context) {
                 }
                 client.insertRecords(records)
                 success += batch.size
-                Log.d("HealthConnectManager", "Batch written ${batch.size} records")
+                AppLogger.d(TAG, "Batch written ${batch.size} records")
             } catch (e: Exception) {
-                Log.e("HealthConnectManager", "Batch write failed", e)
+                AppLogger.e(TAG, "Batch write failed", e)
                 failed += batch.size
             }
         }
@@ -270,7 +273,7 @@ class HealthConnectManager(private val context: Context) {
                     return
                 }
             } catch (e: Exception) {
-                Log.w("HealthConnectManager", "Cannot open $pkg", e)
+                AppLogger.w(TAG, "Cannot open $pkg", e)
             }
         }
         // 如果找不到小米健康，打开应用市场搜索页
@@ -279,7 +282,7 @@ class HealthConnectManager(private val context: Context) {
             marketIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(marketIntent)
         } catch (e: Exception) {
-            Log.e("HealthConnectManager", "Cannot open market", e)
+            AppLogger.e(TAG, "Cannot open market", e)
         }
     }
 
@@ -292,7 +295,7 @@ class HealthConnectManager(private val context: Context) {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
         } catch (e: Exception) {
-            Log.w("HealthConnectManager", "Cannot open ACTION_HEALTH_CONNECT_SETTINGS, trying fallback", e)
+            AppLogger.w(TAG, "Cannot open ACTION_HEALTH_CONNECT_SETTINGS, trying fallback", e)
             try {
                 val fallbackIntent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=com.google.android.apps.healthdata"))
                 fallbackIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -303,7 +306,7 @@ class HealthConnectManager(private val context: Context) {
                     webIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     context.startActivity(webIntent)
                 } catch (e3: Exception) {
-                    Log.e("HealthConnectManager", "Cannot open Health Connect settings or play store", e3)
+                    AppLogger.e(TAG, "Cannot open Health Connect settings or play store", e3)
                 }
             }
         }

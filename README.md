@@ -12,7 +12,7 @@ ios版项目地址 https://github.com/maoziban/smart-body-scale-IOS
 
 ## 🌟 功能特性
 
-- ⚡ **极速蓝牙连接**：支持 BLE 低功耗蓝牙扫描与自动重连，连接后自动申请高优先级连接模式（`CONNECTION_PRIORITY_HIGH`），确保服务搜索和特征订阅零延迟。
+- ⚡ **极速蓝牙连接**：支持 BLE 低功耗蓝牙扫描与自动重连，连接后自动申请高优先级连接模式（`CONNECTION_PRIORITY_HIGH`），确保服务搜索和特征订阅零延迟。自动连接扫描为 `SCAN_MODE_BALANCED` + 设备过滤（降低常扫功耗），配对扫描为 `SCAN_MODE_LOW_LATENCY` 全量发现（扫描参数集中在 `BleScaleClient` 常量，可回滚低延迟）。
 - 📊 **多维身体指标计算 (BIA)**：
   - 测得阻抗时，使用双频阻抗算法高精度计算身体成分。
   - **多套国际公认估算模型可切换**：内置通用模型、亚洲人专属模型 (Wu et al., 2015)、通用修正模型 (Jebb et al., 2000)，在「我的 → 体脂估算模型」中一键切换；切换时自动把全部历史记录重算到同一口径，历史曲线不会断层。
@@ -20,15 +20,14 @@ ios版项目地址 https://github.com/maoziban/smart-body-scale-IOS
 - 👥 **多成员家庭管理**：
   - 支持添加、删除家庭成员，**免去烦琐的体重估算输入**。
   - **首测智能绑定**：新成员首次称重时，系统会自动捕获并将实际体重绑定为该成员的参考体重。
-  - **动态权重匹配**：后续测量时，系统会自动在 ±7kg 的范围内动态匹配最接近的家庭成员。
+  - **动态权重匹配**：后续测量时，系统会自动在 10.0kg 容差内动态匹配最接近的家庭成员。
 - 📅 **历史测量档案与详情**：
-  - 历史数据以底部弹层呈现：六张指标走势图（顺序可调）+ 指标统计卡 + 全部记录卡片流，支持一键删除单次记录。
-  - **测量详情弹窗**：点击记录卡片即可查看 8 项身体参数（体重/BMI/体脂率/水分/肌肉量/蛋白质/骨量/阻抗）及其健康区间达标徽标。
+  - 历史数据以身体报告抽屉（BodyHistoryDrawer）呈现：按周时间轴 + 8 张指标卡 + 全展开趋势图，支持周切换与成员筛选。
 - 🎨 **HyperOS 单页面 UI（Miuix）**：
   - 全站界面基于 **Miuix 0.9.4**（HyperOS 设计语言）：统一字阶、SmallTitle + Card 分组、Preference 设置行与语义色 token。
-  - **单页面 + 弹层架构**：默认单页面就是测量主页；历史数据、我的/设置、配对、日志与协议抓包全部以**底部弹层**承载，无页面导航栈，返回手势逐层关闭弹层。
-  - **测量完成自动弹出历史**：一次称重结束后，历史数据弹层自动从底部弹出，直接看到本次结果与全部历史趋势。
-  - 历史详情以弹窗展示 8 项身体参数（体重/BMI/体脂率/水分/肌肉量/蛋白质/骨量/阻抗）及健康区间达标徽标。
+  - **单页面 + 弹层架构**：默认单页面就是测量主页（含身体报告抽屉）；我的/设置、配对、日志与协议抓包以**底部弹层**承载，无页面导航栈，返回手势逐层关闭弹层。
+  - **测量完成自动展开历史抽屉**：一次称重结束后，身体报告抽屉自动半展开，直接看到本次结果与近期趋势。
+  - 8 张指标卡直接展示身体参数（体重/BMI/体脂率/水分/肌肉量/内脏脂肪/蛋白质/骨量）及健康区间达标徽标。
 - 🧪 **蓝牙协议完整抓包（Debug 专用）**：Debug 包内置协议抓包器，完整记录扫描广播、GATT 连接、服务/特征拓扑、CCCD 订阅、AFU 握手包与体重/阻抗通知的**全部原始十六进制字节**，支持一键导出 `.jsonl` 文件分享到电脑离线分析。
 - 🔍 **运行日志查看器（Debug 专用）**：Debug 包的「我的 → 查看运行日志」可实时查看内存环形缓冲中的运行日志，并支持复制/分享导出。
 - 📦 **仅 arm64-v8a**：`defaultConfig.ndk.abiFilters` 只保留 `arm64-v8a`，APK 内不再打包其它 ABI 的 `.so`（Compose 的传递依赖 `androidx.graphics:graphics-path` 原本会带入 armeabi-v7a / arm64-v8a / x86 / x86_64 四份 `libandroidx.graphics.path.so`），安装包更小。
@@ -78,7 +77,7 @@ ios版项目地址 https://github.com/maoziban/smart-body-scale-IOS
 | 模型枚举与公式元数据 | [`BiaModel.kt`](app/src/main/java/com/example/dianzicheng/domain/BiaModel.kt) |
 | 三套公式的具体实现 | [`BodyAlgorithm.kt`](app/src/main/java/com/example/dianzicheng/domain/BodyAlgorithm.kt) 的 `calculateBodyFatPct()` |
 | **历史记录重算** | [`ScaleRepository.kt`](app/src/main/java/com/example/dianzicheng/data/repository/ScaleRepository.kt) 的 `recalculateHistory()` |
-| 模型选择对话框 | [`SelectBiaModelDialog.kt`](app/src/main/java/com/example/dianzicheng/ui/SelectBiaModelDialog.kt) |
+| 模型选择对话框 | [`ModelDialogs.kt`](app/src/main/java/com/example/dianzicheng/ui/dialog/ModelDialogs.kt) 的 `SelectBiaModelDialog` |
 | 偏好持久化 | [`PreferenceManager.kt`](app/src/main/java/com/example/dianzicheng/data/local/PreferenceManager.kt) 的 `selectedBiaModel` / `saveSelectedBiaModel` |
 | 单元测试 | [`BiaModelTest.kt`](app/src/test/java/com/example/dianzicheng/BiaModelTest.kt)、[`BodyAlgorithmTest.kt`](app/src/test/java/com/example/dianzicheng/BodyAlgorithmTest.kt)、[`ScaleRepositoryRecalcHistoryTest.kt`](app/src/test/java/com/example/dianzicheng/ScaleRepositoryRecalcHistoryTest.kt) |
 
@@ -98,7 +97,7 @@ Wu 2015 模型应得 **≈ 21.0%**，Jebb 2000 模型应得 **≈ 18.0%**。
 - **本地数据库**：Room Database (支持自动建表与实体映射转换)
 - **蓝牙通信**：Android BLE Core APIs (基于 GATT 协议开发，高度定制化 PacketParser)
 - **协议调试**：Debug 专用 BLE 协议完整抓包器（JSON Lines 导出 + FileProvider 文件分享）
-- **构建环境**：JDK 21 / Gradle 9.5 / AGP 9.3 / compileSdk 36
+- **构建环境**：JDK 21 / Gradle 9.5 / AGP 9.3 / compileSdk 37
 - **ABI 策略**：仅 `arm64-v8a`（`defaultConfig.ndk.abiFilters`）
 
 ---
@@ -200,14 +199,14 @@ app/src/main/java/com/example/dianzicheng/
 │                         #   电阻抗估算模型枚举 (BiaModel) 及 BIA 身体指标核心算法 (BodyAlgorithm)
 │
 └── ui/                   # 单页面 + 弹层前端（全部基于 Miuix 0.9.4）
-    ├── ScaleApp.kt       #   应用壳：根 Scaffold + 弹层路由（测量完成自动弹出历史数据）
+    ├── ScaleApp.kt       #   应用壳：根 Scaffold + 弹层路由（我的/设置、配对、日志、抓包）
     ├── theme/            #   AppTheme 根主题（ThemeController(MonetSystem) + MiuixTheme）
     ├── state/            #   ScaleViewModel（称重会话状态机）、HistoryViewModel、ProfileViewModel 与 UI 状态
-    ├── page/             #   MeasurePage：测量主页（成员绑定 / 连接状态 / 体重大读数 / 结果卡 / 操作区）
-    ├── sheet/            #   HistorySheet（完整历史）、SettingsSheet（我的）、PairingSheet（配对）、
+    ├── page/             #   MeasureHomePage：测量主页（称重主舞台 + 身体报告抽屉 + 成员绑定 / 操作区）
+    ├── sheet/            #   SettingsSheet（我的/设置）、PairingSheet（配对）、
     │                     #   DebugSheets（运行日志 / 蓝牙协议抓包，Debug 专用）——均为底部弹层
-    ├── dialog/           #   成员选择/添加、型号与体脂模型选择、WebDAV 配置、删除确认等弹窗
-    └── component/        #   指标趋势图自绘、健康区间徽标、连接状态 chip 等共享组件
+    ├── dialog/           #   成员选择(SelectMemberDialog)/添加、型号与体脂模型选择、WebDAV 配置、删除确认等弹窗
+    └── component/        #   共享组件（FlowSubscription 弹层订阅助手、HealthGreen 语义色等）
 ```
 
 ---
@@ -376,4 +375,4 @@ JSON Lines（`.jsonl`）——首行是抓包元信息，其余每行一条报�
 - 测量完成 T+0 锁定闪烁、T+300 流光、T+1300 半展开、T+1500 卡片 stagger；
 - 8 项指标为体重 / BMI / 体脂率 / 肌肉量 / 水分 / 内脏脂肪 / 蛋白质 / 骨量；
 - 内脏脂肪在原 BIA 数据模型中没有独立字段，新版 UI 用体脂率 + BMI + 年龄 + 性别做**估算展示**，不写入数据库、不作为医学结论；
-- 旧 HistorySheet 仍由「全部历史」入口打开，删除/详情/成员筛选等既有能力保留。
+- 旧 HistorySheet 弹层已移除：历史查看由身体报告抽屉（BodyHistoryDrawer）承担；其「删除记录 / 详情弹窗」能力随之退役（如需恢复可从 git 历史找回）。

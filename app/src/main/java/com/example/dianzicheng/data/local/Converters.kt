@@ -24,8 +24,8 @@ class Converters {
     fun toSex(value: String): Sex {
         return try {
             Sex.valueOf(value)
-        } catch (e: IllegalArgumentException) {
-            android.util.Log.w("Converters", "Unknown Sex value in DB: '$value', defaulting to MALE")
+        } catch (_: IllegalArgumentException) {
+            AppLogger.w("Converters", "Unknown Sex value in DB: '$value', defaulting to MALE")
             Sex.MALE
         }
     }
