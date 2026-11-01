@@ -3,6 +3,7 @@ package com.example.dianzicheng
 import com.example.dianzicheng.data.local.MeasurementEntity
 import com.example.dianzicheng.data.local.MemberEntity
 import com.example.dianzicheng.data.local.ScaleDao
+import com.example.dianzicheng.data.local.toDomain
 import com.example.dianzicheng.data.repository.HistoryRecalcResult
 import com.example.dianzicheng.data.repository.ScaleRepository
 import com.example.dianzicheng.domain.BiaModel
@@ -86,6 +87,26 @@ class ScaleRepositoryRecalcHistoryTest {
         override suspend fun deleteMeasurementsByMemberId(memberId: String) {
             measurements.value = measurements.value.filterNot { it.memberId == memberId }
         }
+    }
+
+    @Test
+    fun mergeSplitMeasurementKeepsCompleteCanonicalRecordAndOtherHistory() = runBlocking {
+        val dao = FakeDao()
+        dao.members.value = listOf(member)
+        dao.measurements.value = listOf(
+            measurement("first", impedance = 0.0),
+            measurement("second", impedance = 0.0),
+            measurement("unrelated", impedance = 0.0),
+        )
+        val result = ScaleRepository(dao).saveMeasurement(
+            measurement = measurement("second", impedance = 500.0).toDomain(),
+            existingId = "first",
+            duplicateIdToRemove = "second",
+        ).first
+        assertEquals(setOf("first", "unrelated"), dao.measurements.value.map { it.id }.toSet())
+        assertEquals("first", result.id)
+        assertEquals(500.0, result.impedanceOhm, 0.0)
+        assertTrue(result.bodyFatPct > 0.0)
     }
 
     /** 构造一个「年龄恰好为 [age] 岁」的出生日期时间戳 */

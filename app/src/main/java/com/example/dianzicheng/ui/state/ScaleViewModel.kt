@@ -41,6 +41,31 @@ internal fun isMeasurementContinuation(
 ): Boolean = hasPrevious && (!interrupted ||
     (elapsedSinceZeroMs in 0..graceMs && weightDifferenceKg <= toleranceKg))
 
+/** 只关联同设备、同成员、短时间且体重接近的“无体脂 → 有体脂”上报。 */
+internal fun canMergeSplitMeasurement(
+    elapsedMs: Long,
+    previousWeight: Double,
+    currentWeight: Double,
+    previousSource: String?,
+    currentSource: String?,
+    previousMember: String?,
+    currentMember: String?,
+): Boolean = elapsedMs in 0..60000L &&
+    previousWeight >= 3.0 && currentWeight >= 3.0 &&
+    abs(previousWeight - currentWeight) <= 0.05 &&
+    !previousSource.isNullOrBlank() && previousSource.equals(currentSource, ignoreCase = true) &&
+    !previousMember.isNullOrBlank() && previousMember == currentMember
+
+private data class SplitMeasurementCandidate(
+    val previousId: String,
+    val previousTimestamp: Long,
+    val previousWeight: Double,
+    val sourceMac: String,
+    val memberId: String,
+    val newId: String,
+    val elapsedMs: Long,
+)
+
 /**
  * 测量主页状态持有者：BLE 称重会话状态机 + 成员绑定 + 设备配对/切换。
  *
@@ -49,7 +74,7 @@ internal fun isMeasurementContinuation(
  * 2. 阻抗稍后到达 → 用同一 sessionId 覆盖写（REPLACE 幂等），兼容有/无 BIA 两种称重；
  * 3. 过早锁定（实时体重超锁定值 3.0kg）→ 会话作废并删除已写记录；
  * 4. 归零后 2.5s 内重新锁定且体重差 ≤2.0kg → 视为同一次称重（续接）；
- * 5. 阻抗延迟补写窗口：下秤后 20s 内到达的阻抗仍写回上一条记录；
+ * 5. 阻抗延迟补写窗口：下秤后 65s 内到达的阻抗仍写回上一条记录；
  * 6. Health Connect 同步 2s 防抖，同一次称重只写一条最终记录。
  */
 class ScaleViewModel(
@@ -72,6 +97,8 @@ class ScaleViewModel(
     private var sessionInterrupted = false
     private var sessionCommitted = false
     private var lastWeightZeroMs = 0L
+    private var sessionSourceMac: String? = null
+    private var splitCandidate: SplitMeasurementCandidate? = null
     private var clearSessionJob: Job? = null
     private var healthSyncJob: Job? = null
     private var selectedBiaModel: BiaModel = BiaModel.DEFAULT
@@ -333,7 +360,7 @@ class ScaleViewModel(
                 hasAlertedForCurrentSession = false
                 sessionInterrupted = true
                 lastWeightZeroMs = System.currentTimeMillis()
-                // lastLockedSessionId 保留 20s 阻抗延迟补写窗口，之后清空
+                // lastLockedSessionId 保留 65s 阻抗延迟补写窗口，之后清空
                 val pending = lastLockedSessionId
                 if (pending != null) {
                     viewModelScope.launch {
@@ -357,6 +384,14 @@ class ScaleViewModel(
             val weight = bleClient.weight.value
             if (weight < MIN_VALID_WEIGHT_KG) return
             val previousLockedWeightKg = currentLockedWeightKg
+            val previousId = lastLockedSessionId
+            val previousTimestamp = activeSessionTimestamp
+            val previousSource = sessionSourceMac
+            val previousMeasurement = _uiState.value.currentMeasurement
+            val previousIncomplete = sessionImpedanceOhm <= 0.0 &&
+                previousMeasurement?.id == previousId && previousMeasurement?.bodyFatPct == 0.0
+            val wasInterrupted = sessionInterrupted
+            val source = bleClient.measurementSourceMac
             val now = System.currentTimeMillis()
             val continuation = isMeasurementContinuation(
                 hasPrevious = lastLockedSessionId != null,
@@ -377,6 +412,15 @@ class ScaleViewModel(
                 processMeasurement(commitToDb = true, forceCommit = true)
             } else {
                 activeSessionId = UUID.randomUUID().toString()
+                splitCandidate = if (wasInterrupted && previousIncomplete && previousId != null &&
+                    previousSource != null && previousMeasurement?.memberId != null &&
+                    canMergeSplitMeasurement(now - previousTimestamp, previousLockedWeightKg, weight,
+                        previousSource, source, previousMeasurement.memberId, previousMeasurement.memberId)
+                ) {
+                    SplitMeasurementCandidate(previousId, previousTimestamp, previousLockedWeightKg,
+                        previousSource, previousMeasurement.memberId, activeSessionId!!, now - previousTimestamp)
+                } else null
+                sessionSourceMac = source
                 activeSessionTimestamp = now
                 sessionCommitted = false
                 sessionInterrupted = false
@@ -402,7 +446,7 @@ class ScaleViewModel(
         }
     }
 
-    /** 阻抗到达：20s 补写窗口内写回同一条记录（兼容「先锁体重、后出阻抗」的 BIA 流程）。 */
+    /** 阻抗到达：65s 补写窗口内写回同一条记录（兼容「先锁体重、后出阻抗」的 BIA 流程）。 */
     private suspend fun onImpedanceChanged(impedanceOhm: Double) {
         if (impedanceOhm <= 0.0) return
         // 阻抗可能与首个锁定包同时到达；先建立会话，避免丢失或写入旧记录。
@@ -416,8 +460,33 @@ class ScaleViewModel(
         if (!lockStillValid) return
         sessionImpedanceOhm = impedanceOhm
         _uiState.update { it.copy(impedanceOhm = impedanceOhm) }
-        AppLogger.i(TAG, "阻抗到达 ${impedanceOhm.toInt()}Ω，补写会话 $sessionId")
-        processMeasurement(commitToDb = true, forceCommit = true, explicitImpedance = impedanceOhm, explicitSessionId = sessionId)
+        val candidate = splitCandidate?.takeIf {
+            it.newId == sessionId && canMergeSplitMeasurement(
+                it.elapsedMs, it.previousWeight, currentLockedWeightKg, it.sourceMac,
+                sessionSourceMac, it.memberId, _uiState.value.currentMeasurement?.memberId,
+            )
+        }
+        if (candidate != null) {
+            AppLogger.i(TAG, "合并体重和体脂上报: ${candidate.previousId} ← $sessionId")
+            val saved = processMeasurement(
+                commitToDb = true, forceCommit = true, explicitImpedance = impedanceOhm,
+                explicitSessionId = candidate.previousId, explicitTimestamp = candidate.previousTimestamp,
+                duplicateIdToRemove = sessionId,
+            )
+            if (saved) {
+                if (activeSessionId == sessionId) activeSessionId = candidate.previousId
+                lastLockedSessionId = candidate.previousId
+                activeSessionTimestamp = candidate.previousTimestamp
+                splitCandidate = null
+                healthConnectManager?.let { manager ->
+                    viewModelScope.launch { manager.deleteMeasurementByClientId(sessionId) }
+                }
+            }
+        } else {
+            AppLogger.i(TAG, "阻抗到达 ${impedanceOhm.toInt()}Ω，补写会话 $sessionId")
+            processMeasurement(commitToDb = true, forceCommit = true, explicitImpedance = impedanceOhm, explicitSessionId = sessionId)
+            splitCandidate = null
+        }
     }
 
     // ── 成员与偏好观察 ──────────────────────────────────────────────────────
@@ -502,14 +571,16 @@ class ScaleViewModel(
         commitToDb: Boolean,
         forceCommit: Boolean = false,
         explicitImpedance: Double? = null,
-        explicitSessionId: String? = null
-    ) {
+        explicitSessionId: String? = null,
+        explicitTimestamp: Long? = null,
+        duplicateIdToRemove: String? = null,
+    ): Boolean {
         val weight = currentLockedWeightKg
-        if (weight < MIN_VALID_WEIGHT_KG) return
+        if (weight < MIN_VALID_WEIGHT_KG) return false
         val impedance = explicitImpedance ?: sessionImpedanceOhm
         val sessionId = explicitSessionId ?: activeSessionId ?: lastLockedSessionId
             ?: _uiState.value.currentMeasurement?.id ?: UUID.randomUUID().toString()
-        val timestamp = getSessionTimestamp()
+        val timestamp = explicitTimestamp ?: getSessionTimestamp()
 
         val selected = _uiState.value.selectedMember
         val member = selected ?: runCatching { repository.getBestMember(weight) }.getOrNull()
@@ -553,7 +624,8 @@ class ScaleViewModel(
                         measurement = measurement,
                         targetMember = selected,
                         existingId = sessionId,
-                        biaModel = selectedBiaModel
+                        biaModel = selectedBiaModel,
+                        duplicateIdToRemove = duplicateIdToRemove
                     )
                     final = saved
                     sessionCommitted = true
@@ -564,12 +636,14 @@ class ScaleViewModel(
                 } catch (e: Exception) {
                     AppLogger.e(TAG, "记录保存失败：${e.localizedMessage}")
                     AppLogger.e(TAG, "saveMeasurement failed", e)
+                    return false
                 }
             }
         }
 
         maybeShowNewMemberAlert(member, weight)
         _uiState.update { it.copy(currentMeasurement = final) }
+        return true
     }
 
     /** 「发现新成员？」提示：已离秤、本会话未弹过、与匹配成员参考体重差 > 7kg、未手动选成员。 */
@@ -629,6 +703,9 @@ class ScaleViewModel(
         sessionCommitted = false
         hasAlertedForCurrentSession = false
         sessionImpedanceOhm = 0.0
+        splitCandidate = null
+        sessionSourceMac = null
+        lastLockedSessionId = null
     }
 
     /** 扫描/配对前清空测量展示（保留偏好与设备状态）。 */
@@ -642,6 +719,8 @@ class ScaleViewModel(
         sessionInterrupted = false
         sessionCommitted = false
         sessionImpedanceOhm = 0.0
+        splitCandidate = null
+        sessionSourceMac = null
         lastPersistedWeightKg = Double.NaN
         lastPersistedMs = 0L
         lastEmittedWeightKg = Double.NaN
@@ -685,7 +764,7 @@ class ScaleViewModel(
         const val WEIGHT_CONTINUATION_TOLERANCE_KG = 2.0
 
         /** 阻抗延迟补写窗口（ms） */
-        const val LAST_LOCKED_RETAIN_MS = 20000L
+        const val LAST_LOCKED_RETAIN_MS = 65000L
 
         /** 不稳定清会话延迟（ms） */
         const val UNSTABLE_CLEAR_DELAY_MS = 2000L

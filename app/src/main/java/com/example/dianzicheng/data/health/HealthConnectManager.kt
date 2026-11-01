@@ -97,6 +97,18 @@ class HealthConnectManager(private val context: Context) {
         }
     }
 
+    /** 合并实时记录时仅按客户端 ID 清除重复项，不按时间删除其他测量。 */
+    suspend fun deleteMeasurementByClientId(id: String) {
+        if (id.isBlank()) return
+        val client = healthConnectClient ?: return
+        try {
+            client.deleteRecords(recordType = WeightRecord::class, recordIdsList = emptyList(), clientRecordIdsList = listOf("weight_$id"))
+            client.deleteRecords(recordType = BodyFatRecord::class, recordIdsList = emptyList(), clientRecordIdsList = listOf("fat_$id"))
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "清理 Health Connect 重复记录失败: ${e.message}")
+        }
+    }
+
     /**
      * 从 Health Connect 删除与本地记录同一时刻写入的体重/体脂数据。
      * 历史页删除记录时调用，保持两端数据一致。优先使用 clientRecordId 精确删除，

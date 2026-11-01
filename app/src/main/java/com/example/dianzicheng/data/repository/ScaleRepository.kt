@@ -82,7 +82,8 @@ class ScaleRepository(
         measurement: BodyMeasurement,
         targetMember: FamilyMember? = null,
         existingId: String? = null,
-        biaModel: BiaModel = BiaModel.DEFAULT
+        biaModel: BiaModel = BiaModel.DEFAULT,
+        duplicateIdToRemove: String? = null,
     ): Pair<BodyMeasurement, FamilyMember?> {
         val members = dao.getMembersList().map { it.toDomain() }
 
@@ -121,8 +122,18 @@ class ScaleRepository(
             )
         }
 
-        // 写入数据库（REPLACE 策略：同 ID 覆盖旧记录）
-        dao.insertMeasurement(recalculated.toEntity())
+        // 合并时原子更新完整记录并删除本次产生的重复记录，避免中间态或部分失败。
+        suspend fun persist() {
+            dao.insertMeasurement(recalculated.toEntity())
+            if (duplicateIdToRemove != null && duplicateIdToRemove != recalculated.id) {
+                dao.deleteMeasurementById(duplicateIdToRemove)
+            }
+        }
+        if (duplicateIdToRemove != null && db != null) {
+            db.withTransaction { persist() }
+        } else {
+            persist()
+        }
 
         // 用本次体重更新成员参考体重，供下次智能匹配参考（仅更新单字段，避免整行 REPLACE）。
         // 【写库节流】参考体重只是智能匹配的线索（匹配容差 10kg）：变化不足 0.05kg 时不写库，

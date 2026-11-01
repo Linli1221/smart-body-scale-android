@@ -227,7 +227,12 @@ class BleScaleClient(private val context: Context) {
      *
      * 仅在主线程（BLE 扫描回调）读写，无需 @Volatile。
      */
+    @Volatile
     private var broadcastSessionMac: String? = null
+
+    /** 当前实际发送称重数据的设备，用于关联同一台秤的连续上报。 */
+    val measurementSourceMac: String?
+        get() = broadcastSessionMac ?: connectedMac
 
     /**
      * 是否处于显式手动配对模式。
