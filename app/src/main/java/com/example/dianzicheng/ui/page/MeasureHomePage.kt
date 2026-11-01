@@ -207,7 +207,11 @@ fun MeasureHomePage(
         val sheetBackEnabled by remember(sheetState) {
             derivedStateOf { sheetState.currentAnchor != SheetAnchor.COLLAPSED }
         }
-        PredictiveBackHandler(enabled = sheetBackEnabled) { progress ->
+        // 拖动过中点后 currentAnchor 会变成 COLLAPSED；必须锁住处理器直到手势结束，
+        // 否则 enabled 提前变为 false 会取消正在进行的预测性返回并触发回弹。
+        var sheetBackGestureInProgress by remember(sheetState) { mutableStateOf(false) }
+        PredictiveBackHandler(enabled = sheetBackEnabled || sheetBackGestureInProgress) { progress ->
+            sheetBackGestureInProgress = true
             val originalAnchor = sheetState.currentAnchor
             val targetAnchor = when (originalAnchor) {
                 SheetAnchor.FULL -> SheetAnchor.HALF
@@ -232,6 +236,8 @@ fun MeasureHomePage(
                 // 手势取消：回到手势开始前的锚点，避免抽屉停在半途。
                 sheetState.animateTo(originalAnchor)
                 throw cancellation
+            } finally {
+                sheetBackGestureInProgress = false
             }
         }
 
