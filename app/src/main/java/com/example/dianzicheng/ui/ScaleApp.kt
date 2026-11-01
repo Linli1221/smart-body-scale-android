@@ -1,6 +1,7 @@
 package com.example.dianzicheng.ui
 
 import android.widget.Toast
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
@@ -24,6 +25,7 @@ import com.example.dianzicheng.ui.state.HistoryViewModel
 import com.example.dianzicheng.ui.state.ProfileViewModel
 import com.example.dianzicheng.ui.state.ScaleViewModel
 import com.example.dianzicheng.ui.theme.AppTheme
+import kotlinx.coroutines.flow.collect
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -149,6 +151,18 @@ fun ScaleApp(
                 profileViewModel = profileViewModel,
                 onDismissRequest = { activeOverlay = null }
             )
+
+            // 预测性返回优先级：弹层 > 历史抽屉 > 系统退出。
+            // 弹层展开时消费返回手势并在完成时关闭；强制配对弹层不可关闭。
+            PredictiveBackHandler(enabled = activeOverlay != null) { progress ->
+                // 弹层本体由 Miuix OverlayBottomSheet 负责离场动画；
+                // 这里只消费预测性返回事件并在手势完成后关闭弹层。
+                progress.collect { }
+                // 强制配对弹层不可关闭，否则返回手势会绕过配对门槛。
+                if (!(activeOverlay == ActiveOverlay.Pairing && isPairingComplete == false)) {
+                    activeOverlay = null
+                }
+            }
         }
     }
 }

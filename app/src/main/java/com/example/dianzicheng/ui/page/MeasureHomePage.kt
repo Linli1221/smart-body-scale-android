@@ -4,6 +4,8 @@ import android.app.Activity
 import android.bluetooth.BluetoothAdapter
 import android.content.Intent
 import android.view.HapticFeedbackConstants
+import androidx.activity.BackEventCompat
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -40,6 +42,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -66,6 +69,8 @@ import com.example.dianzicheng.ui.body.startOfWeekMillis
 import com.example.dianzicheng.ui.body.rememberBodySheetState
 import com.example.dianzicheng.ui.state.ScaleUiState
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
+import java.util.concurrent.CancellationException
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -198,6 +203,37 @@ fun MeasureHomePage(
         var memberDialogMode by remember { mutableStateOf<HomeMemberDialogMode?>(null) }
 
         val offlineHistory = history.isNotEmpty() && !uiState.isDeviceRemembered
+
+        // 预测性返回：抽屉展开时按手势进度预览逐级收起（FULL → HALF → COLLAPSED）。
+        // 最外层无抽屉/弹层时交给系统预测性退出；弹层由 ScaleApp 的 PredictiveBackHandler 优先处理。
+        val backDensity = LocalDensity.current
+        PredictiveBackHandler(enabled = sheetState.currentAnchor != SheetAnchor.COLLAPSED) { progress ->
+            val originalAnchor = sheetState.currentAnchor
+            val targetAnchor = when (originalAnchor) {
+                SheetAnchor.FULL -> SheetAnchor.HALF
+                SheetAnchor.HALF -> SheetAnchor.COLLAPSED
+                SheetAnchor.COLLAPSED -> SheetAnchor.COLLAPSED
+            }
+            val totalDeltaPx = with(backDensity) {
+                sheetState.topOffsetAt(targetAnchor).toPx() -
+                    sheetState.topOffsetAt(originalAnchor).toPx()
+            }
+            var lastProgress = 0f
+            try {
+                progress.collect { backEvent: BackEventCompat ->
+                    val nextProgress = backEvent.progress.coerceIn(0f, 1f)
+                    val deltaPx = totalDeltaPx * (nextProgress - lastProgress)
+                    lastProgress = nextProgress
+                    if (deltaPx != 0f) sheetState.onDrag(deltaPx)
+                }
+                // 手势完成后无条件落到目标锚点：即使进度未到 1，系统已判定返回完成。
+                sheetState.animateTo(targetAnchor)
+            } catch (cancellation: CancellationException) {
+                // 手势取消：回到手势开始前的锚点，避免抽屉停在半途。
+                sheetState.animateTo(originalAnchor)
+                throw cancellation
+            }
+        }
 
         val enableBluetooth: () -> Unit = {
             // 与旧 MeasurePage 一致：直接拉起系统蓝牙开启请求；无 Activity 环境时静默忽略。

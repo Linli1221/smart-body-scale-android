@@ -274,6 +274,8 @@ fun BodyHistoryDrawer(
                             snapshots = snapshots,
                             member = report.member
                                 ?: members.firstOrNull { it.id == memberFilterId },
+                            selectedIndex = safeIndex,
+                            onSelectIndex = onSelectIndex,
                             modifier = Modifier.fillMaxWidth(),
                         )
                         Spacer(modifier = Modifier.height(BodyDimens.CardGap))

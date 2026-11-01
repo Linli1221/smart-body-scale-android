@@ -1084,14 +1084,22 @@ body.is-mobile .phone::after { display: none; }
   font-variant-numeric: tabular-nums;
 }
 .trend-delta.up { color: var(--warn); background: rgba(var(--warn-rgb), .12); }
-.trend-chart-wrap { position: relative; height: 180px; margin-top: 2px; }
+.trend-chart-wrap {
+  position: relative;
+  height: 180px;
+  margin-top: 2px;
+  overflow: hidden;
+}
 .trend-chart {
   display: block;
   width: 100%;
   height: 180px;
   overflow: visible;
-  cursor: crosshair;
+  cursor: grab;
+  touch-action: pan-y;
+  transition: transform .18s ease-out;
 }
+.trend-chart.dragging { cursor: grabbing; transition: none; }
 .chart-single-note {
   position: absolute;
   left: 50%;
@@ -2075,7 +2083,13 @@ body.is-mobile .phone::after { display: none; }
     dragSamples: [],
     releaseVelocity: 0,
     chartPoints: [],
-    chartW: 0
+    chartW: 0,
+    chartViewportW: 0,
+    chartOffset: 0,
+    chartDragging: false,
+    chartDragStartX: 0,
+    chartDragStartOffset: 0,
+    chartMoved: false
   };
 
   var seqTimers = [];
@@ -2772,18 +2786,51 @@ body.is-mobile .phone::after { display: none; }
     if (!pts.length) return '';
     if (pts.length === 1) return 'M ' + pts[0].x + ' ' + pts[0].y;
     var d = 'M ' + pts[0].x + ' ' + pts[0].y;
-    for (var i = 0; i < pts.length - 1; i++) {
-      var p0 = pts[i - 1] || pts[i];
-      var p1 = pts[i];
-      var p2 = pts[i + 1];
-      var p3 = pts[i + 2] || pts[i + 1];
-      var c1x = p1.x + (p2.x - p0.x) / 6;
-      var c1y = p1.y + (p2.y - p0.y) / 6;
-      var c2x = p2.x - (p3.x - p1.x) / 6;
-      var c2y = p2.y - (p3.y - p1.y) / 6;
-      d += ' C ' + c1x + ' ' + c1y + ', ' + c2x + ' ' + c2y + ', ' + p2.x + ' ' + p2.y;
-    }
+    for (var i = 1; i < pts.length; i++) d += ' L ' + pts[i].x + ' ' + pts[i].y;
     return d;
+  }
+
+  function animateRollingText(el, target, decimals, duration) {
+    if (!el) return;
+    if (target == null) {
+      el.textContent = '--';
+      el.dataset.value = '';
+      return;
+    }
+    var token = (el.__rollToken || 0) + 1;
+    el.__rollToken = token;
+    var start = Number(el.dataset.value || 0);
+    if (!isFinite(start)) start = 0;
+    var startTime = performance.now();
+    duration = duration || 360;
+    function frame(now) {
+      if (el.__rollToken !== token) return;
+      var t = Math.min(1, (now - startTime) / duration);
+      var eased = 1 - Math.pow(1 - t, 3);
+      var value = start + (target - start) * eased;
+      el.textContent = value.toFixed(decimals);
+      if (t < 1) requestAnimationFrame(frame);
+      else {
+        el.textContent = target.toFixed(decimals);
+        el.dataset.value = String(target);
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  function snapChartToSelected() {
+    if (!state.chartPoints.length) return;
+    var target = null;
+    for (var i = 0; i < state.chartPoints.length; i++) {
+      if (state.chartPoints[i].index === state.selectedIndex) {
+        target = state.chartPoints[i];
+        break;
+      }
+    }
+    if (!target) return;
+    var viewport = state.chartViewportW || trendChartWrap.clientWidth || 319;
+    state.chartOffset = clamp(target.x - viewport / 2, 0, Math.max(0, state.chartW - viewport));
+    chartSvg.style.transform = 'translate3d(' + (-state.chartOffset) + 'px, 0, 0)';
   }
 
   function renderChart() {
@@ -2814,7 +2861,7 @@ body.is-mobile .phone::after { display: none; }
     var currentValue = metricValue(snapshot, key);
     trendTitle.textContent = def.title + '趋势';
     trendSub.textContent = MODE_LABEL[state.mode] + ' · ' + series.length + ' 个数据点';
-    trendValue.textContent = currentValue == null ? '--' : formatValue(key, currentValue);
+    animateRollingText(trendValue, currentValue, def.decimals, 360);
     trendUnit.textContent = def.unit;
 
     var older = state.snapshots[state.selectedIndex + 1];
@@ -2829,11 +2876,15 @@ body.is-mobile .phone::after { display: none; }
     }
 
     while (chartSvg.firstChild) chartSvg.removeChild(chartSvg.firstChild);
-    chartSvg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
-    chartSvg.setAttribute('width', String(w));
+    var contentW = Math.max(w, series.length * 72 + 24);
+    chartSvg.setAttribute('viewBox', '0 0 ' + contentW + ' ' + h);
+    chartSvg.setAttribute('width', String(contentW));
     chartSvg.setAttribute('height', String(h));
+    chartSvg.style.width = contentW + 'px';
     chartSvg.setAttribute('aria-label', def.title + '趋势，共 ' + series.length + ' 个数据点');
-    state.chartW = w;
+    state.chartW = contentW;
+    state.chartViewportW = w;
+    chartSvg.style.transform = 'translate3d(' + (-state.chartOffset) + 'px, 0, 0)';
 
     var defs = svgEl('defs', {}, chartSvg);
     var grad = svgEl('linearGradient', {
@@ -2855,7 +2906,7 @@ body.is-mobile .phone::after { display: none; }
     }
 
     var left = 6;
-    var right = w - 12;
+    var right = contentW - 12;
     var top = 22;
     var bottom = h - 28;
     var plotW = Math.max(10, right - left);
@@ -2901,11 +2952,8 @@ body.is-mobile .phone::after { display: none; }
 
     var linePath = smoothPath(pts);
     if (pts.length > 1) {
-      var areaPath = linePath + ' L ' + pts[pts.length - 1].x + ' ' + bottom +
-        ' L ' + pts[0].x + ' ' + bottom + ' Z';
-      svgEl('path', { d: areaPath, fill: 'url(#chartAreaGrad)', stroke: 'none' }, chartSvg);
       svgEl('path', {
-        d: linePath, fill: 'none', stroke: primary, 'stroke-width': '2',
+        d: linePath, fill: 'none', stroke: primary, 'stroke-width': '2.2',
         'stroke-linecap': 'round', 'stroke-linejoin': 'round'
       }, chartSvg);
     }
@@ -2985,6 +3033,7 @@ body.is-mobile .phone::after { display: none; }
     state.chartPoints = pts.map(function (p) {
       return { x: p.x, index: p.i };
     });
+    snapChartToSelected();
   }
 
   /* ---------------- 抽屉几何与弹簧 ---------------- */
@@ -3568,6 +3617,50 @@ body.is-mobile .phone::after { display: none; }
       connectAndMeasure();
     });
 
+    chartSvg.addEventListener('pointerdown', function (e) {
+      if (!state.chartPoints.length) return;
+      state.chartDragging = true;
+      state.chartMoved = false;
+      state.chartDragStartX = e.clientX;
+      state.chartDragStartOffset = state.chartOffset;
+      chartSvg.classList.add('dragging');
+      chartSvg.setPointerCapture?.(e.pointerId);
+    });
+    chartSvg.addEventListener('pointermove', function (e) {
+      if (!state.chartDragging) return;
+      var dx = e.clientX - state.chartDragStartX;
+      if (Math.abs(dx) > 3) state.chartMoved = true;
+      state.chartOffset = clamp(
+        state.chartDragStartOffset - dx,
+        0,
+        Math.max(0, state.chartW - state.chartViewportW)
+      );
+      chartSvg.style.transform = 'translate3d(' + (-state.chartOffset) + 'px, 0, 0)';
+    });
+    function endChartDrag() {
+      if (!state.chartDragging) return;
+      state.chartDragging = false;
+      chartSvg.classList.remove('dragging');
+      var viewportCenter = state.chartOffset + state.chartViewportW / 2;
+      var nearest = null;
+      var nearestDistance = Infinity;
+      state.chartPoints.forEach(function (p) {
+        var distance = Math.abs(p.x - viewportCenter);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearest = p;
+        }
+      });
+      if (nearest) {
+        selectSnapshot(nearest.index, true);
+      } else {
+        snapChartToSelected();
+      }
+    }
+    chartSvg.addEventListener('pointerup', endChartDrag);
+    chartSvg.addEventListener('pointercancel', endChartDrag);
+    chartSvg.addEventListener('pointerleave', endChartDrag);
+
     $('#statusCapsule').addEventListener('click', function () {
       if (state.demo === 'offline') {
         connectAndMeasure();
@@ -3614,7 +3707,7 @@ body.is-mobile .phone::after { display: none; }
     });
 
     chartSvg.addEventListener('click', function (e) {
-      if (!state.chartPoints.length) return;
+      if (!state.chartPoints.length || state.chartMoved) return;
       var rect = chartSvg.getBoundingClientRect();
       var x = (e.clientX - rect.left) / rect.width * state.chartW;
       var best = null;
