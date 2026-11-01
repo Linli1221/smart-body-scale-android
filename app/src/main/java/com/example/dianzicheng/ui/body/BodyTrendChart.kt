@@ -1,6 +1,7 @@
 package com.example.dianzicheng.ui.body
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -12,6 +13,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -25,6 +28,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -120,6 +126,8 @@ fun BodyTrendChart(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                TrendIcon(accent = accent)
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = style.title + "趋势",
                     style = MiuixTheme.textStyles.footnote1.copy(fontFeatureSettings = "tnum"),
@@ -193,14 +201,33 @@ fun BodyTrendChart(
                             val y = (bottom - (bottom - top) * (point.value - chartLowerBound) / chartRange).toFloat()
                             return Offset(x, y)
                         }
-                        displayPoints.zipWithNext().forEach { (first, second) ->
-                            drawLine(accent.copy(alpha = 0.72f), pointOffset(first), pointOffset(second), 2.dp.toPx(), cap = StrokeCap.Round)
+                        val positions = displayPoints.map(::pointOffset)
+                        if (positions.size >= 2) {
+                            // 每段控制点保持在相邻读数之间，曲线经过全部测量点且不会制造额外峰谷。
+                            val curve = Path().apply {
+                                moveTo(positions.first().x, positions.first().y)
+                                positions.zipWithNext().forEach { (first, second) ->
+                                    val midX = (first.x + second.x) / 2f
+                                    cubicTo(midX, first.y, midX, second.y, second.x, second.y)
+                                }
+                            }
+                            drawPath(
+                                path = curve,
+                                color = accent.copy(alpha = 0.85f),
+                                style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round),
+                            )
                         }
-                        displayPoints.forEach { point ->
+                        displayPoints.forEachIndexed { index, point ->
                             val selected = point.index == safeSelectedIndex
-                            val center = pointOffset(point)
-                            drawCircle(palette.card, if (selected) 5.dp.toPx() else 3.5.dp.toPx(), center)
-                            drawCircle(accent, if (selected) 3.5.dp.toPx() else 2.5.dp.toPx(), center)
+                            val center = positions[index]
+                            if (selected) {
+                                drawCircle(accent.copy(alpha = 0.14f), 8.dp.toPx(), center)
+                                drawCircle(palette.card, 5.dp.toPx(), center)
+                                drawCircle(accent, 3.dp.toPx(), center)
+                            } else {
+                                drawCircle(palette.card, 3.dp.toPx(), center)
+                                drawCircle(accent.copy(alpha = 0.8f), 1.8.dp.toPx(), center)
+                            }
                         }
                     }
                     Row(modifier = Modifier.fillMaxWidth()) {
@@ -226,6 +253,25 @@ fun BodyTrendChart(
                 }
             }
         }
+    }
+}
+
+/** 与指标颜色一致的趋势标识。 */
+@Composable
+private fun TrendIcon(accent: Color) {
+    Canvas(
+        modifier = Modifier
+            .size(26.dp)
+            .background(accent.copy(alpha = 0.12f), RoundedCornerShape(8.dp))
+            .padding(5.dp),
+    ) {
+        val iconPath = Path().apply {
+            moveTo(size.width * 0.08f, size.height * 0.75f)
+            cubicTo(size.width * 0.28f, size.height * 0.75f, size.width * 0.30f, size.height * 0.42f, size.width * 0.48f, size.height * 0.42f)
+            cubicTo(size.width * 0.65f, size.height * 0.42f, size.width * 0.65f, size.height * 0.20f, size.width * 0.92f, size.height * 0.20f)
+        }
+        drawPath(iconPath, accent, style = Stroke(width = 1.8.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+        drawCircle(accent, radius = 1.7.dp.toPx(), center = Offset(size.width * 0.92f, size.height * 0.20f))
     }
 }
 
