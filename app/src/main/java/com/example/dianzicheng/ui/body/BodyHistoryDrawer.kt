@@ -1,5 +1,14 @@
 package com.example.dianzicheng.ui.body
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -257,13 +266,23 @@ fun BodyHistoryDrawer(
                                 layout(child.width, visibleHeight) { child.placeRelative(0, 0) }
                             },
                     ) {
-                        BodyTrendChart(
-                            metric = selectedMetric,
-                            snapshots = snapshots,
-                            windowStartMs = windowStartMs,
-                            members = members,
-                            selectedIndex = safeIndex,
-                            onSelectIndex = onSelectIndex,
+                        // 方向由指标顺序决定；弹簧入场略微越过终点后回弹。
+                        AnimatedContent(
+                            targetState = selectedMetric,
+                            transitionSpec = {
+                                val direction = if (targetState.ordinal > initialState.ordinal) 1 else -1
+                                (slideInHorizontally(
+                                    animationSpec = spring(dampingRatio = 0.68f, stiffness = 420f),
+                                    initialOffsetX = { width -> (width * 0.16f * direction).roundToInt() },
+                                ) + fadeIn(animationSpec = tween(durationMillis = 180)))
+                                    .togetherWith(
+                                        slideOutHorizontally(
+                                            animationSpec = tween(durationMillis = 160),
+                                            targetOffsetX = { width -> (-width * 0.08f * direction).roundToInt() },
+                                        ) + fadeOut(animationSpec = tween(durationMillis = 140))
+                                    )
+                                    .using(SizeTransform(clip = false))
+                            },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .graphicsLayer {
@@ -271,7 +290,21 @@ fun BodyHistoryDrawer(
                                     alpha = progress
                                     translationY = (1f - progress) * 12.dp.toPx()
                                 },
-                        )
+                            label = "trend-metric-transition",
+                        ) { metric ->
+                            BodyTrendChart(
+                                metric = metric,
+                                snapshots = snapshots,
+                                windowStartMs = windowStartMs,
+                                members = members,
+                                selectedIndex = safeIndex,
+                                // 离场中的旧图不应抢占当前图表的数据点选择。
+                                onSelectIndex = { index ->
+                                    if (metric == selectedMetric) onSelectIndex(index)
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                         Spacer(modifier = Modifier.height(BodyDimens.CardGap))
                     }
                     if (!hasGridContent) {
