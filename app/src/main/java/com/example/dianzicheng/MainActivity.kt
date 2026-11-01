@@ -18,7 +18,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.room.Room
-import com.example.dianzicheng.data.backup.WebDavManager
 import com.example.dianzicheng.data.ble.BleScaleClient
 import com.example.dianzicheng.data.health.HealthConnectManager
 import com.example.dianzicheng.data.local.AppDatabase
@@ -46,7 +45,6 @@ class MainActivity : ComponentActivity() {
     private lateinit var profileRepository: ProfileRepository
     private lateinit var preferenceManager: PreferenceManager
     private lateinit var healthConnectManager: HealthConnectManager
-    private lateinit var webDavManager: WebDavManager
 
     private val bluetoothReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
@@ -97,7 +95,6 @@ class MainActivity : ComponentActivity() {
         profileRepository = ProfileRepository(database.scaleDao())
         preferenceManager = PreferenceManager(applicationContext)
         healthConnectManager = HealthConnectManager(applicationContext)
-        webDavManager = WebDavManager(database.scaleDao())
 
         // 首帧后统一执行的一次性初始化（启动性能优化）：这些都不必抢在首帧前——
         // 默认成员在首次称重前建好即可，旧配置迁移在读取侧本就有回填兜底。
@@ -166,7 +163,6 @@ class MainActivity : ComponentActivity() {
                     ProfileViewModel(
                         profileRepository,
                         preferenceManager,
-                        webDavManager,
                         healthConnectManager,
                         scaleRepository
                     )

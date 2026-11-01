@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?><!--
    Android 12+ 云备份 / 设备间迁移的数据提取规则。
    当前策略：不限制备份范围，测量历史（scale-db）与偏好（DataStore）随系统备份/迁移保留；
-   应用内另有 WebDAV 备份通道（data/backup/WebDavManager），两套备份互不影响。
    如需排除某类数据，在对应节点下添加 <exclude domain="database|sharedpref|file" path="..."/>。
 -->
 <data-extraction-rules>

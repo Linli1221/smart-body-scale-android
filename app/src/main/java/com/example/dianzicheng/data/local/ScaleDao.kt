@@ -75,7 +75,7 @@ interface ScaleDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMeasurement(measurement: MeasurementEntity)
 
-    /** 批量插入或覆盖测量记录（WebDAV 恢复 / 历史重算使用，避免 N 条独立语句） */
+    /** 批量插入或覆盖测量记录（历史重算使用，避免 N 条独立语句） */
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMeasurements(measurements: List<MeasurementEntity>)
 

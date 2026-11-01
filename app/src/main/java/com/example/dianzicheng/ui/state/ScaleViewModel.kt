@@ -27,6 +27,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -100,7 +101,7 @@ class ScaleViewModel(
     private var sessionSourceMac: String? = null
     private var splitCandidate: SplitMeasurementCandidate? = null
     private var clearSessionJob: Job? = null
-    private var healthSyncJob: Job? = null
+    private val healthSyncJobs = ConcurrentHashMap<String, Job>()
     private var selectedBiaModel: BiaModel = BiaModel.DEFAULT
 
     /** 本次会话测得的阻抗（Ω），0.0 表示未测得；供离秤最终提交时保留 BIA 结果不被清零 */
@@ -270,7 +271,8 @@ class ScaleViewModel(
         super.onCleared()
         bleClient.stopScan()
         clearSessionJob?.cancel()
-        healthSyncJob?.cancel()
+        healthSyncJobs.values.toList().forEach { it.cancel() }
+        healthSyncJobs.clear()
     }
 
     // ── BLE 观察 ───────────────────────────────────────────────────────────
@@ -331,7 +333,7 @@ class ScaleViewModel(
                 // 过早锁定作废：实时体重超锁定值 3.0kg（多半是换了人/物品上去）
                 rawWeight > currentLockedWeightKg + SUPERSEDE_THRESHOLD_KG -> {
                     AppLogger.i(TAG, "过早锁定作废：${currentLockedWeightKg}kg → ${rawWeight}kg")
-                    healthSyncJob?.cancel()
+                    healthSyncJobs.remove(sessionId)?.cancel()
                     if (sessionCommitted) {
                         runCatching { repository.deleteMeasurementById(sessionId) }
                     }
@@ -468,6 +470,7 @@ class ScaleViewModel(
         }
         if (candidate != null) {
             AppLogger.i(TAG, "合并体重和体脂上报: ${candidate.previousId} ← $sessionId")
+            healthSyncJobs.remove(sessionId)?.cancel()
             val saved = processMeasurement(
                 commitToDb = true, forceCommit = true, explicitImpedance = impedanceOhm,
                 explicitSessionId = candidate.previousId, explicitTimestamp = candidate.previousTimestamp,
@@ -658,16 +661,33 @@ class ScaleViewModel(
         }
     }
 
-    /** Health Connect 同步（2s 防抖，同一次称重只写最终一条）。 */
+    /** 每条记录独立防抖，连续测量不会取消其他记录的同步。 */
     private fun scheduleHealthSync(measurement: BodyMeasurement) {
         val hc = healthConnectManager ?: return
-        healthSyncJob?.cancel()
-        healthSyncJob = viewModelScope.launch {
+        val id = measurement.id
+        healthSyncJobs.remove(id)?.cancel()
+        val job = viewModelScope.launch {
             delay(HEALTH_SYNC_DEBOUNCE_MS)
             val enabled = preferenceManager?.healthConnectEnabled?.firstOrNull() ?: false
-            if (enabled && hc.hasAllPermissions()) {
-                runCatching { hc.writeMeasurement(measurement) }
+            if (enabled) {
+                try {
+                    if (!hc.hasAllPermissions()) {
+                        hc.reportMissingPermissions()
+                        AppLogger.w(TAG, "系统健康写入权限不足，请重新授权")
+                    } else if (!hc.writeMeasurement(measurement)) {
+                        AppLogger.w(TAG, "系统健康同步失败，可在设置中重新同步历史记录")
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    hc.reportSyncFailure()
+                    AppLogger.e(TAG, "系统健康同步失败", e)
+                }
             }
+        }
+        healthSyncJobs[id] = job
+        job.invokeOnCompletion {
+            healthSyncJobs.remove(id, job)
         }
     }
 

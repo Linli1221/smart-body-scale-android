@@ -2,40 +2,50 @@ package com.example.dianzicheng.data.health
 
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.BodyFatRecord
 import androidx.health.connect.client.records.WeightRecord
 import androidx.health.connect.client.records.metadata.Metadata
-import androidx.health.connect.client.request.ReadRecordsRequest
-import androidx.health.connect.client.time.TimeRangeFilter
 import androidx.health.connect.client.units.Mass
 import androidx.health.connect.client.units.Percentage
 import com.example.dianzicheng.data.local.AppLogger
 import com.example.dianzicheng.domain.BodyMeasurement
 import java.time.Instant
 import java.time.ZoneOffset
+import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
+/** 单调递增版本保证同一客户端 ID 的新测量可覆盖旧值，即使系统时间回拨。 */
+internal fun nextHealthRecordVersion(previous: Long, now: Long): Long = maxOf(previous + 1L, now)
 
 /** 日志 Tag：统一使用类名常量（经 AppLogger 输出，运行日志查看器可见） */
 private const val TAG = "HealthConnectManager"
 
 class HealthConnectManager(private val context: Context) {
 
-    private val healthConnectClient: HealthConnectClient? by lazy {
-        if (HealthConnectClient.getSdkStatus(context) == HealthConnectClient.SDK_AVAILABLE) {
-            HealthConnectClient.getOrCreate(context)
-        } else {
-            null
-        }
-    }
+    private val healthConnectClient: HealthConnectClient?
+        get() = if (isAvailable()) HealthConnectClient.getOrCreate(context) else null
+
+    private val _syncError = MutableStateFlow<String?>(null)
+    val syncError = _syncError.asStateFlow()
+    fun reportMissingPermissions() { _syncError.value = "系统健康写入权限不足，请重新授权" }
+    fun reportSyncFailure() { _syncError.value = "同步失败，请检查系统健康状态后重试" }
+
+    private val writeMutex = Mutex()
+    private val recordVersion = AtomicLong(0L)
+    private val writtenVersions = mutableMapOf<String, Long>() // 在 writeMutex 内访问
+    private fun nextVersion(): Long = recordVersion.updateAndGet { old -> nextHealthRecordVersion(old, System.currentTimeMillis()) }
+    fun captureSyncVersion(): Long = recordVersion.get()
 
     val permissions = setOf(
         HealthPermission.getWritePermission(WeightRecord::class),
         HealthPermission.getWritePermission(BodyFatRecord::class),
-        HealthPermission.getReadPermission(WeightRecord::class),
-        HealthPermission.getReadPermission(BodyFatRecord::class)
     )
 
     fun isAvailable(): Boolean {
@@ -48,18 +58,23 @@ class HealthConnectManager(private val context: Context) {
         return granted.containsAll(permissions)
     }
 
-    suspend fun writeMeasurement(measurement: BodyMeasurement): Boolean {
+    suspend fun writeMeasurement(measurement: BodyMeasurement, skipIfWrittenAfter: Long? = null): Boolean = writeMutex.withLock {
+        if (skipIfWrittenAfter != null &&
+            (writtenVersions[measurement.id] ?: 0L) > skipIfWrittenAfter
+        ) return@withLock true
         val client = healthConnectClient ?: run {
             AppLogger.w(TAG, "Health Connect Client is unavailable")
-            return false
+            _syncError.value = "系统健康不可用，请检查安装和设置"
+            return@withLock false
         }
 
-        return try {
+        try {
             val instant = Instant.ofEpochMilli(measurement.measuredAtEpochMs)
             val zoneOffset = ZoneOffset.systemDefault().rules.getOffset(instant)
 
+            val version = nextVersion()
             val weightMetadata = if (measurement.id.isNotBlank()) {
-                Metadata(clientRecordId = "weight_${measurement.id}")
+                Metadata(clientRecordId = "weight_${measurement.id}", clientRecordVersion = version)
             } else {
                 Metadata()
             }
@@ -75,7 +90,7 @@ class HealthConnectManager(private val context: Context) {
 
             if (measurement.bodyFatPct > 0.0) {
                 val fatMetadata = if (measurement.id.isNotBlank()) {
-                    Metadata(clientRecordId = "fat_${measurement.id}")
+                    Metadata(clientRecordId = "fat_${measurement.id}", clientRecordVersion = version)
                 } else {
                     Metadata()
                 }
@@ -89,213 +104,41 @@ class HealthConnectManager(private val context: Context) {
             }
 
             client.insertRecords(records)
+            if (measurement.id.isNotBlank()) writtenVersions[measurement.id] = version
+            _syncError.value = null
             AppLogger.d(TAG, "Successfully written measurement to Health Connect")
             true
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to write measurement to Health Connect", e)
+            _syncError.value = "同步失败，请检查系统健康权限后重试"
             false
         }
     }
 
     /** 合并实时记录时仅按客户端 ID 清除重复项，不按时间删除其他测量。 */
-    suspend fun deleteMeasurementByClientId(id: String) {
-        if (id.isBlank()) return
-        val client = healthConnectClient ?: return
+    suspend fun deleteMeasurementByClientId(id: String) = writeMutex.withLock {
+        if (id.isBlank()) return@withLock
+        val client = healthConnectClient ?: return@withLock
         try {
             client.deleteRecords(recordType = WeightRecord::class, recordIdsList = emptyList(), clientRecordIdsList = listOf("weight_$id"))
             client.deleteRecords(recordType = BodyFatRecord::class, recordIdsList = emptyList(), clientRecordIdsList = listOf("fat_$id"))
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AppLogger.w(TAG, "清理 Health Connect 重复记录失败: ${e.message}")
         }
     }
 
-    /**
-     * 从 Health Connect 删除与本地记录同一时刻写入的体重/体脂数据。
-     * 历史页删除记录时调用，保持两端数据一致。优先使用 clientRecordId 精确删除，
-     * 同时保留时间戳匹配以兼容未分配 clientRecordId 的历史记录。
-     */
-    suspend fun deleteMeasurement(measurement: BodyMeasurement): Boolean {
-        val client = healthConnectClient ?: run {
-            AppLogger.w(TAG, "Health Connect Client is unavailable")
-            return false
-        }
-
-        return try {
-            val instant = Instant.ofEpochMilli(measurement.measuredAtEpochMs)
-            val zoneOffset = ZoneOffset.systemDefault().rules.getOffset(instant)
-
-            // 1. 如果有本地 ID，优先直接使用 clientRecordId 删除（无需 READ 权限，快速且可靠）
-            if (measurement.id.isNotBlank()) {
-                try {
-                    client.deleteRecords(
-                        recordType = WeightRecord::class,
-                        recordIdsList = emptyList(),
-                        clientRecordIdsList = listOf("weight_${measurement.id}")
-                    )
-                } catch (e: Exception) {
-                    AppLogger.w(TAG, "deleteRecords by clientRecordId weight failed", e)
-                }
-                try {
-                    client.deleteRecords(
-                        recordType = BodyFatRecord::class,
-                        recordIdsList = emptyList(),
-                        clientRecordIdsList = listOf("fat_${measurement.id}")
-                    )
-                } catch (e: Exception) {
-                    AppLogger.w(TAG, "deleteRecords by clientRecordId fat failed", e)
-                }
-            }
-
-            // 2. 兜底：若具备读权限，通过时间戳匹配清理可能无 clientRecordId 的历史记录
-            try {
-                val window = TimeRangeFilter.between(instant.minusMillis(1000), instant.plusMillis(1000))
-                val weightResponse = client.readRecords(
-                    ReadRecordsRequest(recordType = WeightRecord::class, timeRangeFilter = window)
-                )
-                val weightIds = weightResponse.records
-                    .filter { it.time == instant && it.zoneOffset == zoneOffset }
-                    .map { it.metadata.id }
-                    .toList()
-                if (weightIds.isNotEmpty()) {
-                    client.deleteRecords(
-                        recordType = WeightRecord::class,
-                        recordIdsList = weightIds,
-                        clientRecordIdsList = emptyList()
-                    )
-                }
-
-                val fatResponse = client.readRecords(
-                    ReadRecordsRequest(recordType = BodyFatRecord::class, timeRangeFilter = window)
-                )
-                val fatIds = fatResponse.records
-                    .filter { it.time == instant && it.zoneOffset == zoneOffset }
-                    .map { it.metadata.id }
-                    .toList()
-                if (fatIds.isNotEmpty()) {
-                    client.deleteRecords(
-                        recordType = BodyFatRecord::class,
-                        recordIdsList = fatIds,
-                        clientRecordIdsList = emptyList()
-                    )
-                }
-            } catch (e: Exception) {
-                // 无读权限或时间查询失败，跳过时间戳兜底
-                AppLogger.d(TAG, "Timestamp-based cleanup skipped: ${e.message}")
-            }
-
-            AppLogger.d(TAG, "Deleted weight and fat records from Health Connect")
-            true
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed to delete measurement from Health Connect", e)
-            false
-        }
-    }
-
-    /**
-     * 批量将历史数据同步到 Health Connect（供小米健康等 App 读取）
-     * @return Pair(成功条数, 失败条数)
-     */
-    suspend fun batchWriteMeasurements(measurements: List<BodyMeasurement>): Pair<Int, Int> {
-        val client = healthConnectClient ?: return Pair(0, measurements.size)
-        if (!hasAllPermissions()) return Pair(0, measurements.size)
-
+    /** 逐条同步历史，单条失败不会导致其他记录被判定失败。 */
+    suspend fun batchWriteMeasurements(measurements: List<BodyMeasurement>, snapshotVersion: Long): Pair<Int, Int> {
+        if (!isAvailable() || !hasAllPermissions()) return 0 to measurements.size
         var success = 0
-        var failed = 0
-
-        // 时区规则查询开销较大且与记录无关，循环外解析一次即可
-        val zoneRules = ZoneOffset.systemDefault().rules
-
-        // 每批最多 20 条，避免单次请求过大
-        measurements.chunked(20).forEach { batch ->
-            try {
-                val records = mutableListOf<androidx.health.connect.client.records.Record>()
-                batch.forEach { measurement ->
-                    val instant = Instant.ofEpochMilli(measurement.measuredAtEpochMs)
-                    val zoneOffset = zoneRules.getOffset(instant)
-                    val weightMetadata = if (measurement.id.isNotBlank()) {
-                        Metadata(clientRecordId = "weight_${measurement.id}")
-                    } else {
-                        Metadata()
-                    }
-                    records.add(
-                        WeightRecord(
-                            weight = Mass.kilograms(measurement.weightKg),
-                            time = instant,
-                            zoneOffset = zoneOffset,
-                            metadata = weightMetadata
-                        )
-                    )
-                    if (measurement.bodyFatPct > 0.0) {
-                        val fatMetadata = if (measurement.id.isNotBlank()) {
-                            Metadata(clientRecordId = "fat_${measurement.id}")
-                        } else {
-                            Metadata()
-                        }
-                        records.add(
-                            BodyFatRecord(
-                                percentage = Percentage(measurement.bodyFatPct),
-                                time = instant,
-                                zoneOffset = zoneOffset,
-                                metadata = fatMetadata
-                            )
-                        )
-                    }
-                }
-                client.insertRecords(records)
-                success += batch.size
-                AppLogger.d(TAG, "Batch written ${batch.size} records")
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Batch write failed", e)
-                failed += batch.size
-            }
+        for (measurement in measurements) {
+            if (writeMeasurement(measurement, skipIfWrittenAfter = snapshotVersion)) success++
         }
-
-        return Pair(success, failed)
-    }
-
-    /**
-     * 检测小米健康是否已安装
-     */
-    fun isMiHealthInstalled(): Boolean {
-        val miHealthPackages = listOf(
-            "com.mi.health",
-            "com.xiaomi.hm.health"
-        )
-        return miHealthPackages.any { pkg ->
-            try {
-                context.packageManager.getPackageInfo(pkg, 0)
-                true
-            } catch (e: PackageManager.NameNotFoundException) {
-                false
-            }
-        }
-    }
-
-    /**
-     * 打开小米健康应用（引导用户在其中开启 Health Connect 数据源）
-     */
-    fun openMiHealth() {
-        val miHealthPackages = listOf("com.mi.health", "com.xiaomi.hm.health")
-        for (pkg in miHealthPackages) {
-            try {
-                val intent = context.packageManager.getLaunchIntentForPackage(pkg)
-                if (intent != null) {
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    context.startActivity(intent)
-                    return
-                }
-            } catch (e: Exception) {
-                AppLogger.w(TAG, "Cannot open $pkg", e)
-            }
-        }
-        // 如果找不到小米健康，打开应用市场搜索页
-        try {
-            val marketIntent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=com.mi.health"))
-            marketIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(marketIntent)
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Cannot open market", e)
-        }
+        return success to (measurements.size - success)
     }
 
     /**
@@ -303,7 +146,7 @@ class HealthConnectManager(private val context: Context) {
      */
     fun openHealthConnectSettings() {
         try {
-            val intent = Intent("androidx.health.ACTION_HEALTH_CONNECT_SETTINGS")
+            val intent = Intent(HealthConnectClient.ACTION_HEALTH_CONNECT_SETTINGS)
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
         } catch (e: Exception) {

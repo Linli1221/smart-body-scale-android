@@ -47,7 +47,7 @@ class ScaleRepository(
 
     /**
      * 一次性获取所有测量记录列表（挂起函数）。
-     * 用于 Health Connect 批量同步、WebDAV 备份等非实时场景。
+     * 用于 Health Connect 批量同步等非实时场景。
      */
     suspend fun getAllMeasurements(): List<BodyMeasurement> =
         dao.getAllMeasurementsList().map { it.toDomain() }

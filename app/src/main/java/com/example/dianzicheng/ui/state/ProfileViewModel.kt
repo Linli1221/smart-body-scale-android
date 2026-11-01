@@ -7,7 +7,6 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.dianzicheng.BuildConfig
-import com.example.dianzicheng.data.backup.WebDavManager
 import com.example.dianzicheng.data.ble.BleProtocolRecorder
 import com.example.dianzicheng.data.health.HealthConnectManager
 import com.example.dianzicheng.data.local.AppLogger
@@ -34,14 +33,13 @@ import java.util.UUID
 
 /**
  * 「我的 / 设置」状态持有者：成员管理、设备管理、体脂模型切换（含历史重算）、
- * Health Connect / 小米健康同步、WebDAV 云备份、运行日志与协议抓包查看器。
+ * Health Connect 同步、运行日志与协议抓包查看器。
  *
  * 一次性反馈沿用 `statusMessage`（StateFlow<String?> + 消费后 clear）的既有契约。
  */
 class ProfileViewModel(
     private val repository: ProfileRepository,
     private val preferenceManager: PreferenceManager,
-    private val webDavManager: WebDavManager? = null,
     private val healthConnectManager: HealthConnectManager? = null,
     private val scaleRepository: ScaleRepository? = null
 ) : ViewModel() {
@@ -65,19 +63,19 @@ class ProfileViewModel(
 
     val healthConnectEnabled: StateFlow<Boolean> = preferenceManager.healthConnectEnabled
         .stateIn(viewModelScope, SharingStarted.Lazily, false)
+    val healthSyncError: StateFlow<String?> = healthConnectManager?.syncError ?: MutableStateFlow(null)
+    private val _healthPermissionsGranted = MutableStateFlow<Boolean?>(null)
+    val healthPermissionsGranted: StateFlow<Boolean?> = _healthPermissionsGranted.asStateFlow()
 
-    // ── WebDAV ──────────────────────────────────────────────────────────────
-    val webdavUrl: StateFlow<String> = preferenceManager.webdavUrl
-        .stateIn(viewModelScope, SharingStarted.Lazily, "")
-
-    val webdavUsername: StateFlow<String> = preferenceManager.webdavUsername
-        .stateIn(viewModelScope, SharingStarted.Lazily, "")
-
-    val webdavPassword: StateFlow<String> = preferenceManager.webdavPassword
-        .stateIn(viewModelScope, SharingStarted.Lazily, "")
-
-    val lastBackupTime: StateFlow<Long> = preferenceManager.lastBackupTime
-        .stateIn(viewModelScope, SharingStarted.Lazily, 0L)
+    fun refreshHealthPermissions() {
+        viewModelScope.launch {
+            _healthPermissionsGranted.value = try {
+                healthConnectManager?.hasAllPermissions() == true
+            } catch (e: Exception) {
+                false
+            }
+        }
+    }
 
     // ── 操作状态 ────────────────────────────────────────────────────────────
     private val _statusMessage = MutableStateFlow<String?>(null)
@@ -178,26 +176,24 @@ class ProfileViewModel(
         viewModelScope.launch { preferenceManager.setActiveScale(mac) }
     }
 
-    // ── Health Connect / 小米健康 ───────────────────────────────────────────
+    // ── Health Connect ───────────────────────────────────────────
 
     fun setHealthConnectEnabled(enabled: Boolean) {
-        viewModelScope.launch { preferenceManager.setHealthConnectEnabled(enabled) }
+        viewModelScope.launch {
+            preferenceManager.setHealthConnectEnabled(enabled)
+            refreshHealthPermissions()
+        }
     }
 
     fun isHealthConnectAvailable(): Boolean = healthConnectManager?.isAvailable() ?: false
-
-    fun isMiHealthInstalled(): Boolean = healthConnectManager?.isMiHealthInstalled() ?: false
-
-    fun openMiHealth() {
-        healthConnectManager?.openMiHealth()
-    }
 
     fun openHealthConnectSettings() {
         healthConnectManager?.openHealthConnectSettings()
     }
 
-    /** 把全部历史记录批量写入 Health Connect（小米健康经 Health Connect 读取）。 */
+    /** 把全部历史记录批量写入 Health Connect。 */
     fun batchSyncToHealthConnect() {
+        if (_syncProgress.value != null) return
         val hc = healthConnectManager
         if (hc == null) {
             _statusMessage.value = "当前设备不支持 Health Connect"
@@ -208,27 +204,30 @@ class ProfileViewModel(
             _statusMessage.value = "无法访问数据库"
             return
         }
+        _syncProgress.value = "正在检查权限..."
         viewModelScope.launch {
-            if (!hc.isAvailable()) {
-                _statusMessage.value = "当前设备不支持 Health Connect，请升级系统或安装 Health Connect 应用"
-                return@launch
-            }
-            if (!hc.hasAllPermissions()) {
-                _statusMessage.value = "请先在上方开启\"同步至系统健康\"并授予权限，再进行批量同步"
-                return@launch
-            }
             _isOperating.value = true
             try {
+                if (!hc.isAvailable()) {
+                    _statusMessage.value = "当前设备不支持 Health Connect，请升级系统或安装 Health Connect 应用"
+                    return@launch
+                }
+                if (!hc.hasAllPermissions()) {
+                    _statusMessage.value = "请先授予体重和体脂写入权限"
+                    refreshHealthPermissions()
+                    return@launch
+                }
                 _syncProgress.value = "正在读取历史记录..."
+                val snapshotVersion = hc.captureSyncVersion()
                 val all = repo.getAllMeasurements()
                 if (all.isEmpty()) {
                     _statusMessage.value = "暂无历史测量数据可同步"
                     return@launch
                 }
                 _syncProgress.value = "正在同步 ${all.size} 条记录..."
-                val (success, failed) = hc.batchWriteMeasurements(all)
+                val (success, failed) = hc.batchWriteMeasurements(all, snapshotVersion)
                 _statusMessage.value = if (failed == 0) {
-                    "✅ 成功同步 $success 条数据！小米健康将自动读取这些数据。"
+                    "已同步 $success 条记录到系统健康"
                 } else {
                     "同步完成：成功 $success 条，失败 $failed 条"
                 }
@@ -237,64 +236,6 @@ class ProfileViewModel(
             } finally {
                 _isOperating.value = false
                 _syncProgress.value = null
-            }
-        }
-    }
-
-    // ── WebDAV 云备份 ───────────────────────────────────────────────────────
-
-    fun saveWebdavConfig(url: String, user: String, pass: String) {
-        viewModelScope.launch { preferenceManager.saveWebdavConfig(url, user, pass) }
-    }
-
-    fun testWebdavConnection(url: String, user: String, pass: String) {
-        val manager = webDavManager ?: return
-        viewModelScope.launch {
-            _isOperating.value = true
-            try {
-                _statusMessage.value = manager.testConnection(url, user, pass)
-                    .fold({ it }, { it.localizedMessage ?: "连接错误" })
-            } finally {
-                _isOperating.value = false
-            }
-        }
-    }
-
-    fun backupData() {
-        val manager = webDavManager ?: return
-        val url = webdavUrl.value
-        if (url.isBlank()) {
-            _statusMessage.value = "请先配置 WebDAV 服务器地址"
-            return
-        }
-        viewModelScope.launch {
-            _isOperating.value = true
-            try {
-                val result = manager.backupData(url, webdavUsername.value, webdavPassword.value)
-                _statusMessage.value = result.fold({ it }, { it.localizedMessage ?: "备份错误" })
-                if (result.isSuccess) {
-                    preferenceManager.saveLastBackupTime(System.currentTimeMillis())
-                }
-            } finally {
-                _isOperating.value = false
-            }
-        }
-    }
-
-    fun restoreData() {
-        val manager = webDavManager ?: return
-        val url = webdavUrl.value
-        if (url.isBlank()) {
-            _statusMessage.value = "请先配置 WebDAV 服务器地址"
-            return
-        }
-        viewModelScope.launch {
-            _isOperating.value = true
-            try {
-                _statusMessage.value = manager.restoreData(url, webdavUsername.value, webdavPassword.value)
-                    .fold({ it }, { it.localizedMessage ?: "恢复错误" })
-            } finally {
-                _isOperating.value = false
             }
         }
     }

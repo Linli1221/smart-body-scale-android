@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -15,14 +14,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.example.dianzicheng.domain.FamilyMember
 import com.example.dianzicheng.domain.RememberedScale
 import com.example.dianzicheng.domain.Sex
-import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.RadioButton
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
@@ -177,90 +173,6 @@ fun RemoveScaleConfirmDialog(
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.textButtonColors(textColor = MiuixTheme.colorScheme.error)
             )
-        }
-    }
-}
-
-/**
- * WebDAV 云同步配置弹窗：测试连接（不保存不关闭）与保存（写配置并关闭）。
- * 无本地校验，结果统一走 statusMessage 提示。
- */
-@Composable
-fun WebDavConfigDialog(
-    initialUrl: String,
-    initialUsername: String,
-    initialPassword: String,
-    isOperating: Boolean,
-    onDismiss: () -> Unit,
-    onSave: (String, String, String) -> Unit,
-    onTest: (String, String, String) -> Unit
-) {
-    var url by remember { mutableStateOf(initialUrl) }
-    var username by remember { mutableStateOf(initialUsername) }
-    var password by remember { mutableStateOf(initialPassword) }
-
-    WindowDialog(
-        show = true,
-        title = "配置 WebDAV 云同步",
-        summary = "支持坚果云、Nextcloud、OwnCloud、NAS 等任意标准 WebDAV 服务。",
-        onDismissRequest = onDismiss
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            TextField(
-                value = url,
-                onValueChange = { url = it },
-                label = "服务器 URL (如 https://dav.jianguoyun.com/dav/)",
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
-            TextField(
-                value = username,
-                onValueChange = { username = it },
-                label = "账号 / 用户名",
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
-            TextField(
-                value = password,
-                onValueChange = { password = it },
-                label = "密码 / 应用授权码",
-                visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Button(
-                    onClick = { onTest(url, username, password) },
-                    enabled = !isOperating,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    if (isOperating) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                    } else {
-                        Text("测试连接")
-                    }
-                }
-                Spacer(modifier = Modifier.width(20.dp))
-                TextButton(
-                    text = "取消",
-                    onClick = onDismiss,
-                    modifier = Modifier.weight(1f)
-                )
-                Spacer(modifier = Modifier.width(20.dp))
-                Button(
-                    onClick = {
-                        onSave(url, username, password)
-                        onDismiss()
-                    },
-                    colors = ButtonDefaults.buttonColorsPrimary(),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("保存")
-                }
-            }
         }
     }
 }

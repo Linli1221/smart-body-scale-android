@@ -18,6 +18,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,6 +38,9 @@ import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.BodyFatRecord
 import androidx.health.connect.client.records.WeightRecord
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.dianzicheng.BuildConfig
 import com.example.dianzicheng.R
 import com.example.dianzicheng.domain.FamilyMember
@@ -47,27 +52,21 @@ import com.example.dianzicheng.ui.dialog.DeleteMemberConfirmDialog
 import com.example.dianzicheng.ui.dialog.RemoveScaleConfirmDialog
 import com.example.dianzicheng.ui.dialog.SelectBiaModelDialog
 import com.example.dianzicheng.ui.dialog.SelectScaleModelDialog
-import com.example.dianzicheng.ui.dialog.WebDavConfigDialog
 import com.example.dianzicheng.ui.state.ProfileViewModel
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Add
-import top.yukonga.miuix.kmp.icon.extended.CloudFill
 import top.yukonga.miuix.kmp.icon.extended.Contacts
 import top.yukonga.miuix.kmp.icon.extended.Delete
-import top.yukonga.miuix.kmp.icon.extended.Download
-import top.yukonga.miuix.kmp.icon.extended.Favorites
 import top.yukonga.miuix.kmp.icon.extended.FavoritesFill
 import top.yukonga.miuix.kmp.icon.extended.Info
-import top.yukonga.miuix.kmp.icon.extended.Link
 import top.yukonga.miuix.kmp.icon.extended.Lock
 import top.yukonga.miuix.kmp.icon.extended.Notes
 import top.yukonga.miuix.kmp.icon.extended.Scan
@@ -76,26 +75,19 @@ import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.icon.extended.Tasks
 import top.yukonga.miuix.kmp.icon.extended.Tune
 import top.yukonga.miuix.kmp.icon.extended.Update
-import top.yukonga.miuix.kmp.icon.extended.UploadCloud
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-
-/** 应用自有语义色：小米健康品牌橙（仅用于品牌说明栏淡底）。 */
-private val MiHealthOrange = Color(0xFFFF6900)
 
 /** 设置弹层当前打开的弹窗（Window 层，可安全叠加在弹层之上）。 */
 private enum class SettingsDialog {
-    AddMember, WebDavConfig, ScaleModel, BiaModel, About
+    AddMember, ScaleModel, BiaModel, About
 }
 
 /**
- * 「我的 / 设置」底部弹层：成员管理、Health Connect、小米健康导入、WebDAV 备份、应用设置。
+ * 「我的 / 设置」底部弹层：成员管理、系统健康同步与应用设置。
  */
 @Composable
 fun SettingsSheet(
@@ -118,37 +110,37 @@ fun SettingsSheet(
     val selectedScaleModel = collectAsStateWhenVisible(show, profileViewModel.selectedScaleModel)
     val selectedBiaModel = collectAsStateWhenVisible(show, profileViewModel.selectedBiaModel)
     val healthConnectEnabled = collectAsStateWhenVisible(show, profileViewModel.healthConnectEnabled)
-    val webdavUrl = collectAsStateWhenVisible(show, profileViewModel.webdavUrl)
-    val webdavUsername = collectAsStateWhenVisible(show, profileViewModel.webdavUsername)
-    val webdavPassword = collectAsStateWhenVisible(show, profileViewModel.webdavPassword)
-    val lastBackupTime = collectAsStateWhenVisible(show, profileViewModel.lastBackupTime)
-    val isOperating = collectAsStateWhenVisible(show, profileViewModel.isOperating)
     val syncProgress = collectAsStateWhenVisible(show, profileViewModel.syncProgress)
+    val syncError = collectAsStateWhenVisible(show, profileViewModel.healthSyncError)
+    val permissionsGranted = collectAsStateWhenVisible(show, profileViewModel.healthPermissionsGranted)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(show) { if (show) profileViewModel.refreshHealthPermissions() }
+    DisposableEffect(lifecycleOwner, show) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (show && event == Lifecycle.Event.ON_RESUME) profileViewModel.refreshHealthPermissions()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val recalcProgress = collectAsStateWhenVisible(show, profileViewModel.recalcProgress)
 
     var dialog by remember { mutableStateOf<SettingsDialog?>(null) }
     var memberToDelete by remember { mutableStateOf<FamilyMember?>(null) }
     var scaleToRemove by remember { mutableStateOf<RememberedScale?>(null) }
 
-    val backupDateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
-
     // Health Connect 权限申请（与旧实现一致：开启开关即申请，结果 Toast 提示）
     val healthPermissions = remember {
         setOf(
             HealthPermission.getWritePermission(WeightRecord::class),
-            HealthPermission.getWritePermission(BodyFatRecord::class),
-            HealthPermission.getReadPermission(WeightRecord::class),
-            HealthPermission.getReadPermission(BodyFatRecord::class)
+            HealthPermission.getWritePermission(BodyFatRecord::class)
         )
     }
     val hcPermissionLauncher = rememberLauncherForActivityResult(
         PermissionController.createRequestPermissionResultContract()
     ) { granted ->
-        Toast.makeText(
-            context,
-            if (granted.isNotEmpty()) "已获得系统健康权限！" else "未获得健康读写权限",
-            Toast.LENGTH_SHORT
-        ).show()
+        val complete = granted.containsAll(healthPermissions)
+        profileViewModel.setHealthConnectEnabled(complete)
+        Toast.makeText(context, if (complete) "系统健康同步已开启" else "需要授予体重和体脂写入权限", Toast.LENGTH_SHORT).show()
     }
     val requestHealthPermissions = {
         if (profileViewModel.isHealthConnectAvailable()) {
@@ -201,112 +193,35 @@ fun SettingsSheet(
                     SwitchPreference(
                         checked = healthConnectEnabled,
                         onCheckedChange = { enabled ->
-                            profileViewModel.setHealthConnectEnabled(enabled)
                             if (enabled) requestHealthPermissions()
+                            else profileViewModel.setHealthConnectEnabled(false)
                         },
                         title = "同步至系统健康",
-                        summary = "将体重与体脂数据同步至系统 Health Connect",
+                        summary = when {
+                            healthConnectEnabled && permissionsGranted == false -> "写入权限未授予，请重新授权"
+                            healthConnectEnabled && syncError != null -> syncError
+                            else -> "将所有成员的体重与体脂同步至系统 Health Connect"
+                        },
                         startAction = { SettingsIconTile(icon = MiuixIcons.FavoritesFill) }
                     )
                     if (healthConnectEnabled) {
                         SettingsItem(
-                            title = "申请健康中心读写权限",
+                            title = "同步全部历史记录",
+                            subtitle = syncProgress ?: "将所有成员的历史体重和体脂写入系统健康",
+                            icon = MiuixIcons.Update,
+                            isLoading = syncProgress != null,
+                            onClick = profileViewModel::batchSyncToHealthConnect,
+                        )
+                        SettingsItem(
+                            title = "重新申请写入权限",
                             icon = MiuixIcons.Lock,
-                            onClick = requestHealthPermissions
+                            onClick = requestHealthPermissions,
                         )
                     }
-                }
-            }
-
-            // ── 导入小米健康（Mi Health）─────────────────────────────────
-            item {
-                SmallSectionTitle("导入小米健康 (Mi Health)")
-                Card12 {
-                    // 品牌说明栏（应用自有语义色淡底）
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.Top
-                    ) {
-                        SettingsIconTile(
-                            icon = MiuixIcons.Favorites,
-                            containerColor = MiHealthOrange.copy(alpha = 0.15f),
-                            contentColor = MiHealthOrange
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "同步历史数据到小米健康",
-                                style = MiuixTheme.textStyles.body1
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "小米健康通过 Health Connect 读取数据。请先开启上方\"同步至系统健康\"并授权，" +
-                                    "再点击\"立即同步\"将全部历史记录一键导入小米健康。",
-                                style = MiuixTheme.textStyles.footnote1,
-                                color = MiuixTheme.colorScheme.onSurfaceSecondary
-                            )
-                            if (syncProgress != null) {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = syncProgress ?: "",
-                                    style = MiuixTheme.textStyles.footnote2,
-                                    color = MiuixTheme.colorScheme.primary
-                                )
-                            }
-                        }
-                    }
                     SettingsItem(
-                        title = "立即同步全部历史数据",
-                        subtitle = "体重与体脂写入 Health Connect，小米健康可直接读取",
-                        icon = MiuixIcons.Update,
-                        isLoading = syncProgress != null,
-                        onClick = profileViewModel::batchSyncToHealthConnect
-                    )
-                    SettingsItem(
-                        title = if (profileViewModel.isMiHealthInstalled()) "打开小米健康" else "安装小米健康",
-                        subtitle = "在小米健康 > 设置 > 数据来源 中启用 Health Connect",
-                        icon = MiuixIcons.Link,
-                        onClick = profileViewModel::openMiHealth
-                    )
-                    SettingsItem(
-                        title = "管理 Health Connect 权限",
+                        title = "管理系统健康权限",
                         icon = MiuixIcons.Settings,
-                        onClick = profileViewModel::openHealthConnectSettings
-                    )
-                }
-            }
-
-            // ── WebDAV 云端备份 ──────────────────────────────────────────
-            item {
-                SmallSectionTitle("WebDAV 云端备份")
-                Card12 {
-                    SettingsItem(
-                        title = if (webdavUrl.isBlank()) {
-                            "配置 WebDAV 服务器"
-                        } else {
-                            "WebDAV 已配置 (${if (webdavUrl.length > 24) webdavUrl.take(24) + "..." else webdavUrl})"
-                        },
-                        icon = MiuixIcons.CloudFill,
-                        onClick = { dialog = SettingsDialog.WebDavConfig }
-                    )
-                    SettingsItem(
-                        title = "立即备份到 WebDAV",
-                        subtitle = if (lastBackupTime > 0) {
-                            "上次备份：${backupDateFormat.format(Date(lastBackupTime))}"
-                        } else {
-                            "从未备份"
-                        },
-                        icon = MiuixIcons.UploadCloud,
-                        isLoading = isOperating,
-                        onClick = profileViewModel::backupData
-                    )
-                    SettingsItem(
-                        title = "从 WebDAV 恢复数据",
-                        icon = MiuixIcons.Download,
-                        isLoading = isOperating,
-                        onClick = profileViewModel::restoreData
+                        onClick = profileViewModel::openHealthConnectSettings,
                     )
                 }
             }
@@ -406,15 +321,6 @@ fun SettingsSheet(
             onConfirm = { name, sex, height, birth, weight ->
                 profileViewModel.addMember(name, sex, height, birth, weight)
             }
-        )
-        SettingsDialog.WebDavConfig -> WebDavConfigDialog(
-            initialUrl = webdavUrl,
-            initialUsername = webdavUsername,
-            initialPassword = webdavPassword,
-            isOperating = isOperating,
-            onDismiss = { dialog = null },
-            onSave = profileViewModel::saveWebdavConfig,
-            onTest = profileViewModel::testWebdavConnection
         )
         SettingsDialog.ScaleModel -> SelectScaleModelDialog(
             currentModel = selectedScaleModel,
