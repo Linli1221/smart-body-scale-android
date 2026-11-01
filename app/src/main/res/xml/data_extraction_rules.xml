@@ -1,19 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?><!--
-   Sample data extraction rules file; uncomment and customize as necessary.
-   See https://developer.android.com/about/versions/12/backup-restore#xml-changes
-   for details.
+   Android 12+ 云备份 / 设备间迁移的数据提取规则。
+   当前策略：不限制备份范围，测量历史（scale-db）与偏好（DataStore）随系统备份/迁移保留；
+   应用内另有 WebDAV 备份通道（data/backup/WebDavManager），两套备份互不影响。
+   如需排除某类数据，在对应节点下添加 <exclude domain="database|sharedpref|file" path="..."/>。
 -->
 <data-extraction-rules>
-    <cloud-backup>
-        <!-- TODO: Use <include> and <exclude> to control what is backed up.
-        <include .../>
-        <exclude .../>
-        -->
-    </cloud-backup>
-    <!--
-    <device-transfer>
-        <include .../>
-        <exclude .../>
-    </device-transfer>
-    -->
+    <cloud-backup />
+    <device-transfer />
 </data-extraction-rules>

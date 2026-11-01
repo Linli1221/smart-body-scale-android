@@ -12,15 +12,16 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.room.Room
 import com.example.dianzicheng.data.backup.WebDavManager
 import com.example.dianzicheng.data.ble.BleScaleClient
 import com.example.dianzicheng.data.health.HealthConnectManager
 import com.example.dianzicheng.data.local.AppDatabase
+import com.example.dianzicheng.data.local.AppLogger
 import com.example.dianzicheng.data.local.PreferenceManager
 import com.example.dianzicheng.data.repository.ProfileRepository
 import com.example.dianzicheng.data.repository.ScaleRepository
@@ -29,6 +30,8 @@ import com.example.dianzicheng.ui.ScaleApp
 import com.example.dianzicheng.ui.state.HistoryViewModel
 import com.example.dianzicheng.ui.state.ProfileViewModel
 import com.example.dianzicheng.ui.state.ScaleViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -80,8 +83,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        checkPermissions()
-
         database = Room.databaseBuilder(
             applicationContext,
             AppDatabase::class.java, "scale-db" // 库名保持不变，避免老用户数据丢失
@@ -95,14 +96,22 @@ class MainActivity : ComponentActivity() {
         healthConnectManager = HealthConnectManager(applicationContext)
         webDavManager = WebDavManager(database.scaleDao())
 
-        // 确保系统中存在默认用户（"自己"），保证首次称重时 BMI 与身体成分正常计算
-        lifecycleScope.launch {
-            profileRepository.ensureDefaultMemberExists()
-        }
-
-        // 旧版单设备配置一次性迁移为多设备列表：保证老用户升级后原有体脂秤不丢失
-        lifecycleScope.launch {
-            preferenceManager.migrateLegacyDeviceIfNeeded()
+        // 首帧后统一执行的一次性初始化（启动性能优化）：这些都不必抢在首帧前——
+        // 默认成员在首次称重前建好即可，旧配置迁移在读取侧本就有回填兜底。
+        runAfterFirstFrame {
+            lifecycleScope.launch(Dispatchers.IO) {
+                // 确保系统中存在默认用户（"自己"），保证首次称重时 BMI 与身体成分正常计算
+                profileRepository.ensureDefaultMemberExists()
+                // 旧版单设备配置一次性迁移为多设备列表：保证老用户升级后原有体脂秤不丢失
+                preferenceManager.migrateLegacyDeviceIfNeeded()
+            }
+            // 仅当已有记住的体脂秤（自动连接需要蓝牙权限）时才在启动时请求权限；
+            // 首次使用改由配对弹层自带的权限流触发，冷启动不再被系统权限框遮挡首帧。
+            lifecycleScope.launch {
+                if (preferenceManager.rememberedScales.first().isNotEmpty()) {
+                    checkPermissions()
+                }
+            }
         }
 
         bleClient.onMacDiscovered = { mac ->
@@ -129,7 +138,15 @@ class MainActivity : ComponentActivity() {
                     if (bleClient.connectionState.value == BleScaleClient.ConnectionState.IDLE &&
                         bleClient.isBluetoothEnabled()
                     ) {
-                        bleClient.startScan()
+                        // 首帧后才启动扫描（启动性能优化）：不与首帧抢主线程 binder；
+                        // 运行期的偏好变化同样只是延后约一帧，无感知。
+                        runAfterFirstFrame {
+                            if (bleClient.connectionState.value == BleScaleClient.ConnectionState.IDLE &&
+                                bleClient.isBluetoothEnabled()
+                            ) {
+                                bleClient.startScan()
+                            }
+                        }
                     }
                 }
             }
@@ -143,41 +160,31 @@ class MainActivity : ComponentActivity() {
         setContent {
             val isPairingComplete by preferenceManager.isPairingComplete.collectAsState(initial = null)
 
-            val scaleViewModel: ScaleViewModel = viewModel(
-                factory = object : ViewModelProvider.Factory {
-                    @Suppress("UNCHECKED_CAST")
-                    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                        return ScaleViewModel(
-                            bleClient,
-                            scaleRepository,
-                            preferenceManager,
-                            healthConnectManager
-                        ) as T
-                    }
+            // viewModelFactory DSL：消除三份手写 Factory + UNCHECKED_CAST 样板（技术债 L1）
+            val scaleViewModel: ScaleViewModel = viewModel(factory = viewModelFactory {
+                initializer {
+                    ScaleViewModel(
+                        bleClient,
+                        scaleRepository,
+                        preferenceManager,
+                        healthConnectManager
+                    )
                 }
-            )
-            val historyViewModel: HistoryViewModel = viewModel(
-                factory = object : ViewModelProvider.Factory {
-                    @Suppress("UNCHECKED_CAST")
-                    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                        return HistoryViewModel(scaleRepository, preferenceManager, healthConnectManager) as T
-                    }
+            })
+            val historyViewModel: HistoryViewModel = viewModel(factory = viewModelFactory {
+                initializer { HistoryViewModel(scaleRepository) }
+            })
+            val profileViewModel: ProfileViewModel = viewModel(factory = viewModelFactory {
+                initializer {
+                    ProfileViewModel(
+                        profileRepository,
+                        preferenceManager,
+                        webDavManager,
+                        healthConnectManager,
+                        scaleRepository
+                    )
                 }
-            )
-            val profileViewModel: ProfileViewModel = viewModel(
-                factory = object : ViewModelProvider.Factory {
-                    @Suppress("UNCHECKED_CAST")
-                    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                        return ProfileViewModel(
-                            profileRepository,
-                            preferenceManager,
-                            webDavManager,
-                            healthConnectManager,
-                            scaleRepository
-                        ) as T
-                    }
-                }
-            )
+            })
 
             ScaleApp(
                 scaleViewModel = scaleViewModel,
@@ -190,6 +197,17 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             )
+        }
+    }
+
+    /**
+     * 首帧上屏之后执行（启动性能优化）：
+     * 先用 Choreographer 接到第一帧，再向主线程消息队列尾部投递，
+     * 保证 [block] 运行时首帧已经绘制完成，不与首帧争抢主线程 / binder / IO。
+     */
+    private fun runAfterFirstFrame(block: () -> Unit) {
+        android.view.Choreographer.getInstance().postFrameCallback {
+            window.decorView.post(block)
         }
     }
 
@@ -217,11 +235,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        // 回到前台：如果已记住任意一台设备且当前为空闲状态，自动恢复扫描以保持踏秤即连
+        // 回到前台：如果已记住任意一台设备且当前为空闲状态，自动恢复扫描以保持踏秤即连。
+        // 首帧后才执行（启动性能优化）：冷启动时不与首帧抢主线程 binder；
+        // 运行期回到前台只是延后约一帧，无感知。
         if (bleClient.hasRememberedDevice) {
             bleClient.isPairingMode = false
-            if (bleClient.connectionState.value == BleScaleClient.ConnectionState.IDLE) {
-                bleClient.startScan()
+            runAfterFirstFrame {
+                if (bleClient.connectionState.value == BleScaleClient.ConnectionState.IDLE) {
+                    bleClient.startScan()
+                }
             }
         }
     }
@@ -236,7 +258,9 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
         try {
             unregisterReceiver(bluetoothReceiver)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            // 注销失败不影响退出流程，但不再静默吞掉，留一条运行日志便于排查
+            AppLogger.w("MainActivity", "unregisterReceiver 失败: ${e.message}")
         }
         bleClient.disconnectAndReset()
     }

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- 深色模式启动背景取 BodyDesign.DarkBackground，消除深色模式启动白闪。 -->
+    <style name="Theme.电子秤" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#0B0F19</item>
+    </style>
+</resources>

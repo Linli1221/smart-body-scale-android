@@ -18,7 +18,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,6 +28,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.health.connect.client.PermissionController
@@ -37,9 +37,11 @@ import androidx.health.connect.client.records.BodyFatRecord
 import androidx.health.connect.client.records.WeightRecord
 import androidx.activity.compose.rememberLauncherForActivityResult
 import com.example.dianzicheng.BuildConfig
+import com.example.dianzicheng.R
 import com.example.dianzicheng.domain.FamilyMember
 import com.example.dianzicheng.domain.RememberedScale
 import com.example.dianzicheng.domain.Sex
+import com.example.dianzicheng.ui.component.collectAsStateWhenVisible
 import com.example.dianzicheng.ui.dialog.AddMemberDialog
 import com.example.dianzicheng.ui.dialog.DeleteMemberConfirmDialog
 import com.example.dianzicheng.ui.dialog.RemoveScaleConfirmDialog
@@ -55,6 +57,7 @@ import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Add
 import top.yukonga.miuix.kmp.icon.extended.CloudFill
@@ -78,6 +81,7 @@ import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.window.WindowDialog
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -87,7 +91,7 @@ private val MiHealthOrange = Color(0xFFFF6900)
 
 /** 设置弹层当前打开的弹窗（Window 层，可安全叠加在弹层之上）。 */
 private enum class SettingsDialog {
-    AddMember, WebDavConfig, ScaleModel, BiaModel
+    AddMember, WebDavConfig, ScaleModel, BiaModel, About
 }
 
 /**
@@ -104,21 +108,23 @@ fun SettingsSheet(
 ) {
     val context = LocalContext.current
 
-    val members by profileViewModel.members.collectAsState()
-    val rememberedScales by profileViewModel.rememberedScales.collectAsState()
-    val pairedMac by profileViewModel.pairedMac.collectAsState()
-    val logEntries by profileViewModel.logEntries.collectAsState()
-    val bleCaptureEntries by profileViewModel.bleCaptureEntries.collectAsState()
-    val selectedScaleModel by profileViewModel.selectedScaleModel.collectAsState()
-    val selectedBiaModel by profileViewModel.selectedBiaModel.collectAsState()
-    val healthConnectEnabled by profileViewModel.healthConnectEnabled.collectAsState()
-    val webdavUrl by profileViewModel.webdavUrl.collectAsState()
-    val webdavUsername by profileViewModel.webdavUsername.collectAsState()
-    val webdavPassword by profileViewModel.webdavPassword.collectAsState()
-    val lastBackupTime by profileViewModel.lastBackupTime.collectAsState()
-    val isOperating by profileViewModel.isOperating.collectAsState()
-    val syncProgress by profileViewModel.syncProgress.collectAsState()
-    val recalcProgress by profileViewModel.recalcProgress.collectAsState()
+    // 可见才订阅（启动/运行期性能）：隐藏的设置弹层不常驻订阅 DataStore/StateFlow，
+    // 也不触发 AppLogger/BleProtocolRecorder 的日志快照拷贝；离场动画用最后一次快照渲染。
+    val members = collectAsStateWhenVisible(show, profileViewModel.members)
+    val rememberedScales = collectAsStateWhenVisible(show, profileViewModel.rememberedScales)
+    val pairedMac = collectAsStateWhenVisible(show, profileViewModel.pairedMac)
+    val logEntries = collectAsStateWhenVisible(show, profileViewModel.logEntries)
+    val bleCaptureEntries = collectAsStateWhenVisible(show, profileViewModel.bleCaptureEntries)
+    val selectedScaleModel = collectAsStateWhenVisible(show, profileViewModel.selectedScaleModel)
+    val selectedBiaModel = collectAsStateWhenVisible(show, profileViewModel.selectedBiaModel)
+    val healthConnectEnabled = collectAsStateWhenVisible(show, profileViewModel.healthConnectEnabled)
+    val webdavUrl = collectAsStateWhenVisible(show, profileViewModel.webdavUrl)
+    val webdavUsername = collectAsStateWhenVisible(show, profileViewModel.webdavUsername)
+    val webdavPassword = collectAsStateWhenVisible(show, profileViewModel.webdavPassword)
+    val lastBackupTime = collectAsStateWhenVisible(show, profileViewModel.lastBackupTime)
+    val isOperating = collectAsStateWhenVisible(show, profileViewModel.isOperating)
+    val syncProgress = collectAsStateWhenVisible(show, profileViewModel.syncProgress)
+    val recalcProgress = collectAsStateWhenVisible(show, profileViewModel.recalcProgress)
 
     var dialog by remember { mutableStateOf<SettingsDialog?>(null) }
     var memberToDelete by remember { mutableStateOf<FamilyMember?>(null) }
@@ -386,7 +392,7 @@ fun SettingsSheet(
                         title = "关于软件",
                         subtitle = "版本 ${BuildConfig.VERSION_NAME}",
                         icon = MiuixIcons.Info,
-                        onClick = {}
+                        onClick = { dialog = SettingsDialog.About }
                     )
                 }
             }
@@ -418,6 +424,9 @@ fun SettingsSheet(
         SettingsDialog.BiaModel -> SelectBiaModelDialog(
             currentModel = selectedBiaModel,
             onModelSelected = profileViewModel::selectBiaModel,
+            onDismiss = { dialog = null }
+        )
+        SettingsDialog.About -> AboutDialog(
             onDismiss = { dialog = null }
         )
         null -> Unit
@@ -623,6 +632,37 @@ private fun RememberedScaleRow(
                 contentDescription = "移除 ${scale.name}",
                 tint = MiuixTheme.colorScheme.onSurfaceVariantActions
             )
+        }
+    }
+}
+
+/** 关于软件弹窗：应用名 + 版本信息。 */
+@Composable
+private fun AboutDialog(onDismiss: () -> Unit) {
+    WindowDialog(
+        show = true,
+        title = "关于软件",
+        onDismissRequest = onDismiss
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = stringResource(R.string.app_name),
+                style = MiuixTheme.textStyles.title3,
+                color = MiuixTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "版本 ${BuildConfig.VERSION_NAME}（${BuildConfig.VERSION_CODE}）",
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceSecondary
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                TextButton(text = "关闭", onClick = onDismiss)
+            }
         }
     }
 }

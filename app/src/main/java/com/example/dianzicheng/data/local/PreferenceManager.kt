@@ -12,8 +12,6 @@ import kotlinx.coroutines.flow.map
 
 import androidx.datastore.preferences.core.stringPreferencesKey
 
-import com.example.dianzicheng.domain.BodyMetric
-import com.example.dianzicheng.domain.BodyMetricOrderCodec
 import com.example.dianzicheng.domain.BiaModel
 import com.example.dianzicheng.domain.RememberedScale
 import com.example.dianzicheng.domain.ScaleMemory
@@ -85,12 +83,6 @@ class PreferenceManager(private val context: Context) {
     private val SELECTED_SCALE_MODEL = stringPreferencesKey("selected_scale_model")
 
     /**
-     * 用户自定义的身体指标展示顺序（逗号分隔的枚举名，见 [com.example.dianzicheng.domain.BodyMetricOrderCodec]）。
-     * 未设置时回落到 [com.example.dianzicheng.domain.BodyMetric.defaultOrder]。
-     */
-    private val BODY_METRIC_ORDER = stringPreferencesKey("body_metric_order_v1")
-
-    /**
      * 用户选择的电阻抗估算模型 ID（如 "DEFAULT", "WU_2015", "JEBB_2000"）。
      * 未设置时回落到 [com.example.dianzicheng.domain.BiaModel.DEFAULT]。
      */
@@ -105,18 +97,6 @@ class PreferenceManager(private val context: Context) {
     /** 用户手动选择的体脂秤型号 ID，默认为 "AUTO" */
     val selectedScaleModel: Flow<String> = context.dataStore.data
         .map { preferences -> preferences[SELECTED_SCALE_MODEL] ?: "AUTO" }
-
-    /**
-     * 用户自定义的身体指标展示顺序。
-     *
-     * 始终返回包含全部指标的完整列表；解析逻辑对脏数据宽容，
-     * 见 [com.example.dianzicheng.domain.BodyMetricOrderCodec.decode]。
-     */
-    val bodyMetricOrder: Flow<List<com.example.dianzicheng.domain.BodyMetric>> = context.dataStore.data
-        .map { preferences ->
-            BodyMetricOrderCodec.decode(preferences[BODY_METRIC_ORDER])
-        }
-        .distinctUntilChanged()
 
     /**
      * 用户选择的电阻抗估算模型 ID 字符串，默认为 "DEFAULT"。
@@ -136,18 +116,28 @@ class PreferenceManager(private val context: Context) {
      *
      * 新版列表为空时会自动回填旧版单设备记录，保证升级用户的原有体脂秤不丢失。
      */
-    val rememberedScales: Flow<List<RememberedScale>> = context.dataStore.data
-        .map { preferences -> preferences.scaleMemory().scales }
+    /**
+     * 解码后的设备记忆（内部共享流，运行期性能优化）：
+     * scaleMemory() 的解码每次偏好变化只做一遍，rememberedScales / activeScaleMac / activeScale
+     * 等公开 Flow 全部从它派生，避免每个订阅者（MainActivity / ScaleViewModel / ProfileViewModel）
+     * 各自重复解码整份设备记忆。公开 API 签名与语义保持不变。
+     */
+    private val scaleMemoryFlow: Flow<ScaleMemory> = context.dataStore.data
+        .map { preferences -> preferences.scaleMemory() }
+        .distinctUntilChanged()
+
+    val rememberedScales: Flow<List<RememberedScale>> = scaleMemoryFlow
+        .map { it.scales }
         .distinctUntilChanged()
 
     /** 当前使用中的体脂秤 MAC 地址；未记住任何设备时为 null */
-    val activeScaleMac: Flow<String?> = context.dataStore.data
-        .map { preferences -> preferences.scaleMemory().activeMac }
+    val activeScaleMac: Flow<String?> = scaleMemoryFlow
+        .map { it.activeMac }
         .distinctUntilChanged()
 
     /** 当前使用中的体脂秤完整信息；未记住任何设备时为 null */
-    val activeScale: Flow<RememberedScale?> = context.dataStore.data
-        .map { preferences -> preferences.scaleMemory().active }
+    val activeScale: Flow<RememberedScale?> = scaleMemoryFlow
+        .map { it.active }
         .distinctUntilChanged()
 
     /**
@@ -335,23 +325,6 @@ class PreferenceManager(private val context: Context) {
     suspend fun saveSelectedScaleModel(modelId: String) {
         context.dataStore.edit { preferences ->
             preferences[SELECTED_SCALE_MODEL] = modelId
-        }
-    }
-
-    /**
-     * 保存用户自定义的身体指标展示顺序。
-     *
-     * 传入空列表时等价于恢复默认顺序（直接移除该键，
-     * 让读取侧回落到 [com.example.dianzicheng.domain.BodyMetric.defaultOrder]）。
-     */
-    suspend fun saveBodyMetricOrder(order: List<com.example.dianzicheng.domain.BodyMetric>) {
-        context.dataStore.edit { preferences ->
-            val encoded = BodyMetricOrderCodec.encode(order)
-            if (encoded.isBlank()) {
-                preferences.remove(BODY_METRIC_ORDER)
-            } else {
-                preferences[BODY_METRIC_ORDER] = encoded
-            }
         }
     }
 

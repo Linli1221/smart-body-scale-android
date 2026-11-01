@@ -67,12 +67,17 @@ import com.example.dianzicheng.ui.body.isInWeekWindow
 import com.example.dianzicheng.ui.body.shiftWeekMillis
 import com.example.dianzicheng.ui.body.startOfWeekMillis
 import com.example.dianzicheng.ui.body.rememberBodySheetState
+import com.example.dianzicheng.ui.dialog.SelectMemberDialog
 import com.example.dianzicheng.ui.state.ScaleUiState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import java.util.concurrent.CancellationException
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 
@@ -120,6 +125,7 @@ fun MeasureHomePage(
     members: List<FamilyMember>,
     onStartScan: () -> Unit,
     onOpenPairing: () -> Unit,
+    onOpenSettings: () -> Unit,
     onSelectMember: (FamilyMember?) -> Unit,
     onBindMember: (FamilyMember) -> Unit,
     onDismissAlert: () -> Unit,
@@ -207,7 +213,12 @@ fun MeasureHomePage(
         // 预测性返回：抽屉展开时按手势进度预览逐级收起（FULL → HALF → COLLAPSED）。
         // 最外层无抽屉/弹层时交给系统预测性退出；弹层由 ScaleApp 的 PredictiveBackHandler 优先处理。
         val backDensity = LocalDensity.current
-        PredictiveBackHandler(enabled = sheetState.currentAnchor != SheetAnchor.COLLAPSED) { progress ->
+        // 组合期直接读 currentAnchor 会随抽屉动画逐帧重组整个页面体（性能审计 H5）：
+        // 与 stageCollapsed 一样包一层 derivedStateOf，只在跨越锚点边界时才失效。
+        val sheetBackEnabled by remember(sheetState) {
+            derivedStateOf { sheetState.currentAnchor != SheetAnchor.COLLAPSED }
+        }
+        PredictiveBackHandler(enabled = sheetBackEnabled) { progress ->
             val originalAnchor = sheetState.currentAnchor
             val targetAnchor = when (originalAnchor) {
                 SheetAnchor.FULL -> SheetAnchor.HALF
@@ -236,7 +247,7 @@ fun MeasureHomePage(
         }
 
         val enableBluetooth: () -> Unit = {
-            // 与旧 MeasurePage 一致：直接拉起系统蓝牙开启请求；无 Activity 环境时静默忽略。
+            // 直接拉起系统蓝牙开启请求；无 Activity 环境时静默忽略。
             try {
                 context.startActivity(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
             } catch (_: Exception) {
@@ -467,6 +478,11 @@ fun MeasureHomePage(
         val statusText = status.first
         val statusDotColor = status.second
         val statusAction = status.third
+        // 呼吸圆点只在活跃态动画（性能审计 M6）：IDLE/完成/离线待机时不空转无限动画。
+        val statusActive = uiState.connection != BleScaleClient.ConnectionState.IDLE ||
+            stagePhase == StagePhase.LIVE ||
+            stagePhase == StagePhase.LOCKED ||
+            stagePhase == StagePhase.CALCULATING
 
         val primaryText: String
         val primaryAction: () -> Unit
@@ -541,7 +557,9 @@ fun MeasureHomePage(
             HomeHeader(
                 statusText = statusText,
                 statusDotColor = statusDotColor,
+                statusActive = statusActive,
                 onStatusClick = statusAction,
+                onOpenSettings = onOpenSettings,
             )
 
             Box(
@@ -632,6 +650,16 @@ fun MeasureHomePage(
             }
         }
 
+        // 全历史两次 any 扫描原先每次重组都执行（性能审计 M2）：按数据窗口记忆化。
+        val canPreviousDate = remember(history, currentMeasurement, weekStartMs) {
+            history.any { it.measuredAtEpochMs < weekStartMs } ||
+                currentMeasurement?.let { it.measuredAtEpochMs < weekStartMs } == true
+        }
+        val canNextDate = remember(history, currentMeasurement, weekEndMs) {
+            history.any { it.measuredAtEpochMs >= weekEndMs } ||
+                currentMeasurement?.let { it.measuredAtEpochMs >= weekEndMs } == true
+        }
+
         BodyHistoryDrawer(
             state = sheetState,
             report = report,
@@ -644,10 +672,8 @@ fun MeasureHomePage(
                 selectedIndex = 0
             },
             dateLabel = dateLabel,
-            canPreviousDate = history.any { it.measuredAtEpochMs < weekStartMs } ||
-                currentMeasurement?.let { it.measuredAtEpochMs < weekStartMs } == true,
-            canNextDate = history.any { it.measuredAtEpochMs >= weekEndMs } ||
-                currentMeasurement?.let { it.measuredAtEpochMs >= weekEndMs } == true,
+            canPreviousDate = canPreviousDate,
+            canNextDate = canNextDate,
             onPreviousDate = {
                 weekStartMs = shiftWeekMillis(weekStartMs, -1)
                 selectedIndex = 0
@@ -714,18 +740,33 @@ fun MeasureHomePage(
     }
 }
 
-/** 顶部一行：仅状态胶囊（无顶栏，自行处理 safeDrawing）。 */
+/** 顶部一行：状态胶囊 + 「我的/设置」入口（无顶栏，自行处理 safeDrawing）。 */
 @Composable
 private fun HomeHeader(
     statusText: String,
     statusDotColor: Color,
+    statusActive: Boolean,
     onStatusClick: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
-    Box(modifier = Modifier.fillMaxWidth()) {
-        StatusCapsule(
-            text = statusText,
-            dotColor = statusDotColor,
-            onClick = onStatusClick,
-        )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(modifier = Modifier.weight(1f)) {
+            StatusCapsule(
+                text = statusText,
+                dotColor = statusDotColor,
+                active = statusActive,
+                onClick = onStatusClick,
+            )
+        }
+        IconButton(onClick = onOpenSettings) {
+            Icon(
+                imageVector = MiuixIcons.Settings,
+                contentDescription = "我的/设置",
+                modifier = Modifier.size(20.dp),
+            )
+        }
     }
 }

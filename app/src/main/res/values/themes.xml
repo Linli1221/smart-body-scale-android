@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.电子秤" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- 启动背景与页面首帧背景一致（浅色取 BodyDesign.LightBackground），
+         消除冷启动白闪；深色取值见 values-night/themes.xml。 -->
+    <style name="Theme.电子秤" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#F5F6F8</item>
+    </style>
 </resources>

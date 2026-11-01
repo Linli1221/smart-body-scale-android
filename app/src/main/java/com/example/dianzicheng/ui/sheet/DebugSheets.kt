@@ -19,7 +19,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -35,6 +34,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.example.dianzicheng.data.ble.BleProtocolRecorder
 import com.example.dianzicheng.data.local.AppLogger
+import com.example.dianzicheng.ui.component.collectAsStateWhenVisible
 import com.example.dianzicheng.ui.state.ProfileViewModel
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
@@ -74,13 +74,15 @@ fun LogSheet(
     val context = LocalContext.current
     @Suppress("DEPRECATION")
     val clipboard = LocalClipboardManager.current
-    val entries by profileViewModel.logEntries.collectAsState()
+    // 可见才订阅（启动/运行期性能）：隐藏时退订，每条日志不再触发 O(N) 快照拷贝与隐藏列表重组；
+    // 离场动画期间用最后一次快照渲染，内容不空白。
+    val entries = collectAsStateWhenVisible(show, profileViewModel.logEntries)
     val listState = rememberLazyListState()
     val timeFmt = remember { SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault()) }
 
-    // 有新日志时自动滚到最底部
-    LaunchedEffect(entries.size) {
-        if (entries.isNotEmpty()) {
+    // 有新日志时自动滚到最底部（仅可见时；打开瞬间「订阅即补发」补齐后随 entries.size 变化滚到底）
+    LaunchedEffect(show, entries.size) {
+        if (show && entries.isNotEmpty()) {
             listState.animateScrollToItem(entries.size - 1)
         }
     }
@@ -227,7 +229,8 @@ fun CaptureSheet(
     @Suppress("DEPRECATION")
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
-    val entries by profileViewModel.bleCaptureEntries.collectAsState()
+    // 可见才订阅（启动/运行期性能）：隐藏时退订，抓包高频写入不再驱动隐藏弹层快照拷贝/重组。
+    val entries = collectAsStateWhenVisible(show, profileViewModel.bleCaptureEntries)
     var isExporting by remember { mutableStateOf(false) }
 
     OverlayBottomSheet(

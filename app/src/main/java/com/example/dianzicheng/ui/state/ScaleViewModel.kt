@@ -237,16 +237,6 @@ class ScaleViewModel(
             bleClient.impedance.collect { z -> onImpedanceChanged(z) }
         }
         viewModelScope.launch {
-            bleClient.discoveredDevice.collect { device ->
-                _uiState.update {
-                    it.copy(
-                        discoveredDeviceName = device?.first,
-                        discoveredDeviceMac = device?.second
-                    )
-                }
-            }
-        }
-        viewModelScope.launch {
             bleClient.discoveredScales.collect { list ->
                 _uiState.update { it.copy(discoveredScales = list) }
             }

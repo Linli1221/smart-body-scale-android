@@ -17,7 +17,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.example.dianzicheng.ui.page.MeasureHomePage
 import com.example.dianzicheng.ui.sheet.CaptureSheet
-import com.example.dianzicheng.ui.sheet.HistorySheet
 import com.example.dianzicheng.ui.sheet.LogSheet
 import com.example.dianzicheng.ui.sheet.PairingSheet
 import com.example.dianzicheng.ui.sheet.SettingsSheet
@@ -31,7 +30,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 单页面 + 弹层架构下唯一的弹层出口（同一时刻只展示一个底部弹层）。 */
 private enum class ActiveOverlay {
-    History, Settings, Pairing, LogViewer, CaptureViewer
+    Settings, Pairing, LogViewer, CaptureViewer
 }
 
 /**
@@ -40,8 +39,7 @@ private enum class ActiveOverlay {
  * - 默认单页面 = 身体报告主页（[MeasureHomePage]：称重主舞台 + 三态历史抽屉）；
  *   设置、配对、日志与抓包查看器仍以底部弹层（OverlayBottomSheet）承载，无页面导航栈；
  * - 契约 §5：去掉顶栏，[Scaffold] 的 contentWindowInsets 置零，安全区由页面用 safeDrawing 自理；
- * - 契约 §5：测量完成不再自动弹出旧 HistorySheet，改由新抽屉承担时序；
- *   历史入口按钮已按需求移除；
+ * - 契约 §5：历史由 BodyHistoryDrawer 抽屉承担（测量完成的展示时序也由抽屉接管）；
  * - `isPairingComplete` 三态门控保持旧行为：null=偏好未读出（纯背景，防误触发扫描）、
  *   false=强制配对引导（配对弹层不可关闭，「跳过」后进入正常态）、true=正常单页面。
  */
@@ -68,7 +66,6 @@ fun ScaleApp(
         val uiState by scaleViewModel.uiState.collectAsState()
         val history by historyViewModel.history.collectAsState()
         val members by historyViewModel.members.collectAsState()
-        val metricOrder by historyViewModel.bodyMetricOrder.collectAsState()
         val statusMessage by profileViewModel.statusMessage.collectAsState()
 
         var activeOverlay by remember { mutableStateOf<ActiveOverlay?>(null) }
@@ -98,6 +95,7 @@ fun ScaleApp(
                 members = members,
                 onStartScan = scaleViewModel::startScanning,
                 onOpenPairing = { activeOverlay = ActiveOverlay.Pairing },
+                onOpenSettings = { activeOverlay = ActiveOverlay.Settings },
                 onSelectMember = scaleViewModel::selectMember,
                 onBindMember = scaleViewModel::bindCurrentMeasurementToMember,
                 onDismissAlert = scaleViewModel::dismissAlert,
@@ -105,16 +103,6 @@ fun ScaleApp(
 
             // ── 底部弹层：同一时刻只展示一个 ────────────────────────────
             // Overlay 系弹层必须位于 Scaffold 子树内（由根 Scaffold 的 popup 层承载）
-            HistorySheet(
-                show = activeOverlay == ActiveOverlay.History,
-                history = history,
-                members = members,
-                metricOrder = metricOrder,
-                onSaveMetricOrder = historyViewModel::saveBodyMetricOrder,
-                onDelete = historyViewModel::deleteMeasurement,
-                onDismissRequest = { activeOverlay = null }
-            )
-
             SettingsSheet(
                 show = activeOverlay == ActiveOverlay.Settings,
                 profileViewModel = profileViewModel,

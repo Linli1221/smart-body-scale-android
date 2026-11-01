@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -784,10 +785,13 @@ private fun MetricCardFrame(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
-                    Brush.verticalGradient(
-                        0f to accent.copy(alpha = 0.08f),
-                        1f to Color.Transparent,
-                    )
+                    // 渐变按 accent 记忆化：避免每次重组都新建 Brush（性能审计 L3）
+                    remember(accent) {
+                        Brush.verticalGradient(
+                            0f to accent.copy(alpha = 0.08f),
+                            1f to Color.Transparent,
+                        )
+                    }
                 )
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             content = content,

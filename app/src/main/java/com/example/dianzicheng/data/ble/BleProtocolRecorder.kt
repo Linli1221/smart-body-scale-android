@@ -30,8 +30,8 @@ private const val TAG = "BleProtocol"
  * 设计要点：
  * - Release 版本：[isEnabled] 恒为 `false`，所有 record* 方法在首行直接返回，
  *   不产生字符串格式化、不分配缓冲、不推送 StateFlow，**不记录任何报文**。
- *   （注意：本项目 Release 构建未开启 R8 minify，因此这些方法体依然存在于 APK 中，
- *     只是永远不执行；这是有意的取舍——按需开启 minify 时它们会被自动裁剪。）
+ *   （注意：Release 构建已开启 R8 minify 与资源压缩，这些方法体会被 R8 自动裁剪；
+ *     即便个别方法未被裁剪，也因 [isEnabled] 恒为 false 而永远不执行。）
  * - 独立环形缓冲：[MAX_ENTRIES] 默认 6000 条，远大于日志缓冲，避免一次称重就把报文挤掉。
  * - 明文可回放：同时提供 [exportJsonLines]（每行一个 JSON 对象，便于脚本解析）与 [exportText]（人类可读对齐文本）。
  * - 线程安全：GATT 回调可能来自主线程，扫描回调与看门狗来自其它线程，均以 `@Synchronized` 保护。

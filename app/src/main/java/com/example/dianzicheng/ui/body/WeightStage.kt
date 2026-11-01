@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.stateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -51,20 +52,28 @@ enum class StagePhase { IDLE, LIVE, LOCKED, CALCULATING, COMPLETE, OFFLINE }
 fun StatusCapsule(
     text: String,
     dotColor: Color,
+    active: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val palette = bodyPalette()
-    val transition = rememberInfiniteTransition(label = "status-dot")
-    val dotAlpha by transition.animateFloat(
-        initialValue = 0.45f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1200),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "status-dot-alpha",
-    )
+    // 呼吸动画只在活跃态（扫描/连接/测量中，active=true）运行；待机/离线/完成后用静态圆点，
+    // 避免 rememberInfiniteTransition 常驻逐帧失效（前台待机掉电/掉帧来源之一，性能审计 M6）。
+    // 动画值只在图层阶段读取：仅失效 alpha 图层，不逐帧重绘 Canvas、不触发重组。
+    val dotAlpha = if (active) {
+        val transition = rememberInfiniteTransition(label = "status-dot")
+        transition.animateFloat(
+            initialValue = 0.45f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1200),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "status-dot-alpha",
+        )
+    } else {
+        remember { stateOf(0.8f) }
+    }
     Surface(
         onClick = onClick,
         modifier = modifier.height(BodyDimens.StatusCapsuleHeight),
@@ -75,8 +84,12 @@ fun StatusCapsule(
             modifier = Modifier.padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Canvas(modifier = Modifier.size(6.dp)) {
-                drawCircle(color = dotColor.copy(alpha = dotAlpha))
+            Canvas(
+                modifier = Modifier
+                    .size(6.dp)
+                    .graphicsLayer { alpha = dotAlpha.value }
+            ) {
+                drawCircle(color = dotColor)
             }
             Spacer(modifier = Modifier.width(7.dp))
             Text(

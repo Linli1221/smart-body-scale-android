@@ -56,9 +56,6 @@ class ProfileViewModel(
     val pairedMac: StateFlow<String?> = preferenceManager.pairedMac
         .stateIn(viewModelScope, SharingStarted.Lazily, null)
 
-    val pairedDeviceName: StateFlow<String?> = preferenceManager.pairedDeviceName
-        .stateIn(viewModelScope, SharingStarted.Lazily, null)
-
     val selectedScaleModel: StateFlow<ScaleModel> = preferenceManager.selectedScaleModel
         .map { ScaleModel.fromId(it) }
         .stateIn(viewModelScope, SharingStarted.Lazily, ScaleModel.AUTO)
@@ -306,14 +303,6 @@ class ProfileViewModel(
 
     fun clearStatusMessage() {
         _statusMessage.value = null
-    }
-
-    fun clearSyncProgress() {
-        _syncProgress.value = null
-    }
-
-    fun clearRecalcProgress() {
-        _recalcProgress.value = null
     }
 
     // ── 运行日志查看器 ──────────────────────────────────────────────────────

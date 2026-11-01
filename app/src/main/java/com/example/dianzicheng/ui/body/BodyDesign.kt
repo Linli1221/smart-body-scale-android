@@ -251,12 +251,17 @@ object BodyDimens {
  * @param weight 字重，默认 SemiBold
  */
 @Composable
-fun bodyNumberStyle(size: TextUnit, weight: FontWeight = FontWeight.SemiBold): TextStyle =
-    MiuixTheme.textStyles.main.copy(
-        fontSize = size,
-        fontWeight = weight,
-        fontFeatureSettings = "tnum",
-    )
+fun bodyNumberStyle(size: TextUnit, weight: FontWeight = FontWeight.SemiBold): TextStyle {
+    // 按（基准样式, 字号, 字重）记忆化：8 张卡每重组多次 copy 的 TextStyle 不再重复分配（性能审计 L3）
+    val base = MiuixTheme.textStyles.main
+    return remember(base, size, weight) {
+        base.copy(
+            fontSize = size,
+            fontWeight = weight,
+            fontFeatureSettings = "tnum",
+        )
+    }
+}
 
 /**
  * 卡片标题 / 单位 / 辅助文案的小字号样式（footnote 字阶 + 可覆写字号）。
@@ -270,8 +275,14 @@ fun bodyNumberStyle(size: TextUnit, weight: FontWeight = FontWeight.SemiBold): T
 fun bodyLabelStyle(
     size: TextUnit = 13.sp,
     weight: FontWeight = FontWeight.Normal,
-): TextStyle = MiuixTheme.textStyles.footnote1.copy(
-    fontSize = size,
-    fontWeight = weight,
-    fontFeatureSettings = "tnum",
-)
+): TextStyle {
+    // 同 bodyNumberStyle：按（基准样式, 字号, 字重）记忆化，避免重复分配（性能审计 L3）
+    val base = MiuixTheme.textStyles.footnote1
+    return remember(base, size, weight) {
+        base.copy(
+            fontSize = size,
+            fontWeight = weight,
+            fontFeatureSettings = "tnum",
+        )
+    }
+}
