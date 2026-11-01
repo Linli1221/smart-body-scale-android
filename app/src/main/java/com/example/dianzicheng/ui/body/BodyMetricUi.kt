@@ -53,6 +53,13 @@ data class BodyReport(
 
 enum class HistoryMode { SINGLE, WEEK, MONTH }
 
+/** 最近七个本地日期的起点（包含今天），按日历日处理夏令时。 */
+fun startOfRecentSevenDaysMillis(nowMs: Long = System.currentTimeMillis()): Long {
+    val zone = ZoneId.systemDefault()
+    return Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate().minusDays(6)
+        .atStartOfDay(zone).toInstant().toEpochMilli()
+}
+
 /** 计算包含 [nowMs] 的 ISO 周（周一为起点）的 00:00 时间戳。 */
 fun startOfWeekMillis(nowMs: Long = System.currentTimeMillis()): Long {
     val zone = ZoneId.systemDefault()

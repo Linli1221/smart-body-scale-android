@@ -81,6 +81,7 @@ fun BodyHistoryDrawer(
     selectedIndex: Int,
     onSelectIndex: (Int) -> Unit,
     dateLabel: String,
+    windowStartMs: Long,
     canPreviousDate: Boolean,
     canNextDate: Boolean,
     onPreviousDate: () -> Unit,
@@ -253,6 +254,7 @@ fun BodyHistoryDrawer(
                         BodyTrendChart(
                             metric = selectedMetric,
                             snapshots = snapshots,
+                            windowStartMs = windowStartMs,
                             members = members,
                             selectedIndex = safeIndex,
                             onSelectIndex = onSelectIndex,

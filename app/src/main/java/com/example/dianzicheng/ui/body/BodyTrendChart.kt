@@ -1,23 +1,17 @@
 package com.example.dianzicheng.ui.body
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -32,45 +26,39 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.dianzicheng.domain.FamilyMember
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filterNotNull
-import androidx.compose.runtime.snapshotFlow
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.util.Locale
+import java.time.Instant
+import java.time.ZoneId
+import java.time.temporal.ChronoUnit
+import java.time.format.DateTimeFormatter
 import kotlin.math.abs
 
 /** 趋势图固定高度（契约：仅全展开显示，180dp）。 */
 private val TrendChartHeight = 180.dp
 
-/** 单个数据点的横向宽度；滑动时以此为磁吸单位。 */
-private val TrendStepWidth = 88.dp
-
-/** 单点状态文案。 */
-private const val SINGLE_POINT_HINT = "再测一次即可连成趋势曲线"
-
 /** 指标在趋势图上的展示规格（标题 / 单位 / 小数位）。UI 侧自有映射，不参与 A 组的读数构建。 */
 private data class TrendStyle(val title: String, val unit: String, val decimals: Int)
 
 /** 一个绘图点：横轴用快照 label，纵轴为指标值。 */
-private data class TrendPoint(val label: String, val time: String, val value: Double)
+private data class TrendPoint(val index: Int, val dayPosition: Float, val value: Double)
 
-/**
- * 指标趋势折线图（横向滑动 + 数据点磁吸）。
- *
- * - 数据来自历史快照 [snapshots]（最新在前），绘图时反转为时间升序（左旧右新）；
- * - LazyRow 以 88dp 为一个磁吸单元，松手后吸附到最近数据点；
- * - 顶部指标数值使用滚动计数器，随选中数据点平滑变化。
- */
+/** 七天等宽的趋势图；横向拖动或点击时选择最近的数据点。 */
 @Composable
 fun BodyTrendChart(
     metric: MetricKind,
     snapshots: List<HistorySnapshot>,
+    windowStartMs: Long,
     members: List<FamilyMember> = emptyList(),
     selectedIndex: Int = 0,
     onSelectIndex: (Int) -> Unit = {},
@@ -79,16 +67,19 @@ fun BodyTrendChart(
     val palette = bodyPalette()
     val accent = palette.metricAccents.forMetric(metric)
     val style = remember(metric) { trendStyleOf(metric) }
-    val displayPoints = remember(metric, snapshots, members) {
-        snapshots.mapNotNull { snapshot ->
-            val value = metricNumericValue(snapshot.measurement, metric, members.firstOrNull { it.id == snapshot.measurement.memberId })
-            if (value == null || value <= 0.0) null else TrendPoint(snapshot.label, snapshot.sublabel, value)
-        }.reversed()
+    val zone = remember { ZoneId.systemDefault() }
+    val startDate = remember(windowStartMs, zone) {
+        Instant.ofEpochMilli(windowStartMs).atZone(zone).toLocalDate()
     }
-    val snapshotIndices = remember(snapshots, metric, members) {
+    val displayPoints = remember(metric, snapshots, members, startDate, zone) {
         snapshots.mapIndexedNotNull { index, snapshot ->
             val value = metricNumericValue(snapshot.measurement, metric, members.firstOrNull { it.id == snapshot.measurement.memberId })
-            if (value == null || value <= 0.0) null else index
+            if (value == null || value <= 0.0) null else {
+                val time = Instant.ofEpochMilli(snapshot.measurement.measuredAtEpochMs).atZone(zone)
+                val day = ChronoUnit.DAYS.between(startDate, time.toLocalDate()).toFloat()
+                val fraction = time.toLocalTime().toSecondOfDay() / 86400f
+                TrendPoint(index, day + fraction, value)
+            }
         }.reversed()
     }
     val safeSelectedIndex = if (snapshots.isEmpty()) 0 else selectedIndex.coerceIn(0, snapshots.lastIndex)
@@ -98,45 +89,19 @@ fun BodyTrendChart(
     val chartMin = displayPoints.minOfOrNull { it.value } ?: 0.0
     val chartMax = displayPoints.maxOfOrNull { it.value } ?: 0.0
     val chartSpan = (chartMax - chartMin).takeIf { it > 0.001 } ?: 2.0
-    val chartLowerBound =
-        if (chartMax - chartMin < 0.001) chartMin - 1.0 else chartMin - chartSpan * 0.18
-    val chartRange =
-        if (chartMax - chartMin < 0.001) 2.0 else chartSpan * 1.36
-
-    val listState = rememberLazyListState()
-    val snapFling = rememberSnapFlingBehavior(listState)
-    // 外部时间轴选择与图表滑动共用选中项；程序滚动期间不反向写回中途经过的点。
-    var programmaticScroll by remember { mutableStateOf(false) }
-    LaunchedEffect(snapshotIndices, metric) {
-        val index = snapshotIndices.indexOf(safeSelectedIndex).coerceAtLeast(0)
-        if (snapshotIndices.isNotEmpty()) listState.scrollToItem(index)
+    val chartLowerBound = if (chartMax - chartMin < 0.001) chartMin - 1.0 else chartMin - chartSpan * 0.18
+    val chartRange = if (chartMax - chartMin < 0.001) 2.0 else chartSpan * 1.36
+    val dayLabels = remember(startDate) {
+        val formatter = DateTimeFormatter.ofPattern("M/d")
+        (0L..6L).map { startDate.plusDays(it).format(formatter) }
     }
-    LaunchedEffect(safeSelectedIndex, snapshotIndices) {
-        val index = snapshotIndices.indexOf(safeSelectedIndex)
-        if (index >= 0 && !listState.isScrollInProgress) {
-            programmaticScroll = true
-            try {
-                listState.animateScrollToItem(index)
-            } finally {
-                programmaticScroll = false
-            }
-        }
-    }
-    LaunchedEffect(listState, snapshotIndices) {
-        snapshotFlow {
-            if (!listState.isScrollInProgress || programmaticScroll) null else {
-                val layout = listState.layoutInfo
-                val viewportCenter = layout.viewportStartOffset + layout.viewportSize.width / 2
-                layout.visibleItemsInfo
-                    .minByOrNull { abs((it.offset + it.size / 2) - viewportCenter) }
-                    ?.index
-            }
-        }
-            .filterNotNull()
-            .distinctUntilChanged()
-            .collect { displayIndex ->
-                snapshotIndices.getOrNull(displayIndex)?.let(onSelectIndex)
-            }
+    var plotSize by remember { mutableStateOf(IntSize.Zero) }
+    val density = LocalDensity.current
+    val edgeInset = with(density) { 5.dp.toPx() }
+    fun selectNearest(x: Float) {
+        val width = (plotSize.width - edgeInset * 2f).coerceAtLeast(1f)
+        val dayPosition = ((x - edgeInset) / width * 7f).coerceIn(0f, 7f)
+        displayPoints.minByOrNull { abs(it.dayPosition - dayPosition) }?.let { onSelectIndex(it.index) }
     }
 
     Surface(
@@ -196,58 +161,67 @@ fun BodyTrendChart(
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            if (displayPoints.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "暂无趋势数据",
-                        style = MiuixTheme.textStyles.footnote2,
-                        color = palette.textSecondary,
-                        maxLines = 1,
-                    )
-                }
-            } else {
-                BoxWithConstraints(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                ) {
-                    val sidePadding = ((maxWidth - TrendStepWidth) / 2f).coerceAtLeast(0.dp)
-                    LazyRow(
-                        state = listState,
-                        flingBehavior = snapFling,
-                        contentPadding = PaddingValues(horizontal = sidePadding),
-                        modifier = Modifier.fillMaxSize(),
+            Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .onSizeChanged { plotSize = it }
+                            .pointerInput(displayPoints, plotSize) {
+                                detectTapGestures { selectNearest(it.x) }
+                            }
+                            .pointerInput(displayPoints, plotSize) {
+                                var dragX = 0f
+                                detectHorizontalDragGestures(
+                                    onDragStart = { dragX = it.x; selectNearest(dragX) },
+                                    onHorizontalDrag = { change, amount ->
+                                        change.consume()
+                                        dragX += amount
+                                        selectNearest(dragX)
+                                    },
+                                    onDragEnd = { selectNearest(dragX) },
+                                )
+                            },
                     ) {
-                        itemsIndexed(displayPoints) { displayIndex, point ->
-                            val previous = displayPoints.getOrNull(displayIndex - 1)
-                            val next = displayPoints.getOrNull(displayIndex + 1)
-                            TrendPointCell(
-                                point = point,
-                                previous = previous,
-                                next = next,
-                                selected = snapshotIndices.getOrNull(displayIndex) == safeSelectedIndex,
-                                accent = accent,
-                                palette = palette,
-                                lowerBound = chartLowerBound,
-                                range = chartRange,
+                        val left = 5.dp.toPx()
+                        val plotWidth = (size.width - left * 2f).coerceAtLeast(1f)
+                        fun pointOffset(point: TrendPoint): Offset {
+                            val x = left + plotWidth * point.dayPosition / 7f
+                            val top = 6.dp.toPx()
+                            val bottom = size.height - 6.dp.toPx()
+                            val y = (bottom - (bottom - top) * (point.value - chartLowerBound) / chartRange).toFloat()
+                            return Offset(x, y)
+                        }
+                        displayPoints.zipWithNext().forEach { (first, second) ->
+                            drawLine(accent.copy(alpha = 0.72f), pointOffset(first), pointOffset(second), 2.dp.toPx(), cap = StrokeCap.Round)
+                        }
+                        displayPoints.forEach { point ->
+                            val selected = point.index == safeSelectedIndex
+                            val center = pointOffset(point)
+                            drawCircle(palette.card, if (selected) 5.dp.toPx() else 3.5.dp.toPx(), center)
+                            drawCircle(accent, if (selected) 3.5.dp.toPx() else 2.5.dp.toPx(), center)
+                        }
+                    }
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        dayLabels.forEach { label ->
+                            Text(
+                                text = label,
+                                style = MiuixTheme.textStyles.footnote2.copy(fontFeatureSettings = "tnum"),
+                                color = palette.textSecondary,
+                                textAlign = TextAlign.Center,
+                                maxLines = 1,
+                                modifier = Modifier.weight(1f),
                             )
                         }
                     }
                 }
-
-                if (displayPoints.size == 1) {
+                if (displayPoints.isEmpty()) {
                     Text(
-                        text = SINGLE_POINT_HINT,
+                        text = "暂无趋势数据",
                         style = MiuixTheme.textStyles.footnote2,
                         color = palette.textSecondary,
-                        textAlign = TextAlign.Center,
-                        maxLines = 1,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.align(Alignment.Center),
                     )
                 }
             }
@@ -287,72 +261,6 @@ private fun RollingCounter(
         maxLines = 1,
         modifier = modifier,
     )
-}
-
-/** 单个磁吸数据点单元：左右相连构成连续折线。 */
-@Composable
-private fun TrendPointCell(
-    point: TrendPoint,
-    previous: TrendPoint?,
-    next: TrendPoint?,
-    selected: Boolean,
-    accent: Color,
-    palette: BodyPalette,
-    lowerBound: Double,
-    range: Double,
-) {
-    Box(
-        modifier = Modifier
-            .width(TrendStepWidth)
-            .fillMaxHeight()
-    ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            // 为日期和时间预留空间；数据点放在单元中心，与磁吸中心一致。
-            val plotTop = 6.dp.toPx()
-            val plotBottom = size.height - 36.dp.toPx()
-            val yOf = { v: Double ->
-                (plotBottom - (plotBottom - plotTop) * (v - lowerBound) / range).toFloat()
-            }
-            val center = Offset(size.width / 2f, yOf(point.value))
-            previous?.let {
-                drawLine(
-                    color = accent.copy(alpha = 0.72f),
-                    start = Offset(0f, (yOf(it.value) + center.y) / 2f),
-                    end = center,
-                    strokeWidth = 2.dp.toPx(),
-                    cap = StrokeCap.Round,
-                )
-            }
-            next?.let {
-                drawLine(
-                    color = accent.copy(alpha = 0.72f),
-                    start = center,
-                    end = Offset(size.width, (center.y + yOf(it.value)) / 2f),
-                    strokeWidth = 2.dp.toPx(),
-                    cap = StrokeCap.Round,
-                )
-            }
-            drawCircle(color = palette.card, radius = if (selected) 5.dp.toPx() else 3.5.dp.toPx(), center = center)
-            drawCircle(color = accent, radius = if (selected) 3.5.dp.toPx() else 2.5.dp.toPx(), center = center)
-        }
-        Column(
-            modifier = Modifier.align(Alignment.BottomCenter),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                text = point.label,
-                style = MiuixTheme.textStyles.footnote2.copy(fontFeatureSettings = "tnum"),
-                color = if (selected) accent else palette.textSecondary,
-                maxLines = 1,
-            )
-            Text(
-                text = point.time,
-                style = MiuixTheme.textStyles.footnote2.copy(fontFeatureSettings = "tnum"),
-                color = palette.textSecondary,
-                maxLines = 1,
-            )
-        }
-    }
 }
 
 /** 指标 → 展示规格。数值本身统一由 A 组的 metricNumericValue 提供，避免两套阈值逻辑。 */

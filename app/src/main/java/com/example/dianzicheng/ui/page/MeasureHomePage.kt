@@ -66,7 +66,7 @@ import com.example.dianzicheng.ui.body.buildHistorySnapshots
 import com.example.dianzicheng.ui.body.formatWeekRange
 import com.example.dianzicheng.ui.body.isInWeekWindow
 import com.example.dianzicheng.ui.body.shiftWeekMillis
-import com.example.dianzicheng.ui.body.startOfWeekMillis
+import com.example.dianzicheng.ui.body.startOfRecentSevenDaysMillis
 import com.example.dianzicheng.ui.body.rememberBodySheetState
 import com.example.dianzicheng.ui.dialog.SelectMemberDialog
 import com.example.dianzicheng.ui.state.ScaleUiState
@@ -184,8 +184,8 @@ fun MeasureHomePage(
         val restoredMeasurementId = remember { uiState.currentMeasurement?.id }
 
         var selectedIndex by remember { mutableStateOf(0) }
-        // 默认展示当前自然周，可通过日期导航查看其他周。
-        var weekStartMs by remember { mutableStateOf(startOfWeekMillis(System.currentTimeMillis())) }
+        // 默认展示包含今天的最近七天，可通过日期导航查看其他七天。
+        var weekStartMs by remember { mutableStateOf(startOfRecentSevenDaysMillis(System.currentTimeMillis())) }
         var selectedMetric by remember { mutableStateOf(MetricKind.WEIGHT) }
         var memberFilterId by remember { mutableStateOf(uiState.selectedMember?.id) }
         var reveal by remember { mutableStateOf(true) }
@@ -250,7 +250,7 @@ fun MeasureHomePage(
             val measurement = uiState.currentMeasurement ?: return@LaunchedEffect
             if (measurement.id == handledMeasurementId) return@LaunchedEffect
             handledMeasurementId = measurement.id
-            weekStartMs = startOfWeekMillis(measurement.measuredAtEpochMs)
+            weekStartMs = startOfRecentSevenDaysMillis(measurement.measuredAtEpochMs)
             selectedIndex = 0
             reveal = false
             stagePhase = StagePhase.LOCKED
@@ -631,6 +631,7 @@ fun MeasureHomePage(
             selectedIndex = safeIndex,
             onSelectIndex = { selectedIndex = it.coerceAtLeast(0) },
             dateLabel = dateLabel,
+            windowStartMs = weekStartMs,
             canPreviousDate = canPreviousDate,
             canNextDate = canNextDate,
             onPreviousDate = {
