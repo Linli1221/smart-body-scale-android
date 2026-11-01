@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.text.style.TextAlign
@@ -297,8 +298,14 @@ private fun Modifier.drawerDragHandle(
     scope: CoroutineScope,
 ): Modifier = pointerInput(state) {
     val velocityTracker = VelocityTracker()
+    var dragDistance = 0f
+    var hasSample = false
     detectVerticalDragGestures(
-        onDragStart = { velocityTracker.resetTracking() },
+        onDragStart = {
+            velocityTracker.resetTracking()
+            dragDistance = 0f
+            hasSample = false
+        },
         onDragCancel = { scope.launch { state.settle(0f) } },
         onDragEnd = {
             val velocity = velocityTracker.calculateVelocity().y
@@ -306,7 +313,13 @@ private fun Modifier.drawerDragHandle(
         },
         onVerticalDrag = { change, dragAmount ->
             change.consume()
-            velocityTracker.addPosition(change.uptimeMillis, change.position)
+            // 使用累计拖拽位移而非移动中抽屉的局部坐标，避免速度被抽屉自身运动抵消。
+            if (!hasSample) {
+                velocityTracker.addPosition(change.previousUptimeMillis, Offset.Zero)
+                hasSample = true
+            }
+            dragDistance += dragAmount
+            velocityTracker.addPosition(change.uptimeMillis, Offset(0f, dragDistance))
             state.onDrag(dragAmount)
         },
     )

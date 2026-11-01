@@ -61,14 +61,47 @@ private const val FULL_STAGE_SCALE = 0.50f
 private val HALF_STAGE_LIFT = 80.dp
 private val FULL_STAGE_LIFT = 96.dp
 
-/** 释放速度阈值：400 dp/s，超过则翻到相邻锚点。 */
+/** 释放速度达到该阈值时，至少朝手势方向移动到下一个锚点。 */
 private const val RELEASE_VELOCITY_DP_PER_SEC = 400f
+private const val VELOCITY_PROJECTION_SECONDS = 0.18f
+private const val MAX_SPRING_VELOCITY_DP_PER_SEC = 4000f
+private const val OVERSCROLL_LIMIT_DP = 80f
 
 /** 弹簧：dampingRatio 0.82、stiffness 280。 */
 private val SHEET_SPRING: SpringSpec<Float> = spring(dampingRatio = 0.82f, stiffness = 280f)
 
 /** 锚点按 fraction 升序，用于「速度翻页」的相邻锚点计算。 */
 private val ANCHOR_ORDER = listOf(SheetAnchor.COLLAPSED, SheetAnchor.HALF, SheetAnchor.FULL)
+
+/** 越界阻尼：距离越大，手指继续移动所带来的位移越小，最多接近 limit。 */
+internal fun rubberBandOffset(raw: Float, lower: Float, upper: Float, limit: Float): Float {
+    if (limit <= 0f) return raw.coerceIn(lower, upper)
+    fun resisted(distance: Float): Float = limit * distance / (limit + distance)
+    return when {
+        raw < lower -> lower - resisted(lower - raw)
+        raw > upper -> upper + resisted(raw - upper)
+        else -> raw
+    }
+}
+
+/** 按位置与速度投影到实际像素坐标，快速甩动时确保朝手势方向至少吸附一档。 */
+internal fun settleAnchorIndex(position: Float, velocity: Float, anchors: List<Float>, threshold: Float): Int {
+    require(anchors.isNotEmpty())
+    val first = anchors.first()
+    val last = anchors.last()
+    if (position <= first && velocity <= 0f) return 0
+    if (position >= last && velocity >= 0f) return anchors.lastIndex
+    val projected = (position + velocity * VELOCITY_PROJECTION_SECONDS).coerceIn(first, last)
+    var target = anchors.indices.minByOrNull { abs(anchors[it] - projected) } ?: 0
+    if (velocity >= threshold) {
+        val next = anchors.indexOfFirst { it > position + 0.5f }
+        if (next >= 0) target = maxOf(target, next)
+    } else if (velocity <= -threshold) {
+        val next = anchors.indexOfLast { it < position - 0.5f }
+        if (next >= 0) target = minOf(target, next)
+    }
+    return target
+}
 
 /**
  * 三态抽屉状态机（契约第 4 节）。
@@ -104,7 +137,7 @@ class BodySheetState internal constructor(
     /** 唯一的动画状态：容器向下位移（px）。0 = 全展开，collapsedOffsetPx = 收起。 */
     private val offset = Animatable(initialValue = translationForFraction(initialAnchor.fraction))
 
-    /** 拖拽意图值：拖拽期间直接累计，避免与动画帧不同步。 */
+    /** 未阻尼的手指位移，拖拽期间独立累计，避免反向拖拽时跳动。 */
     private var dragTargetPx: Float = translationForFraction(initialAnchor.fraction)
 
     /** 是否处于手指拖拽中（下一次拖拽起点需要用动画当前值重新对齐）。 */
@@ -195,8 +228,9 @@ class BodySheetState internal constructor(
             dragging = true
             dragTargetPx = offset.value
         }
-        val next = (dragTargetPx + deltaPx).coerceIn(0f, collapsedOffsetPx)
-        dragTargetPx = next
+        val limitPx = OVERSCROLL_LIMIT_DP * density.density
+        dragTargetPx = (dragTargetPx + deltaPx).coerceIn(-limitPx * 4f, collapsedOffsetPx + limitPx * 4f)
+        val next = rubberBandOffset(dragTargetPx, 0f, collapsedOffsetPx, limitPx)
         // snapTo 会取消正在进行的弹簧动画，保证手指永远优先。
         // UNDISPATCHED 让拖拽增量在当前帧立即写入，避免每个 move 事件排队一帧造成“拖泥带水”。
         scope.launch(start = CoroutineStart.UNDISPATCHED) { offset.snapTo(next) }
@@ -213,7 +247,7 @@ class BodySheetState internal constructor(
     }
 
     /**
-     * 释放后吸附：速度绝对值 ≥ 400dp/s 时翻到速度方向的相邻锚点，否则吸附最近锚点。
+     * 释放后根据位置和速度预测落点，弹簧动画负责吸附及越界回弹。
      *
      * @param velocityPxPerSec 竖直释放速度（px/s，正数向下 = 收起方向）。
      */
@@ -225,7 +259,9 @@ class BodySheetState internal constructor(
         offset.animateTo(
             targetValue = targetPx,
             animationSpec = SHEET_SPRING,
-            initialVelocity = velocityPxPerSec,
+            initialVelocity = if ((offset.value < 0f && velocityPxPerSec < 0f) ||
+                (offset.value > collapsedOffsetPx && velocityPxPerSec > 0f)) 0f else
+                velocityPxPerSec.coerceIn(-MAX_SPRING_VELOCITY_DP_PER_SEC * density.density, MAX_SPRING_VELOCITY_DP_PER_SEC * density.density),
         )
     }
 
@@ -258,16 +294,14 @@ class BodySheetState internal constructor(
         return raw.coerceIn(0f, 1f)
     }
 
-    /** 释放速度 → 目标锚点。 */
+    /** 使用真实位移而非归一化进度计算吸附，正确处理三档间距不相等。 */
     private fun resolveSettleAnchor(velocityPxPerSec: Float): SheetAnchor {
-        val thresholdPx = RELEASE_VELOCITY_DP_PER_SEC * density.density
-        val nearest = currentAnchor
-        if (abs(velocityPxPerSec) < thresholdPx) return nearest
-        // 向下（正值）→ 收起方向；向上（负值）→ 展开方向。
-        val step = if (velocityPxPerSec > 0f) -1 else 1
-        val index = ANCHOR_ORDER.indexOf(nearest)
-        return ANCHOR_ORDER[(index + step).coerceIn(0, ANCHOR_ORDER.lastIndex)]
+        val anchors = listOf(0f, halfOffsetPx, collapsedOffsetPx)
+        return listOf(SheetAnchor.FULL, SheetAnchor.HALF, SheetAnchor.COLLAPSED)[
+            settleAnchorIndex(offset.value, velocityPxPerSec, anchors, RELEASE_VELOCITY_DP_PER_SEC * density.density)
+        ]
     }
+
 }
 
 /**
